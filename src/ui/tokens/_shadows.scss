@@ -1,0 +1,111 @@
+/**
+ * Minecraft Anti-Design Shadow Tokens
+ *
+ * Heavy offset shadows for a bold, punk aesthetic.
+ * Use these mixins to apply consistent shadow styles across components.
+ */
+
+// Shadow CSS Custom Properties (already in app.css)
+// --shadow-sm: 3px 3px 0 var(--color-ink);
+// --shadow-md: 6px 6px 0 var(--color-ink);
+// --shadow-lg: 10px 10px 0 var(--color-ink);
+// --shadow-xl: 14px 14px 0 var(--color-ink);
+
+/**
+ * Apply small offset shadow
+ * Best for: Badges, small buttons, tags
+ */
+@mixin shadow-sm {
+    box-shadow: 3px 3px 0 var(--color-ink);
+}
+
+/**
+ * Apply medium offset shadow
+ * Best for: Buttons, input fields, small cards
+ */
+@mixin shadow-md {
+    box-shadow: 6px 6px 0 var(--color-ink);
+}
+
+/**
+ * Apply large offset shadow
+ * Best for: Cards, modals, panels
+ */
+@mixin shadow-lg {
+    box-shadow: 10px 10px 0 var(--color-ink);
+}
+
+/**
+ * Apply extra large offset shadow
+ * Best for: Hover states, featured elements
+ */
+@mixin shadow-xl {
+    box-shadow: 14px 14px 0 var(--color-ink);
+}
+
+/**
+ * Inset shadow for depth
+ * Best for: Input fields, description boxes
+ */
+@mixin shadow-inset {
+    box-shadow: inset 0 -6px 0 rgb(0 0 0 / 8%);
+}
+
+/**
+ * Combined shadow with depth
+ * Best for: Buttons with pressed states
+ */
+@mixin shadow-layered {
+    box-shadow:
+        0 6px 0 var(--color-ink),
+        0 14px 18px rgba(10, 11, 12, 0.2);
+}
+
+/**
+ * Text shadow for bold headings
+ * Best for: Card titles, hero text
+ */
+@mixin text-shadow-bold {
+    text-shadow: -2px 2px 0 rgb(0 0 0 / 35%);
+}
+
+/**
+ * Soft text shadow
+ * Best for: Body text that needs subtle depth
+ */
+@mixin text-shadow-soft {
+    text-shadow: 1px 1px 2px rgb(0 0 0 / 20%);
+}
+
+/**
+ * Interactive shadow - transitions from medium to large
+ * Best for: Interactive cards and buttons
+ */
+@mixin shadow-interactive {
+    box-shadow: var(--shadow-md);
+    transition: box-shadow 180ms var(--spring-bezier);
+
+    &:hover {
+        box-shadow: var(--shadow-xl);
+    }
+
+    &:active {
+        box-shadow: var(--shadow-sm);
+    }
+}
+
+/**
+ * Badge shadow with semi-transparent ink
+ * Best for: Small rotated badges
+ */
+@mixin shadow-badge {
+    box-shadow: 3px 3px 0 rgb(0 0 0 / 45%);
+}
+
+/**
+ * Metadata item shadow
+ * Best for: Info chips, stat displays
+ */
+@mixin shadow-meta {
+    box-shadow: 4px 4px 0 rgb(0 0 0 / 40%);
+}

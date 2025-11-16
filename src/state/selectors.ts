@@ -1,0 +1,259 @@
+/**
+ * Memoized selectors for Weaverbird state
+ * These are performance-critical for preventing unnecessary renders
+ */
+
+import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
+import { useStore } from "./store";
+import { AssetId, PackId, OverrideEntry } from "./types";
+
+/**
+ * Get providers for an asset, sorted by current pack order
+ */
+export const useSelectProvidersSorted = (assetId: AssetId) => {
+  const providersByAsset = useStore((state) => state.providersByAsset);
+  const packOrder = useStore((state) => state.packOrder);
+
+  return useMemo(() => {
+    const providers = providersByAsset[assetId] ?? [];
+    const sorted = [...providers].sort(
+      (a, b) => packOrder.indexOf(a) - packOrder.indexOf(b),
+    );
+    return sorted;
+  }, [assetId, providersByAsset, packOrder]);
+};
+
+/**
+ * Get the winning pack for an asset (respects overrides)
+ */
+export const useSelectWinner = (assetId: AssetId) => {
+  const overrides = useStore((state) => state.overrides);
+  const providersByAsset = useStore((state) => state.providersByAsset);
+  const packOrder = useStore((state) => state.packOrder);
+
+  return useMemo(() => {
+    // Check if asset is penciled to a specific pack
+    const override = overrides[assetId];
+    if (override) {
+      return override.packId;
+    }
+
+    // Otherwise, get first provider in pack order
+    const providers = providersByAsset[assetId] ?? [];
+    if (providers.length === 0) return undefined;
+
+    const sorted = [...providers].sort(
+      (a, b) => packOrder.indexOf(a) - packOrder.indexOf(b),
+    );
+    return sorted[0];
+  }, [assetId, overrides, providersByAsset, packOrder]);
+};
+
+/**
+ * Check if an asset has been penciled
+ */
+export const useSelectIsPenciled = (assetId: AssetId) => {
+  const overrides = useStore((state) => state.overrides);
+
+  return useMemo(() => {
+    return overrides[assetId] !== undefined;
+  }, [assetId, overrides]);
+};
+
+/**
+ * Get the pack for a given ID
+ */
+export const useSelectPack = (packId: PackId) => {
+  const packs = useStore((state) => state.packs);
+
+  return useMemo(() => {
+    return packs[packId];
+  }, [packId, packs]);
+};
+
+/**
+ * Get all packs in order
+ */
+export const useSelectPacksInOrder = () => {
+  const packs = useStore((state) => state.packs);
+  const packOrder = useStore((state) => state.packOrder);
+
+  return useMemo(() => {
+    return packOrder.map((id) => packs[id]).filter(Boolean);
+  }, [packs, packOrder]);
+};
+
+/**
+ * Get asset by ID
+ */
+export const useSelectAsset = (assetId?: AssetId) => {
+  const assets = useStore((state) => state.assets);
+
+  return useMemo(() => {
+    return assetId ? assets[assetId] : undefined;
+  }, [assetId, assets]);
+};
+
+/**
+ * Get filtered assets based on search query
+ */
+export const useSelectFilteredAssets = () => {
+  const assets = useStore((state) => state.assets);
+  const searchQuery = useStore((state) => state.searchQuery);
+
+  return useMemo(() => {
+    if (!searchQuery) {
+      return Object.values(assets);
+    }
+
+    const lowerQuery = searchQuery.toLowerCase();
+    return Object.values(assets).filter(
+      (asset) =>
+        asset.id.toLowerCase().includes(lowerQuery) ||
+        asset.labels.some((label) => label.toLowerCase().includes(lowerQuery)),
+    );
+  }, [assets, searchQuery]);
+};
+
+/**
+ * Get all assets (unfiltered)
+ */
+export const useSelectAllAssets = () => {
+  const assets = useStore((state) => state.assets);
+
+  return useMemo(() => {
+    return Object.values(assets);
+  }, [assets]);
+};
+
+/**
+ * Get UI state (selected asset, search, progress, etc.)
+ * Uses shallow equality to prevent unnecessary re-renders
+ */
+export const useSelectUIState = () => {
+  return useStore(
+    useShallow((state) => ({
+      selectedAssetId: state.selectedAssetId,
+      searchQuery: state.searchQuery,
+      progress: state.progress,
+      outputDir: state.outputDir,
+      packFormat: state.packFormat,
+    })),
+  );
+};
+
+/**
+ * Get pack order (stable reference with useMemo)
+ */
+export const useSelectPackOrder = () => {
+  return useStore((state) => state.packOrder);
+};
+
+/**
+ * Get all action methods individually (avoid destructuring object references)
+ */
+export const useSelectSetSearchQuery = () =>
+  useStore((state) => state.setSearchQuery);
+export const useSelectSetSelectedAsset = () =>
+  useStore((state) => state.setSelectedAsset);
+export const useSelectSetPackOrder = () =>
+  useStore((state) => state.setPackOrder);
+export const useSelectSetOverride = () =>
+  useStore((state) => state.setOverride);
+export const useSelectSetOutputDir = () =>
+  useStore((state) => state.setOutputDir);
+export const useSelectSetPackFormat = () =>
+  useStore((state) => state.setPackFormat);
+export const useSelectIngestPacks = () =>
+  useStore((state) => state.ingestPacks);
+export const useSelectIngestAssets = () =>
+  useStore((state) => state.ingestAssets);
+export const useSelectIngestProviders = () =>
+  useStore((state) => state.ingestProviders);
+export const useSelectIngestAllProviders = () =>
+  useStore((state) => state.ingestAllProviders);
+
+/**
+ * Get overrides as a simple record (packId -> packId mapping)
+ */
+export const useSelectOverridesRecord = () => {
+  const overrides = useStore((state) => state.overrides);
+
+  return useMemo(() => {
+    return Object.fromEntries(
+      Object.entries(overrides)
+        .filter(
+          (entry): entry is [string, OverrideEntry] => entry[1] !== undefined,
+        )
+        .map(([k, v]) => [k, v.packId]),
+    );
+  }, [overrides]);
+};
+
+/**
+ * Get the currently selected asset
+ */
+export const useSelectSelectedAsset = () => {
+  const selectedId = useStore((state) => state.selectedAssetId);
+  return useSelectAsset(selectedId);
+};
+
+/**
+ * Get providers for selected asset with winner information
+ */
+export const useSelectProvidersWithWinner = (assetId?: AssetId) => {
+  // Subscribe to all required state slices
+  const packs = useStore((state) => state.packs);
+  const overrides = useStore((state) => state.overrides);
+  const providersByAsset = useStore((state) => state.providersByAsset);
+  const packOrder = useStore((state) => state.packOrder);
+
+  return useMemo(() => {
+    if (!assetId) return [];
+
+    // Get sorted providers for this asset
+    const providers = providersByAsset[assetId] ?? [];
+    const sortedProviders = [...providers].sort(
+      (a, b) => packOrder.indexOf(a) - packOrder.indexOf(b),
+    );
+
+    // Get winner and pencil status
+    const override = overrides[assetId];
+    const winner = override?.packId || sortedProviders[0];
+    const isPenciled = override !== undefined;
+
+    return sortedProviders.map((packId) => ({
+      packId,
+      packName: packs[packId]?.name ?? packId,
+      isWinner: packId === winner,
+      isPenciled,
+    }));
+  }, [assetId, packs, overrides, providersByAsset, packOrder]);
+};
+
+/**
+ * Launcher selectors
+ */
+export const useSelectSelectedLauncher = () => {
+  return useStore((state) => state.selectedLauncher);
+};
+
+export const useSelectAvailableLaunchers = () => {
+  return useStore((state) => state.availableLaunchers);
+};
+
+export const useSelectSetSelectedLauncher = () => {
+  return useStore((state) => state.setSelectedLauncher);
+};
+
+export const useSelectSetAvailableLaunchers = () => {
+  return useStore((state) => state.setAvailableLaunchers);
+};
+
+/**
+ * Get the packs directory path
+ */
+export const useSelectPacksDir = () => {
+  return useStore((state) => state.packsDir);
+};

@@ -1,0 +1,62 @@
+.root {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    background-color: var(--color-bg-secondary);
+    border-left: 1px solid var(--color-border);
+    min-height: 0;
+    overflow: hidden;
+}
+
+.header {
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--color-border);
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--color-text);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.pottedControl {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    user-select: none;
+
+    input[type="checkbox"] {
+        cursor: pointer;
+        width: 16px;
+        height: 16px;
+    }
+}
+
+.canvas {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-bg);
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+
+    canvas {
+        max-width: 100% !important;
+        max-height: 100% !important;
+        width: auto !important;
+        height: auto !important;
+        display: block !important;
+    }
+}
+
+.placeholder {
+    color: var(--color-text-light);
+    text-align: center;
+}

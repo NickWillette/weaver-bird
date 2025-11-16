@@ -1,0 +1,180 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-lg);
+}
+
+.instructions {
+  h3 {
+    margin: 0 0 var(--spacing-sm) 0;
+    font-size: var(--font-size-lg);
+    color: var(--color-text);
+  }
+
+  p {
+    margin: 0 0 var(--spacing-sm) 0;
+    color: var(--color-text);
+    line-height: 1.6;
+  }
+
+  ul {
+    margin: 0;
+    padding-left: var(--spacing-lg);
+    color: var(--color-text);
+    line-height: 1.8;
+
+    li {
+      margin-bottom: var(--spacing-xs);
+    }
+
+    strong {
+      color: var(--color-primary);
+      font-family: monospace;
+    }
+  }
+}
+
+.error {
+  padding: var(--spacing-md);
+  background-color: rgba(245, 54, 92, 0.1);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+  font-size: var(--font-size-sm);
+}
+
+.loading {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--color-text-light);
+  font-size: var(--font-size-md);
+}
+
+.emptyState {
+  padding: var(--spacing-xl);
+  text-align: center;
+  color: var(--color-text-light);
+  font-size: var(--font-size-md);
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  border: 2px dashed var(--color-border);
+}
+
+.launchers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.launcher {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  transition: border-color 0.2s ease;
+
+  &:hover {
+    border-color: var(--color-primary);
+  }
+}
+
+.launcherIcon {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+  border: 1px solid var(--color-border);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    border-radius: inherit;
+  }
+}
+
+.launcherInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.launcherName {
+  font-weight: 600;
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+}
+
+.launcherPath {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.pathInput {
+  flex: 1;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background-color: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-light);
+  font-size: var(--font-size-sm);
+  font-family: monospace;
+  cursor: default;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+}
+
+.browseButton {
+  padding: var(--spacing-sm) var(--spacing-md);
+  background-color: var(--color-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  white-space: nowrap;
+
+  &:hover {
+    background-color: var(--color-primary-dark);
+  }
+
+  &:active {
+    transform: translateY(1px);
+  }
+}
+
+.addButton {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background-color: var(--color-success);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  align-self: flex-start;
+
+  &:hover {
+    background-color: #25b372;
+  }
+
+  &:active {
+    transform: translateY(1px);
+  }
+}

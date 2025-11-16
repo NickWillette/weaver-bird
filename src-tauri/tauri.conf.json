@@ -1,0 +1,41 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "productName": "Weaverbird",
+  "version": "0.1.0",
+  "identifier": "com.weaverbird.minecraft",
+  "build": {
+    "beforeDevCommand": "vite",
+    "beforeBuildCommand": "npm run vite-build",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "fullscreen": false,
+        "height": 900,
+        "resizable": true,
+        "title": "Weaverbird",
+        "width": 1400
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$CACHE/**"]
+      },
+      "capabilities": [
+        {
+          "identifier": "main-capability",
+          "description": "Capability for the main window",
+          "windows": ["main"],
+          "permissions": ["dialog:allow-open", "dialog:default"]
+        }
+      ]
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

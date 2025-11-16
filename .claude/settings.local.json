@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm install:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo clean:*)",
+      "Bash(rustc:*)",
+      "Bash(cargo --version:*)",
+      "Bash(rustup update:*)",
+      "WebFetch(domain:tauri.app)",
+      "WebSearch",
+      "WebFetch(domain:v2.tauri.app)",
+      "Bash(npm run type-check:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run vite-build:*)",
+      "WebFetch(domain:docs.tauri.app)",
+      "Bash(cargo check:*)",
+      "Bash(chmod:*)",
+      "Bash(/Users/nicholaswillette/Repos/Weaverbird/test-backend.sh:*)",
+      "Bash(npm run lint:*)",
+      "Bash(cat:*)",
+      "Bash(npm audit:*)",
+      "Bash(npm outdated:*)",
+      "Bash(lsof:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

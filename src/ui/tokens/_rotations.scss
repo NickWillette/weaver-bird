@@ -1,0 +1,88 @@
+/**
+ * Minecraft Anti-Design Rotation Tokens
+ *
+ * Playful tilts and rotations for hand-drawn aesthetic.
+ */
+
+// Rotation CSS Custom Properties (already in app.css)
+// --rotate-slight: -0.3deg;
+// --rotate-mild: -2deg;
+// --rotate-moderate: 3deg;
+// --rotate-strong: 4deg;
+
+/**
+ * Slight rotation - barely noticeable
+ * Best for: Default state of interactive elements
+ */
+@mixin rotate-slight {
+    rotate: var(--rotate-slight);
+}
+
+/**
+ * Mild rotation - subtle tilt
+ * Best for: Pressed/active states
+ */
+@mixin rotate-mild {
+    rotate: var(--rotate-mild);
+}
+
+/**
+ * Moderate rotation - noticeable tilt
+ * Best for: Badges, decorative elements
+ */
+@mixin rotate-moderate {
+    rotate: var(--rotate-moderate);
+}
+
+/**
+ * Strong rotation - pronounced tilt
+ * Best for: ::before decorative layers
+ */
+@mixin rotate-strong {
+    rotate: var(--rotate-strong);
+}
+
+/**
+ * Alternating rotation for nth-child elements
+ * Best for: Lists of badges, tags, metadata items
+ */
+@mixin rotate-alternating {
+    rotate: -2deg;
+
+    &:nth-child(2n) {
+        rotate: 3deg;
+    }
+
+    &:nth-child(3n) {
+        rotate: -4deg;
+    }
+}
+
+/**
+ * Badge rotation pattern
+ * Best for: Small badge elements
+ */
+@mixin rotate-badge {
+    rotate: -4deg;
+
+    &:nth-child(2n) {
+        rotate: 3deg;
+    }
+}
+
+/**
+ * Interactive rotation - straightens on hover
+ * Best for: Cards, buttons, interactive elements
+ */
+@mixin rotate-interactive {
+    rotate: var(--rotate-slight);
+    transition: rotate 180ms var(--spring-bezier);
+
+    &:hover {
+        rotate: 0deg;
+    }
+
+    &:active {
+        rotate: var(--rotate-mild);
+    }
+}

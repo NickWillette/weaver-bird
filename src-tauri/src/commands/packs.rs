@@ -1,0 +1,581 @@
+/// Commands for managing resource packs
+///
+/// Modern Tauri v2 pattern:
+/// - Uses custom AppError type for structured error responses
+/// - Validates all inputs before processing
+/// - Separates concerns: validation → execution → response
+/// - Reduces boilerplate with validation module
+use crate::model::ScanResult;
+use crate::util::{
+    asset_indexer, launcher_detection, mc_paths, pack_scanner, texture_index, vanilla_textures,
+    weaver_nest,
+};
+use crate::{validation, AppError};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BuildWeaverNestRequest {
+    pub packs_dir: String,
+    pub pack_order: Vec<String>,
+    pub overrides: HashMap<String, String>, // asset_id -> pack_id
+    pub output_dir: String,
+}
+
+/// Create a virtual vanilla pack entry
+fn create_vanilla_pack() -> Result<crate::model::PackMeta, AppError> {
+    let cache_dir = vanilla_textures::get_vanilla_cache_dir()
+        .map_err(|e| AppError::io(format!("Failed to get vanilla cache dir: {}", e)))?;
+
+    Ok(crate::model::PackMeta {
+        id: "minecraft:vanilla".to_string(),
+        name: "Minecraft (Vanilla)".to_string(),
+        path: cache_dir.to_string_lossy().to_string(),
+        size: 0,
+        is_zip: false,
+        description: Some("Default Minecraft textures".to_string()),
+        icon_data: None,
+    })
+}
+
+/// Scan a resource packs directory and return all packs and assets
+///
+/// # Errors
+/// - VALIDATION_ERROR: Directory doesn't exist or is invalid
+/// - SCAN_ERROR: Failed to scan packs
+///
+/// # Returns
+/// Empty result if no packs found (not an error)
+pub fn scan_packs_folder_impl(packs_dir: String) -> Result<ScanResult, AppError> {
+    // Validate input
+    validation::validate_directory(&packs_dir, "Packs directory")?;
+
+    // Scan for packs
+    let mut packs =
+        pack_scanner::scan_packs(&packs_dir).map_err(|e| AppError::scan(e.to_string()))?;
+
+    // Add vanilla pack at the end (lowest priority)
+    let vanilla_pack = create_vanilla_pack()?;
+    packs.push(vanilla_pack);
+
+    // Index assets (including vanilla)
+    let (assets, mut providers) = asset_indexer::index_assets(&packs)
+        .map_err(|e| AppError::scan(format!("Asset indexing failed: {}", e)))?;
+
+    // For each asset, ensure vanilla pack is listed as a provider if texture exists
+    for asset in &assets {
+        let provider_list = providers.entry(asset.id.clone()).or_insert_with(Vec::new);
+        if !provider_list.contains(&"minecraft:vanilla".to_string()) {
+            // Check if vanilla texture exists for this asset
+            if vanilla_textures::get_vanilla_texture_path(&asset.id).is_ok() {
+                provider_list.push("minecraft:vanilla".to_string());
+            }
+        }
+    }
+
+    Ok(ScanResult {
+        packs,
+        assets,
+        providers,
+    })
+}
+
+/// Build the Weaver Nest optimized resource pack
+///
+/// # Errors
+/// - VALIDATION_ERROR: Invalid input parameters
+/// - SCAN_ERROR: Failed to scan packs
+/// - BUILD_ERROR: Failed to build output pack
+pub fn build_weaver_nest_impl(request: BuildWeaverNestRequest) -> Result<String, AppError> {
+    // Validate all inputs in one call
+    validation::validate_build_request(
+        &request.packs_dir,
+        &request.pack_order,
+        &request.overrides,
+        &request.output_dir,
+    )?;
+
+    // Scan packs
+    let packs = pack_scanner::scan_packs(&request.packs_dir)
+        .map_err(|e| AppError::scan(format!("Pack scanning failed: {}", e)))?;
+
+    if packs.is_empty() {
+        return Err(AppError::scan("No packs found in specified directory"));
+    }
+
+    // Index assets
+    let (assets, providers) = asset_indexer::index_assets(&packs)
+        .map_err(|e| AppError::scan(format!("Asset indexing failed: {}", e)))?;
+
+    // Build Weaver Nest
+    weaver_nest::build_weaver_nest(
+        &packs,
+        &assets,
+        &providers,
+        &request.pack_order,
+        &request.overrides,
+        &request.output_dir,
+    )
+    .map_err(|e| AppError::build(format!("Weaver Nest generation failed: {}", e)))?;
+
+    Ok(format!(
+        "Weaver Nest built successfully with {} assets",
+        assets.len()
+    ))
+}
+
+/// Get the default Minecraft resourcepacks directory
+///
+/// # Returns
+/// Path to the default resourcepacks directory for current platform
+pub fn get_default_packs_dir_impl() -> Result<String, AppError> {
+    mc_paths::get_default_resourcepacks_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| AppError::io(format!("Failed to determine default directory: {}", e)))
+}
+
+/// Initialize vanilla textures (extract from Minecraft JAR if needed)
+///
+/// # Returns
+/// Path to the vanilla textures cache directory
+pub fn initialize_vanilla_textures_impl() -> Result<String, AppError> {
+    vanilla_textures::initialize_vanilla_textures()
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| AppError::io(format!("Failed to initialize vanilla textures: {}", e)))
+}
+
+/// Get the path to a vanilla texture file
+///
+/// # Arguments
+/// * `asset_id` - Asset ID like "minecraft:block/stone"
+///
+/// # Returns
+/// Absolute path to the texture PNG file
+pub fn get_vanilla_texture_path_impl(asset_id: String) -> Result<String, AppError> {
+    vanilla_textures::get_vanilla_texture_path(&asset_id)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| AppError::io(format!("Vanilla texture not found: {}", e)))
+}
+
+/// Get the path to a biome colormap file (grass or foliage)
+///
+/// # Arguments
+/// * `colormap_type` - Type of colormap: "grass" or "foliage"
+///
+/// # Returns
+/// Absolute path to the colormap PNG file
+pub fn get_colormap_path_impl(colormap_type: String) -> Result<String, AppError> {
+    vanilla_textures::get_colormap_path(&colormap_type)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| AppError::io(format!("Colormap not found: {}", e)))
+}
+
+/// Check if Minecraft is installed
+///
+/// # Returns
+/// true if Minecraft installation found, false otherwise
+pub fn check_minecraft_installed_impl() -> Result<bool, AppError> {
+    match mc_paths::get_default_minecraft_dir() {
+        Ok(mc_dir) => Ok(vanilla_textures::check_minecraft_installation(&mc_dir).unwrap_or(false)),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Get suggested Minecraft installation paths
+///
+/// # Returns
+/// List of likely paths where Minecraft might be installed
+pub fn get_suggested_minecraft_paths_impl() -> Result<Vec<String>, AppError> {
+    Ok(vanilla_textures::get_suggested_minecraft_paths())
+}
+
+/// Initialize vanilla textures from a custom Minecraft directory
+///
+/// # Arguments
+/// * `minecraft_dir` - Path to the .minecraft directory
+///
+/// # Returns
+/// Path to the vanilla textures cache directory
+pub fn initialize_vanilla_textures_from_custom_dir_impl(
+    minecraft_dir: String,
+) -> Result<String, AppError> {
+    let path = PathBuf::from(minecraft_dir);
+
+    vanilla_textures::initialize_vanilla_textures_from_dir(&path)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| AppError::io(format!("Failed to initialize vanilla textures: {}", e)))
+}
+
+/// Detect all Minecraft launchers on the system
+///
+/// # Returns
+/// List of detected launchers with their paths
+pub fn detect_launchers_impl() -> Result<Vec<launcher_detection::LauncherInfo>, AppError> {
+    Ok(launcher_detection::detect_all_launchers())
+}
+
+/// Identify launcher type from a directory path
+///
+/// # Arguments
+/// * `path` - Directory path to identify
+///
+/// # Returns
+/// Launcher information if valid Minecraft directory
+pub fn identify_launcher_impl(path: String) -> Result<launcher_detection::LauncherInfo, AppError> {
+    let path_buf = PathBuf::from(&path);
+
+    // Validate it's a Minecraft directory
+    if !launcher_detection::validate_minecraft_directory(&path_buf).unwrap_or(false) {
+        return Err(AppError::validation("Not a valid Minecraft directory. Please select a folder containing 'versions', 'instances', or 'profiles'."));
+    }
+
+    // Identify launcher type
+    let launcher_type = launcher_detection::identify_launcher_from_path(&path_buf)
+        .map_err(|e| AppError::io(format!("Failed to identify launcher: {}", e)))?;
+
+    Ok(launcher_detection::LauncherInfo {
+        launcher_type: launcher_type.clone(),
+        name: launcher_type.display_name().to_string(),
+        minecraft_dir: path,
+        found: true,
+        icon: launcher_type.icon().to_string(),
+        icon_path: launcher_detection::get_launcher_icon_path(&launcher_type),
+    })
+}
+
+/// Get resourcepacks directory for a launcher
+///
+/// # Arguments
+/// * `launcher_info` - Launcher information with path and type
+///
+/// # Returns
+/// Path to the resourcepacks directory
+pub fn get_launcher_resourcepacks_dir_impl(
+    launcher_info: launcher_detection::LauncherInfo,
+) -> Result<String, AppError> {
+    let launcher_dir = PathBuf::from(&launcher_info.minecraft_dir);
+
+    let resourcepacks_dir =
+        launcher_detection::get_resourcepacks_dir(&launcher_dir, &launcher_info.launcher_type)
+            .map_err(|e| AppError::io(format!("Failed to get resourcepacks directory: {}", e)))?;
+
+    Ok(resourcepacks_dir.to_string_lossy().to_string())
+}
+
+/// Get the full path to a texture file from a resource pack
+///
+/// # Arguments
+/// * `pack_path` - Base path to the resource pack (from PackMeta.path)
+/// * `asset_id` - Asset ID (e.g., "minecraft:block/stone")
+/// * `is_zip` - Whether the pack is a ZIP file
+///
+/// # Returns
+/// Full path to the texture file
+pub fn get_pack_texture_path_impl(
+    pack_path: String,
+    asset_id: String,
+    is_zip: bool,
+    app_handle: &tauri::AppHandle,
+) -> Result<String, AppError> {
+    println!(
+        "[get_pack_texture_path] Loading texture: {} from pack: {} (is_zip: {})",
+        asset_id, pack_path, is_zip
+    );
+
+    // Parse asset ID: "minecraft:block/stone" -> "assets/minecraft/textures/block/stone.png"
+    let texture_path = asset_id.strip_prefix("minecraft:").unwrap_or(&asset_id);
+
+    let relative_path = format!("assets/minecraft/textures/{}.png", texture_path);
+    println!(
+        "[get_pack_texture_path] Looking for file: {}",
+        relative_path
+    );
+
+    if is_zip {
+        // For ZIP files, extract to temporary cache directory
+        let zip_path_str = &pack_path;
+
+        // Extract the texture bytes from ZIP
+        println!(
+            "[get_pack_texture_path] Extracting from ZIP: {}",
+            zip_path_str
+        );
+        let bytes =
+            crate::util::zip::extract_zip_entry(zip_path_str, &relative_path).map_err(|e| {
+                println!(
+                    "[get_pack_texture_path] ERROR: Failed to extract {}: {}",
+                    relative_path, e
+                );
+                AppError::validation(format!("Texture not found in ZIP: {}", e))
+            })?;
+        println!(
+            "[get_pack_texture_path] Successfully extracted {} bytes",
+            bytes.len()
+        );
+
+        // Create a cache directory for this ZIP using Tauri's cache directory
+        use tauri::Manager;
+        let cache_dir = app_handle
+            .path()
+            .cache_dir()
+            .map_err(|e| AppError::io(format!("Failed to get cache dir: {}", e)))?
+            .join("weaverbird_textures");
+
+        println!("[get_pack_texture_path] Cache directory: {:?}", cache_dir);
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|e| AppError::io(format!("Failed to create cache dir: {}", e)))?;
+
+        // Create a unique filename based on the ZIP path and texture path
+        let zip_path_buf = PathBuf::from(&pack_path);
+        let zip_name = zip_path_buf
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+
+        // Sanitize the relative path for filesystem
+        let safe_texture_path = relative_path.replace("/", "_").replace("\\", "_");
+        let cache_file = cache_dir.join(format!("{}_{}", zip_name, safe_texture_path));
+
+        // Write the texture to cache if it doesn't exist or is outdated
+        if !cache_file.exists() {
+            println!("[get_pack_texture_path] Writing to cache: {:?}", cache_file);
+            std::fs::write(&cache_file, &bytes)
+                .map_err(|e| AppError::io(format!("Failed to write cached texture: {}", e)))?;
+        } else {
+            println!(
+                "[get_pack_texture_path] Using cached file: {:?}",
+                cache_file
+            );
+        }
+
+        let result_path = cache_file.to_string_lossy().to_string();
+        println!("[get_pack_texture_path] Returning path: {}", result_path);
+        Ok(result_path)
+    } else {
+        // For directory packs, just combine the paths
+        let pack_base = PathBuf::from(&pack_path);
+        let full_path = pack_base.join(&relative_path);
+
+        if full_path.exists() {
+            Ok(full_path.to_string_lossy().to_string())
+        } else {
+            Err(AppError::validation(format!(
+                "Texture not found in pack: {}",
+                relative_path
+            )))
+        }
+    }
+}
+
+/// Read a Minecraft block model JSON file from texture ID
+///
+/// This properly resolves the chain: texture ID -> blockstate -> model
+///
+/// # Arguments
+/// * `pack_id` - ID of the resource pack to read from
+/// * `texture_id` - Texture/asset ID (e.g., "minecraft:block/dirt")
+/// * `packs_dir` - Directory containing resource packs
+///
+/// # Returns
+/// Fully resolved BlockModel JSON with parent inheritance applied
+pub fn read_block_model_impl(
+    pack_id: String,
+    texture_id: String,
+    packs_dir: String,
+) -> Result<crate::util::block_models::BlockModel, AppError> {
+    println!(
+        "[read_block_model] Starting - pack_id: {}, texture_id: {}",
+        pack_id, texture_id
+    );
+
+    // Validate inputs
+    validation::validate_directory(&packs_dir, "Packs directory")?;
+    println!("[read_block_model] Validated packs_dir: {}", packs_dir);
+
+    // Create vanilla pack first
+    let vanilla_pack = create_vanilla_pack()?;
+    println!("[read_block_model] Created vanilla pack");
+
+    // If requesting vanilla directly, use it
+    let target_pack = if pack_id == "minecraft:vanilla" {
+        println!("[read_block_model] Using vanilla pack directly");
+        vanilla_pack.clone()
+    } else {
+        // Scan packs to find the requested pack
+        println!("[read_block_model] Scanning packs...");
+        let packs = pack_scanner::scan_packs(&packs_dir)
+            .map_err(|e| AppError::scan(format!("Failed to scan packs: {}", e)))?;
+        println!("[read_block_model] Found {} packs", packs.len());
+
+        // Find the target pack
+        packs
+            .iter()
+            .find(|p| p.id == pack_id)
+            .ok_or_else(|| AppError::validation(format!("Pack not found: {}", pack_id)))?
+            .clone()
+    };
+
+    println!(
+        "[read_block_model] Found target pack: {}, is_zip: {}",
+        target_pack.name, target_pack.is_zip
+    );
+
+    // Try to build texture index for accurate lookup
+    println!("[read_block_model] Building texture index...");
+    let texture_index = texture_index::TextureIndex::build(&target_pack, &vanilla_pack)
+        .unwrap_or_else(|e| {
+            println!(
+                "[read_block_model] Failed to build index: {}, using fallback",
+                e
+            );
+            texture_index::TextureIndex {
+                texture_to_blocks: HashMap::new(),
+            }
+        });
+
+    // Extract texture path from texture ID
+    // "minecraft:block/acacia_log" -> "block/acacia_log"
+    let texture_path = texture_id.strip_prefix("minecraft:").unwrap_or(&texture_id);
+
+    // Try to look up block ID from texture index first
+    let block_id = if let Some(primary_block) = texture_index.get_primary_block(texture_path) {
+        println!(
+            "[read_block_model] ✓ Found block from texture index: {}",
+            primary_block
+        );
+        primary_block.to_string()
+    } else {
+        println!("[read_block_model] Texture not in index, using heuristic fallback");
+        // Fall back to heuristic method
+        crate::util::blockstates::texture_id_to_block_id(&texture_id)
+            .ok_or_else(|| AppError::validation(format!("Not a block texture: {}", texture_id)))?
+    };
+
+    println!("[read_block_model] Block ID: {}", block_id);
+
+    // Generate alternative block IDs to try (common naming variations)
+    let mut block_id_candidates = vec![block_id.clone()];
+
+    // Try with underscores inserted before common suffixes
+    // e.g., "acaciabutton" -> "acacia_button"
+    let suffixes_to_try = [
+        "button",
+        "slab",
+        "stairs",
+        "fence",
+        "wall",
+        "door",
+        "trapdoor",
+        "sign",
+        "pressure_plate",
+    ];
+    for suffix in &suffixes_to_try {
+        if block_id.ends_with(suffix) && !block_id.contains('_') {
+            let prefix = block_id.strip_suffix(suffix).unwrap();
+            let with_underscore = format!("{}_{}", prefix, suffix);
+            if !block_id_candidates.contains(&with_underscore) {
+                block_id_candidates.push(with_underscore);
+            }
+        }
+    }
+
+    println!(
+        "[read_block_model] Trying block IDs: {:?}",
+        block_id_candidates
+    );
+
+    // Try to read blockstate from target pack, fall back to vanilla
+    // Try all candidate block IDs until one works
+    println!("[read_block_model] Reading blockstate from pack...");
+    let (blockstate, _used_block_id) = {
+        let mut found_blockstate = None;
+        let mut found_block_id = block_id.clone();
+
+        for candidate in &block_id_candidates {
+            println!("[read_block_model] Trying candidate: {}", candidate);
+            match crate::util::blockstates::read_blockstate(
+                &PathBuf::from(&target_pack.path),
+                candidate,
+                target_pack.is_zip,
+            ) {
+                Ok(bs) => {
+                    println!(
+                        "[read_block_model] ✓ Blockstate found in pack for: {}",
+                        candidate
+                    );
+                    found_blockstate = Some(bs);
+                    found_block_id = candidate.clone();
+                    break;
+                }
+                Err(_) => {
+                    println!("[read_block_model] ✗ Not in pack: {}", candidate);
+                }
+            }
+        }
+
+        if let Some(bs) = found_blockstate {
+            (bs, found_block_id)
+        } else {
+            // Try vanilla blockstate with all candidates
+            println!("[read_block_model] Not in pack, trying vanilla...");
+            let mut found_vanilla = None;
+            for candidate in &block_id_candidates {
+                match crate::util::blockstates::read_blockstate(
+                    &PathBuf::from(&vanilla_pack.path),
+                    candidate,
+                    vanilla_pack.is_zip,
+                ) {
+                    Ok(bs) => {
+                        println!(
+                            "[read_block_model] ✓ Blockstate found in vanilla for: {}",
+                            candidate
+                        );
+                        found_vanilla = Some((bs, candidate.clone()));
+                        break;
+                    }
+                    Err(_) => {
+                        println!("[read_block_model] ✗ Not in vanilla: {}", candidate);
+                    }
+                }
+            }
+
+            found_vanilla.ok_or_else(|| {
+                AppError::validation(format!(
+                    "Blockstate not found for any of: {:?}",
+                    block_id_candidates
+                ))
+            })?
+        }
+    };
+
+    // Get the default model from the blockstate
+    println!("[read_block_model] Getting default model from blockstate...");
+    let model_id = crate::util::blockstates::get_default_model(&blockstate).ok_or_else(|| {
+        AppError::validation(format!(
+            "No default model found in blockstate for {}",
+            block_id
+        ))
+    })?;
+    println!("[read_block_model] Model ID: {}", model_id);
+
+    // Resolve the model with parent inheritance
+    println!("[read_block_model] Resolving model with parent inheritance...");
+    let result =
+        crate::util::block_models::resolve_block_model(&target_pack, &model_id, &vanilla_pack)
+            .map_err(|e| AppError::io(format!("Failed to read block model: {}", e)));
+
+    println!("[read_block_model] Complete!");
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_default_packs_dir() {
+        let result = get_default_packs_dir_impl();
+        assert!(result.is_ok());
+    }
+}

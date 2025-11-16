@@ -1,0 +1,182 @@
+#![cfg_attr(
+    all(not(debug_assertions), target_os = "windows"),
+    windows_subsystem = "windows"
+)]
+
+use weaverbird_lib::commands::{
+    build_weaver_nest_impl, check_minecraft_installed_impl, detect_launchers_impl,
+    get_colormap_path_impl, get_default_packs_dir_impl, get_launcher_resourcepacks_dir_impl,
+    get_pack_texture_path_impl, get_suggested_minecraft_paths_impl, get_vanilla_texture_path_impl,
+    identify_launcher_impl, initialize_vanilla_textures_from_custom_dir_impl,
+    initialize_vanilla_textures_impl, read_block_model_impl, scan_packs_folder_impl,
+    BuildWeaverNestRequest,
+};
+
+/// Tauri command wrapper for scanning resource packs
+#[tauri::command]
+fn scan_packs_folder(
+    packs_dir: String,
+) -> Result<weaverbird_lib::model::ScanResult, weaverbird_lib::AppError> {
+    scan_packs_folder_impl(packs_dir)
+}
+
+/// Tauri command wrapper for building Weaver Nest
+#[tauri::command]
+fn build_weaver_nest(request: BuildWeaverNestRequest) -> Result<String, weaverbird_lib::AppError> {
+    build_weaver_nest_impl(request)
+}
+
+/// Tauri command wrapper for getting default packs directory
+#[tauri::command]
+fn get_default_packs_dir() -> Result<String, weaverbird_lib::AppError> {
+    get_default_packs_dir_impl()
+}
+
+/// Tauri command wrapper for initializing vanilla textures
+#[tauri::command]
+fn initialize_vanilla_textures() -> Result<String, weaverbird_lib::AppError> {
+    initialize_vanilla_textures_impl()
+}
+
+/// Tauri command wrapper for getting vanilla texture path
+#[tauri::command]
+fn get_vanilla_texture_path(asset_id: String) -> Result<String, weaverbird_lib::AppError> {
+    get_vanilla_texture_path_impl(asset_id)
+}
+
+/// Tauri command wrapper for getting colormap path
+#[tauri::command]
+fn get_colormap_path(colormap_type: String) -> Result<String, weaverbird_lib::AppError> {
+    get_colormap_path_impl(colormap_type)
+}
+
+/// Tauri command wrapper for checking Minecraft installation
+#[tauri::command]
+fn check_minecraft_installed() -> Result<bool, weaverbird_lib::AppError> {
+    check_minecraft_installed_impl()
+}
+
+/// Tauri command wrapper for getting suggested Minecraft paths
+#[tauri::command]
+fn get_suggested_minecraft_paths() -> Result<Vec<String>, weaverbird_lib::AppError> {
+    get_suggested_minecraft_paths_impl()
+}
+
+/// Tauri command wrapper for initializing vanilla textures from custom directory
+#[tauri::command]
+fn initialize_vanilla_textures_from_custom_dir(
+    minecraft_dir: String,
+) -> Result<String, weaverbird_lib::AppError> {
+    initialize_vanilla_textures_from_custom_dir_impl(minecraft_dir)
+}
+
+/// Tauri command wrapper for detecting all launchers
+#[tauri::command]
+fn detect_launchers(
+) -> Result<Vec<weaverbird_lib::util::launcher_detection::LauncherInfo>, weaverbird_lib::AppError> {
+    detect_launchers_impl()
+}
+
+/// Tauri command wrapper for identifying launcher from path
+#[tauri::command]
+fn identify_launcher(
+    path: String,
+) -> Result<weaverbird_lib::util::launcher_detection::LauncherInfo, weaverbird_lib::AppError> {
+    identify_launcher_impl(path)
+}
+
+/// Tauri command wrapper for getting launcher resourcepacks directory
+#[tauri::command]
+fn get_launcher_resourcepacks_dir(
+    launcher_info: weaverbird_lib::util::launcher_detection::LauncherInfo,
+) -> Result<String, weaverbird_lib::AppError> {
+    get_launcher_resourcepacks_dir_impl(launcher_info)
+}
+
+/// Tauri command wrapper for getting pack texture path
+#[tauri::command]
+fn get_pack_texture_path(
+    app_handle: tauri::AppHandle,
+    pack_path: String,
+    asset_id: String,
+    is_zip: bool,
+) -> Result<String, weaverbird_lib::AppError> {
+    get_pack_texture_path_impl(pack_path, asset_id, is_zip, &app_handle)
+}
+
+/// Tauri command wrapper for reading block model JSON
+#[tauri::command]
+fn read_block_model(
+    pack_id: String,
+    model_id: String,
+    packs_dir: String,
+) -> Result<weaverbird_lib::util::block_models::BlockModel, weaverbird_lib::AppError> {
+    read_block_model_impl(pack_id, model_id, packs_dir)
+}
+
+fn main() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_shell::init())
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                use tauri::{
+                    menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder},
+                    Emitter, Manager,
+                };
+
+                // Create menu items
+                let settings = MenuItemBuilder::with_id("settings", "Settings...")
+                    .accelerator("Cmd+,")
+                    .build(app)?;
+
+                let quit = MenuItemBuilder::with_id("quit", "Quit")
+                    .accelerator("Cmd+Q")
+                    .build(app)?;
+
+                // Create app submenu
+                let app_submenu = SubmenuBuilder::new(app, "Weaverbird")
+                    .item(&settings)
+                    .separator()
+                    .item(&quit)
+                    .build()?;
+
+                // Build the main menu
+                let menu = MenuBuilder::new(app).items(&[&app_submenu]).build()?;
+
+                app.set_menu(menu)?;
+
+                // Handle menu events
+                app.on_menu_event(move |app, event| {
+                    if event.id() == "settings" {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.emit("open-settings", ());
+                        }
+                    } else if event.id() == "quit" {
+                        app.exit(0);
+                    }
+                });
+            }
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            scan_packs_folder,
+            build_weaver_nest,
+            get_default_packs_dir,
+            initialize_vanilla_textures,
+            get_vanilla_texture_path,
+            get_colormap_path,
+            check_minecraft_installed,
+            get_suggested_minecraft_paths,
+            initialize_vanilla_textures_from_custom_dir,
+            detect_launchers,
+            identify_launcher,
+            get_launcher_resourcepacks_dir,
+            get_pack_texture_path,
+            read_block_model
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

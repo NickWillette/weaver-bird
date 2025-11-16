@@ -1,0 +1,106 @@
+/**
+ * Minecraft Anti-Design Border Tokens
+ *
+ * Asymmetric, quirky borders for playful aesthetic.
+ */
+
+// Border Radius CSS Custom Properties (already in app.css)
+// --radius-sm: 0.2rem;
+// --radius-md: 0.5rem;
+// --radius-lg: 1rem;
+// --radius-quirky-sm: 0.4rem 1rem 0.4rem 0.4rem;
+// --radius-quirky-md: 1rem 0.4rem 1.2rem 0.4rem;
+// --radius-quirky-lg: 1.6rem 1.6rem 2.3rem 0.4rem;
+
+/**
+ * Standard border - heavy and bold
+ * Best for: All interactive elements
+ */
+@mixin border-standard {
+    border: 3px solid var(--color-border);
+}
+
+/**
+ * Dashed border - sketchy aesthetic
+ * Best for: Icon frames, secondary elements
+ */
+@mixin border-dashed {
+    border: 2px dashed var(--color-ink);
+}
+
+/**
+ * Dotted border - playful
+ * Best for: Dropzones, placeholders
+ */
+@mixin border-dotted {
+    border: 3px dotted var(--color-border);
+}
+
+/**
+ * Asymmetric border radius - small quirky
+ * Best for: Buttons, badges, small elements
+ */
+@mixin radius-quirky-sm {
+    border-radius: var(--radius-quirky-sm);
+}
+
+/**
+ * Asymmetric border radius - medium quirky
+ * Best for: Input fields, medium cards
+ */
+@mixin radius-quirky-md {
+    border-radius: var(--radius-quirky-md);
+}
+
+/**
+ * Asymmetric border radius - large quirky
+ * Best for: Large cards, panels, modals
+ */
+@mixin radius-quirky-lg {
+    border-radius: var(--radius-quirky-lg);
+}
+
+/**
+ * Icon frame radius - playful asymmetric
+ * Best for: Image containers, avatar frames
+ */
+@mixin radius-icon-frame {
+    border-radius: 1.2rem 0.4rem 1.6rem 0.4rem;
+}
+
+/**
+ * Alternating radius for nth-child
+ * Best for: Lists of metadata items
+ */
+@mixin radius-alternating {
+    border-radius: 0.4rem 1rem 0.4rem 0.4rem;
+
+    &:nth-child(2n) {
+        border-radius: 1rem 0.4rem 0.4rem 0.4rem;
+    }
+}
+
+/**
+ * Left accent border
+ * Best for: Description boxes, callouts
+ */
+@mixin border-left-accent($color: var(--color-primary)) {
+    border-left: 4px solid $color;
+}
+
+/**
+ * Full border with color
+ * Best for: Colored cards, status indicators
+ */
+@mixin border-colored($color: var(--color-primary)) {
+    border: 3px solid $color;
+}
+
+/**
+ * Double border effect
+ * Best for: Special/premium elements
+ */
+@mixin border-double {
+    border: 3px solid var(--color-border);
+    box-shadow: inset 0 0 0 3px var(--color-block);
+}

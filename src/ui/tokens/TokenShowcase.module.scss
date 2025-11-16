@@ -1,0 +1,271 @@
+@use "./index" as tokens;
+
+.showcase {
+    padding: var(--spacing-xl);
+    max-width: 1200px;
+
+    h2 {
+        font-size: var(--font-size-2xl);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: var(--spacing-md);
+        color: var(--color-text);
+    }
+
+    h3 {
+        font-size: var(--font-size-lg);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        margin: var(--spacing-xl) 0 var(--spacing-md);
+    }
+
+    p {
+        margin-bottom: var(--spacing-lg);
+        color: var(--color-text-light);
+    }
+
+    code {
+        background: var(--color-block-muted);
+        padding: 0.25rem 0.5rem;
+        border-radius: var(--radius-sm);
+        font-family: monospace;
+        font-size: 0.9em;
+        border: 1px solid var(--color-border);
+    }
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-2xl);
+}
+
+.tokenCard {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-md);
+}
+
+.sample {
+    display: grid;
+    place-items: center;
+    min-height: 120px;
+    background: var(--color-block);
+    border: 3px solid var(--color-border);
+    padding: var(--spacing-md);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+
+    p {
+        margin: 0;
+        font-size: 0.85rem;
+    }
+}
+
+// Shadow examples
+.shadowSm {
+    @include tokens.shadow-sm;
+}
+
+.shadowMd {
+    @include tokens.shadow-md;
+}
+
+.shadowLg {
+    @include tokens.shadow-lg;
+}
+
+.shadowXl {
+    @include tokens.shadow-xl;
+}
+
+.shadowInset {
+    @include tokens.shadow-inset;
+}
+
+.shadowBadge {
+    @include tokens.shadow-badge;
+}
+
+// Rotation examples
+.rotateSlight {
+    @include tokens.rotate-slight;
+}
+
+.rotateMild {
+    @include tokens.rotate-mild;
+}
+
+.rotateModerate {
+    @include tokens.rotate-moderate;
+}
+
+.rotateStrong {
+    @include tokens.rotate-strong;
+}
+
+// Badge list with alternating rotations
+.badgeList {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+    margin-top: var(--spacing-md);
+}
+
+.badge {
+    @include tokens.rotate-badge;
+    @include tokens.shadow-badge;
+
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    background: var(--color-ink);
+    color: var(--color-bg);
+    padding: 0.3rem 0.6rem;
+    border-radius: var(--radius-sm);
+    letter-spacing: 0.08em;
+}
+
+// Border radius examples
+.radiusQuirkySm {
+    @include tokens.radius-quirky-sm;
+}
+
+.radiusQuirkyMd {
+    @include tokens.radius-quirky-md;
+}
+
+.radiusQuirkyLg {
+    @include tokens.radius-quirky-lg;
+}
+
+.radiusIconFrame {
+    @include tokens.radius-icon-frame;
+}
+
+// Border examples
+.borderStandard {
+    @include tokens.border-standard;
+}
+
+.borderDashed {
+    @include tokens.border-dashed;
+}
+
+.borderDotted {
+    @include tokens.border-dotted;
+}
+
+.borderLeftAccent {
+    @include tokens.border-left-accent;
+}
+
+// Animation examples
+.animFloat {
+    @include tokens.float;
+}
+
+.animPulse {
+    @include tokens.pulse;
+}
+
+.animWiggleBtn,
+.animShakeBtn {
+    @include tokens.shadow-md;
+    @include tokens.radius-quirky-sm;
+
+    padding: var(--spacing-sm) var(--spacing-md);
+    background: var(--color-primary);
+    color: white;
+    border: 3px solid var(--color-border);
+    font-family: var(--font-family);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+}
+
+.animWiggle {
+    @include tokens.wiggle;
+}
+
+.animShake {
+    @include tokens.shake;
+}
+
+// Interactive card examples
+.interactiveCard {
+    @include tokens.border-standard;
+    @include tokens.radius-quirky-md;
+
+    padding: var(--spacing-lg);
+    background: var(--color-block);
+    cursor: pointer;
+    transition:
+        translate 240ms var(--spring-bezier),
+        box-shadow 240ms var(--spring-bezier),
+        rotate 240ms var(--spring-bezier);
+
+    h4 {
+        margin-bottom: var(--spacing-sm);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    p {
+        margin-bottom: var(--spacing-md);
+        font-size: 0.9rem;
+    }
+
+    code {
+        display: block;
+        white-space: pre-wrap;
+    }
+}
+
+.example1 {
+    @include tokens.shadow-lg;
+    @include tokens.rotate-slight;
+
+    &:hover {
+        @include tokens.shadow-xl;
+
+        rotate: 0deg;
+        translate: 0 -4px;
+    }
+}
+
+.example2 {
+    @include tokens.shadow-md;
+    @include tokens.rotate-mild;
+    @include tokens.radius-quirky-sm;
+
+    &:hover {
+        @include tokens.shadow-lg;
+
+        rotate: 0deg;
+        translate: 0 -4px;
+    }
+}
+
+.example3 {
+    @include tokens.border-left-accent(var(--color-primary));
+    @include tokens.shadow-inset;
+
+    box-shadow:
+        var(--shadow-inset),
+        var(--shadow-md);
+
+    &:hover {
+        box-shadow:
+            var(--shadow-inset),
+            var(--shadow-lg);
+        translate: 0 -4px;
+    }
+}

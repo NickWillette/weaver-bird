@@ -1,0 +1,54 @@
+.root {
+  padding: var(--spacing-md);
+  background-color: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  gap: var(--spacing-md);
+  align-items: center;
+}
+
+.button {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background-color: var(--color-success);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  transition: filter 0.2s ease;
+
+  &:hover {
+    filter: brightness(0.9);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.progress {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.progressBar {
+  flex: 1;
+  height: 6px;
+  background-color: var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+
+  .fill {
+    height: 100%;
+    background-color: var(--color-primary);
+    transition: width 0.2s ease;
+  }
+}
+
+.progressText {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-light);
+}

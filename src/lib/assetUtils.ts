@@ -1,0 +1,263 @@
+/**
+ * Utilities for working with Minecraft asset IDs and names
+ */
+
+/**
+ * Normalize an asset ID by removing trailing underscores and underscores before numbers
+ * This fixes malformed asset IDs from certain resource packs (especially VanillaTweaks)
+ *
+ * Examples:
+ * - "minecraft:block/acacia_planks_" -> "minecraft:block/acacia_planks"
+ * - "minecraft:block/acacia_planks_01" -> "minecraft:block/acacia_planks01"
+ */
+export function normalizeAssetId(assetId: string): string {
+  let normalized = assetId;
+
+  // Remove underscores before numbers (e.g., "acacia_planks_01" -> "acacia_planks01")
+  normalized = normalized.replace(/_(\d+)/g, "$1");
+
+  // Remove trailing underscores (e.g., "acacia_planks_" -> "acacia_planks")
+  normalized = normalized.replace(/_+$/, "");
+
+  return normalized;
+}
+
+/**
+ * Beautify an asset ID for display
+ *
+ * Examples:
+ * - "minecraft:block/acacia_door_bottom" -> "Acacia Door Bottom"
+ * - "minecraft:block/acacia_leaves_bushy" -> "Acacia Leaves (Bushy)"
+ * - "minecraft:block/acacia_leaves_bushy1" -> "Acacia Leaves (Bushy 1)"
+ * - "minecraft:block/acacia_planks" -> "Acacia Planks"
+ * - "minecraft:block/acacia_planks1" -> "Acacia Planks (1)"
+ * - "minecraft:block/acacia_log_top" -> "Acacia Log (Top)"
+ */
+export function beautifyAssetName(assetId: string): string {
+  // Remove "minecraft:block/" or "minecraft:" prefix
+  let name = assetId.replace(/^minecraft:(block\/|item\/|)/, "");
+
+  // Handle numbered variants at the end (e.g., "acacia_planks1" -> "acacia_planks (1)")
+  const numberMatch = name.match(/^(.+?)(\d+)$/);
+  let suffix = "";
+
+  if (numberMatch) {
+    name = numberMatch[1];
+    suffix = ` (${numberMatch[2]})`;
+  }
+
+  // Handle common suffixes that should be in parentheses
+  const suffixPatterns = [
+    { pattern: /_top$/, replacement: " (Top)" },
+    { pattern: /_bottom$/, replacement: " (Bottom)" },
+    { pattern: /_side$/, replacement: " (Side)" },
+    { pattern: /_front$/, replacement: " (Front)" },
+    { pattern: /_back$/, replacement: " (Back)" },
+    { pattern: /_left$/, replacement: " (Left)" },
+    { pattern: /_right$/, replacement: " (Right)" },
+    { pattern: /_inventory$/, replacement: " (Inventory)" },
+    { pattern: /_bushy$/, replacement: " (Bushy)" },
+    { pattern: /_stage(\d+)$/, replacement: " (Stage $1)" },
+  ];
+
+  for (const { pattern, replacement } of suffixPatterns) {
+    if (pattern.test(name)) {
+      name = name.replace(pattern, replacement);
+      // Convert to title case and return early
+      return titleCase(name) + suffix;
+    }
+  }
+
+  // Replace underscores with spaces
+  name = name.replace(/_/g, " ");
+
+  // Convert to title case
+  name = titleCase(name);
+
+  return name + suffix;
+}
+
+/**
+ * Convert a string to Title Case
+ */
+function titleCase(str: string): string {
+  return str
+    .split(" ")
+    .map((word) => {
+      if (word.length === 0) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+/**
+ * Get a short display name from asset ID (for compact views)
+ * Removes namespace prefix only
+ */
+export function getShortAssetName(assetId: string): string {
+  return assetId.replace(/^minecraft:(block\/|item\/|)/, "");
+}
+
+/**
+ * Check if an asset is a block texture
+ */
+export function isBlockTexture(assetId: string): boolean {
+  return assetId.includes(":block/");
+}
+
+/**
+ * Check if an asset is an item texture
+ */
+export function isItemTexture(assetId: string): boolean {
+  return assetId.includes(":item/");
+}
+
+/**
+ * Extract the base name without variant suffixes
+ * Example: "acacia_leaves_bushy1" -> "acacia_leaves"
+ */
+export function getBaseName(assetId: string): string {
+  let name = assetId.replace(/^minecraft:(block\/|item\/|)/, "");
+
+  // Remove common suffixes
+  name = name.replace(
+    /_(top|bottom|side|front|back|left|right|inventory|bushy|stage\d+)\d*$/,
+    "",
+  );
+
+  // Remove trailing numbers
+  name = name.replace(/\d+$/, "");
+
+  return name;
+}
+
+/**
+ * Get the variant group key for an asset
+ * This groups assets that should be displayed together with a variant selector
+ * Example: "minecraft:block/acacia_leaves" and "minecraft:block/acacia_leaves1" -> "minecraft:block/acacia_leaves"
+ *
+ * Also handles cases where the base exists alongside numbered variants:
+ * - "bamboo_planks", "bamboo_planks01", and "bamboo_planks_01" all group to "bamboo_planks"
+ *
+ * Groups variants across different namespaces:
+ * - "minecraft:block/bamboo_planks" and "custom:block/bamboo_planks01" -> same group
+ */
+export function getVariantGroupKey(assetId: string): string {
+  // Normalize the asset ID first (remove trailing underscores)
+  const normalized = normalizeAssetId(assetId);
+
+  // Extract just the path portion, ignoring namespace
+  // This allows grouping variants from different namespaces
+  const pathMatch = normalized.match(/^[^:]*:(.+)$/);
+  const path = pathMatch ? pathMatch[1] : normalized;
+
+  // Remove trailing numbers with optional underscore separator
+  // Handles: "acacia_planks1", "acacia_planks01", "acacia_planks_1", "acacia_planks_01"
+  const numberMatch = path.match(/^(.+?)_?(\d+)$/);
+  if (numberMatch) {
+    // Remove any trailing underscore from the base
+    return numberMatch[1].replace(/_$/, "");
+  }
+  return path;
+}
+
+/**
+ * Check if an asset ID represents a numbered variant
+ * Example: "minecraft:block/acacia_leaves1" -> true
+ */
+export function isNumberedVariant(assetId: string): boolean {
+  return /\d+$/.test(assetId);
+}
+
+/**
+ * Extract the variant number from an asset ID
+ * Example: "minecraft:block/allium3" -> "3"
+ * Example: "minecraft:block/acacia_planks_01" -> "01"
+ * Example: "minecraft:block/oak_planks" -> null
+ */
+export function getVariantNumber(assetId: string): string | null {
+  const match = assetId.match(/(\d+)$/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Check if an asset is a potted plant
+ * Example: "minecraft:block/oxeye_daisy_potted" -> true
+ * Example: "minecraft:block/potted_oak_sapling" -> true
+ */
+export function isPottedPlant(assetId: string): boolean {
+  const path = assetId.replace(/^[^:]*:/, ""); // Remove namespace
+  return path.includes("potted") || path.includes("_pot");
+}
+
+/**
+ * Extract the plant name from a potted plant asset ID
+ * Returns the full asset ID for the plant (with namespace and block/ prefix)
+ * Example: "minecraft:block/oxeye_daisy_potted" -> "minecraft:block/oxeye_daisy"
+ * Example: "minecraft:block/potted_oak_sapling" -> "minecraft:block/oak_sapling"
+ */
+export function getPlantNameFromPotted(assetId: string): string | null {
+  // Extract namespace (e.g., "minecraft:")
+  const namespaceMatch = assetId.match(/^([^:]*:)/);
+  const namespace = namespaceMatch ? namespaceMatch[1] : "minecraft:";
+
+  const path = assetId.replace(/^[^:]*:/, ""); // Remove namespace
+  const blockPath = path.replace(/^block\//, ""); // Remove "block/" prefix
+
+  let plantName: string | null = null;
+
+  // Handle "plant_potted" format
+  if (blockPath.endsWith("_potted")) {
+    plantName = blockPath.replace(/_potted$/, "");
+  }
+  // Handle "potted_plant" format
+  else if (blockPath.startsWith("potted_")) {
+    plantName = blockPath.replace(/^potted_/, "");
+  }
+
+  // Return full asset ID with namespace and block/ prefix
+  return plantName ? `${namespace}block/${plantName}` : null;
+}
+
+/**
+ * Group assets by their variant group key
+ * Returns a map where each key is a group identifier and the value is an array of asset IDs
+ */
+export interface AssetGroup {
+  baseId: string; // The primary/base asset ID (without number suffix)
+  variantIds: string[]; // All variants including the base
+}
+
+export function groupAssetsByVariant(assetIds: string[]): AssetGroup[] {
+  const groups = new Map<string, string[]>();
+
+  // Group all assets by their variant group key
+  for (const assetId of assetIds) {
+    const groupKey = getVariantGroupKey(assetId);
+    const existing = groups.get(groupKey) || [];
+    existing.push(assetId);
+    groups.set(groupKey, existing);
+  }
+
+  // Convert to array of AssetGroup objects
+  const result: AssetGroup[] = [];
+  for (const [baseId, variantIds] of groups.entries()) {
+    // Sort variants: base first (no number), then by number
+    const sorted = variantIds.sort((a, b) => {
+      const aIsNumbered = isNumberedVariant(a);
+      const bIsNumbered = isNumberedVariant(b);
+
+      if (!aIsNumbered && bIsNumbered) return -1;
+      if (aIsNumbered && !bIsNumbered) return 1;
+
+      // Both are numbered, sort numerically
+      const aNum = parseInt(a.match(/(\d+)$/)?.[1] || "0");
+      const bNum = parseInt(b.match(/(\d+)$/)?.[1] || "0");
+      return aNum - bNum;
+    });
+
+    result.push({ baseId, variantIds: sorted });
+  }
+
+  return result;
+}

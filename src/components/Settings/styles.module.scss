@@ -1,0 +1,98 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.modal {
+    background-color: var(--color-bg);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    width: 90%;
+    max-width: 800px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-lg);
+    border-bottom: 1px solid var(--color-border);
+
+    h2 {
+        margin: 0;
+        font-size: var(--font-size-xl);
+        color: var(--color-text);
+    }
+}
+
+.tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--color-border);
+    background-color: var(--color-bg-secondary);
+}
+
+.tab {
+    background: none;
+    border: none;
+    padding: var(--spacing-md) var(--spacing-lg);
+    cursor: pointer;
+    color: var(--color-text-light);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    transition: all 0.2s ease;
+    border-bottom: 2px solid transparent;
+    position: relative;
+
+    &:hover {
+        color: var(--color-text);
+        background-color: var(--color-bg);
+    }
+}
+
+.tabActive {
+    color: var(--color-text);
+    border-bottom-color: var(--color-primary, #3b82f6);
+    background-color: var(--color-bg);
+}
+
+.closeButton {
+    background: none;
+    border: none;
+    font-size: var(--font-size-xl);
+    color: var(--color-text-light);
+    cursor: pointer;
+    padding: var(--spacing-xs);
+    line-height: 1;
+    transition: color 0.2s ease;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+
+    &:hover {
+        color: var(--color-text);
+        background-color: var(--color-bg-secondary);
+    }
+}
+
+.content {
+    padding: var(--spacing-lg);
+    overflow-y: auto;
+    flex: 1;
+}
