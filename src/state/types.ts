@@ -89,6 +89,8 @@ export interface UIState {
   packsDir?: string;
   selectedLauncher?: LauncherInfo;
   availableLaunchers: LauncherInfo[];
+  currentPage: number;
+  itemsPerPage: number;
 }
 
 /**

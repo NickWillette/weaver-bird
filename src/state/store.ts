@@ -36,6 +36,10 @@ interface StoreActions {
   setSelectedLauncher: (launcher: AppState["selectedLauncher"]) => void;
   setAvailableLaunchers: (launchers: AppState["availableLaunchers"]) => void;
 
+  // Pagination
+  setCurrentPage: (page: number) => void;
+  setItemsPerPage: (itemsPerPage: number) => void;
+
   // Reset
   reset: () => void;
 }
@@ -59,6 +63,8 @@ const initialState: AppState = {
   packsDir: undefined,
   selectedLauncher: undefined,
   availableLaunchers: [],
+  currentPage: 1,
+  itemsPerPage: 50,
 };
 
 export const useStore = create<WeaverbirdStore>()(
@@ -167,6 +173,18 @@ export const useStore = create<WeaverbirdStore>()(
     setAvailableLaunchers: (launchers: AppState["availableLaunchers"]) => {
       set((state) => {
         state.availableLaunchers = launchers;
+      });
+    },
+
+    setCurrentPage: (page: number) => {
+      set((state) => {
+        state.currentPage = page;
+      });
+    },
+
+    setItemsPerPage: (itemsPerPage: number) => {
+      set((state) => {
+        state.itemsPerPage = itemsPerPage;
       });
     },
 

@@ -117,6 +117,52 @@ export const useSelectFilteredAssets = () => {
 };
 
 /**
+ * Get paginated assets based on current page and items per page
+ * This selector filters first (by search query), then paginates the results
+ */
+export const useSelectPaginatedAssets = () => {
+  const assets = useStore((state) => state.assets);
+  const searchQuery = useStore((state) => state.searchQuery);
+  const currentPage = useStore((state) => state.currentPage);
+  const itemsPerPage = useStore((state) => state.itemsPerPage);
+
+  return useMemo(() => {
+    // First, filter assets by search query
+    let filteredAssets = Object.values(assets);
+
+    if (searchQuery) {
+      const lowerQuery = searchQuery.toLowerCase();
+      filteredAssets = filteredAssets.filter(
+        (asset) =>
+          asset.id.toLowerCase().includes(lowerQuery) ||
+          asset.labels.some((label) =>
+            label.toLowerCase().includes(lowerQuery),
+          ),
+      );
+    }
+
+    // Calculate pagination
+    const totalItems = filteredAssets.length;
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+
+    // Slice the filtered results for current page
+    const paginatedAssets = filteredAssets.slice(startIndex, endIndex);
+
+    return {
+      assets: paginatedAssets,
+      totalItems,
+      totalPages,
+      currentPage,
+      itemsPerPage,
+      hasNextPage: currentPage < totalPages,
+      hasPrevPage: currentPage > 1,
+    };
+  }, [assets, searchQuery, currentPage, itemsPerPage]);
+};
+
+/**
  * Get all assets (unfiltered)
  */
 export const useSelectAllAssets = () => {
@@ -173,6 +219,10 @@ export const useSelectIngestProviders = () =>
   useStore((state) => state.ingestProviders);
 export const useSelectIngestAllProviders = () =>
   useStore((state) => state.ingestAllProviders);
+export const useSelectSetCurrentPage = () =>
+  useStore((state) => state.setCurrentPage);
+export const useSelectSetItemsPerPage = () =>
+  useStore((state) => state.setItemsPerPage);
 
 /**
  * Get overrides as a simple record (packId -> packId mapping)

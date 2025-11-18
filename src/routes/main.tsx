@@ -12,6 +12,15 @@ import OutputSettings from "@components/OutputSettings";
 import Settings from "@components/Settings";
 import MinecraftLocations from "@components/Settings/MinecraftLocations";
 import Button from "@/ui/components/buttons/Button";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+  PaginationEllipsis,
+} from "@/ui/components/Pagination/Pagination";
 
 import {
   scanPacksFolder,
@@ -25,7 +34,7 @@ import type { LauncherInfo } from "@lib/tauri";
 import {
   useStore,
   useSelectPacksInOrder,
-  useSelectFilteredAssets,
+  useSelectPaginatedAssets,
   useSelectAllAssets,
   useSelectUIState,
   useSelectProvidersWithWinner,
@@ -44,6 +53,7 @@ import {
   useSelectAvailableLaunchers,
   useSelectSetSelectedLauncher,
   useSelectSetAvailableLaunchers,
+  useSelectSetCurrentPage,
 } from "@state";
 
 // Get the setPacksDir action from store
@@ -51,6 +61,89 @@ const useSetPacksDir = () => useStore((state) => state.setPacksDir);
 import type { PackMeta, AssetRecord } from "@state";
 
 const MESSAGE_TIMEOUT_MS = 3000;
+
+/**
+ * Helper function to render page numbers with ellipsis
+ */
+function renderPageNumbers(
+  currentPage: number,
+  totalPages: number,
+  setCurrentPage: (page: number) => void,
+) {
+  const pageNumbers: JSX.Element[] = [];
+  const maxVisiblePages = 5; // Show at most 5 page numbers
+
+  // Always show first page
+  pageNumbers.push(
+    <PaginationItem key={1}>
+      <PaginationLink
+        onClick={() => setCurrentPage(1)}
+        isActive={currentPage === 1}
+      >
+        1
+      </PaginationLink>
+    </PaginationItem>,
+  );
+
+  // Calculate range of pages to show
+  let startPage = Math.max(2, currentPage - 1);
+  let endPage = Math.min(totalPages - 1, currentPage + 1);
+
+  // Adjust range if we're near the start or end
+  if (currentPage <= 3) {
+    endPage = Math.min(maxVisiblePages - 1, totalPages - 1);
+  } else if (currentPage >= totalPages - 2) {
+    startPage = Math.max(2, totalPages - maxVisiblePages + 2);
+  }
+
+  // Add ellipsis after first page if needed
+  if (startPage > 2) {
+    pageNumbers.push(
+      <PaginationItem key="ellipsis-start">
+        <PaginationEllipsis>...</PaginationEllipsis>
+      </PaginationItem>,
+    );
+  }
+
+  // Add middle pages
+  for (let i = startPage; i <= endPage; i++) {
+    pageNumbers.push(
+      <PaginationItem key={i}>
+        <PaginationLink
+          onClick={() => setCurrentPage(i)}
+          isActive={currentPage === i}
+        >
+          {i}
+        </PaginationLink>
+      </PaginationItem>,
+    );
+  }
+
+  // Add ellipsis before last page if needed
+  if (endPage < totalPages - 1) {
+    pageNumbers.push(
+      <PaginationItem key="ellipsis-end">
+        <PaginationEllipsis>...</PaginationEllipsis>
+      </PaginationItem>,
+    );
+  }
+
+  // Always show last page (if there's more than 1 page)
+  if (totalPages > 1) {
+    pageNumbers.push(
+      <PaginationItem key={totalPages}>
+        <PaginationLink
+          onClick={() => setCurrentPage(totalPages)}
+          isActive={currentPage === totalPages}
+        >
+          {totalPages}
+        </PaginationLink>
+      </PaginationItem>,
+    );
+  }
+
+  return pageNumbers;
+}
 
 export default function MainRoute() {
   const [packsDir, setPacksDir] = useState<string>("");
@@ -80,7 +173,7 @@ export default function MainRoute() {
 
   // State selectors
   const packs = useSelectPacksInOrder();
-  const filteredAssets = useSelectFilteredAssets();
+  const paginatedData = useSelectPaginatedAssets();
   const allAssets = useSelectAllAssets();
   const uiState = useSelectUIState();
   const packOrder = useSelectPackOrder();
@@ -100,6 +193,7 @@ export default function MainRoute() {
   const ingestAllProviders = useSelectIngestAllProviders();
   const setSelectedLauncher = useSelectSetSelectedLauncher();
   const setAvailableLaunchers = useSelectSetAvailableLaunchers();
+  const setCurrentPage = useSelectSetCurrentPage();
 
   // Get providers for selected asset
   const providers = useSelectProvidersWithWinner(uiState.selectedAssetId);
@@ -107,6 +201,11 @@ export default function MainRoute() {
   useEffect(() => {
     setTintInfo({ hasTint: false, tintType: undefined });
   }, [uiState.selectedAssetId]);
+
+  // Reset to page 1 when search query changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [uiState.searchQuery, setCurrentPage]);
 
   // Memoize data transformations for components
   const packListItems = useMemo(
@@ -123,12 +222,24 @@ export default function MainRoute() {
 
   const assetListItems = useMemo(
     () =>
-      filteredAssets.map((a: AssetRecord) => ({
+      paginatedData.assets.map((a: AssetRecord) => ({
         id: a.id,
         name: a.id,
       })),
-    [filteredAssets],
+    [paginatedData.assets],
   );
+
+  // Calculate display range for pagination info
+  const displayRange = useMemo(() => {
+    if (paginatedData.totalItems === 0) return { start: 0, end: 0 };
+    const start =
+      (paginatedData.currentPage - 1) * paginatedData.itemsPerPage + 1;
+    const end = Math.min(
+      start + paginatedData.assets.length - 1,
+      paginatedData.totalItems,
+    );
+    return { start, end };
+  }, [paginatedData]);
 
   // Handlers
   const handleReorderPacks = useCallback(
@@ -356,7 +467,43 @@ export default function MainRoute() {
               assets={assetListItems}
               selectedId={uiState.selectedAssetId}
               onSelect={setSelectedAsset}
+              totalItems={paginatedData.totalItems}
+              displayRange={displayRange}
             />
+
+            {/* Pagination Controls */}
+            {paginatedData.totalPages > 1 && (
+              <div style={{ padding: "var(--spacing-md)", paddingTop: "0" }}>
+                <Pagination>
+                  <PaginationContent>
+                    <PaginationItem>
+                      <PaginationPrevious
+                        onClick={() =>
+                          setCurrentPage(paginatedData.currentPage - 1)
+                        }
+                        disabled={!paginatedData.hasPrevPage}
+                      />
+                    </PaginationItem>
+
+                    {/* Page numbers */}
+                    {renderPageNumbers(
+                      paginatedData.currentPage,
+                      paginatedData.totalPages,
+                      setCurrentPage,
+                    )}
+
+                    <PaginationItem>
+                      <PaginationNext
+                        onClick={() =>
+                          setCurrentPage(paginatedData.currentPage + 1)
+                        }
+                        disabled={!paginatedData.hasNextPage}
+                      />
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            )}
           </div>
         </div>
 

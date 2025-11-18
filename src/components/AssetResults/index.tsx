@@ -25,6 +25,8 @@ interface Props {
   assets: AssetItem[];
   selectedId?: string;
   onSelect: (id: string) => void;
+  totalItems?: number; // Total count before pagination (for display)
+  displayRange?: { start: number; end: number }; // Range being displayed
 }
 
 interface AssetCardProps {
@@ -172,28 +174,37 @@ function AssetCard({
   );
 }
 
-export default function AssetResults({ assets, selectedId, onSelect }: Props) {
+export default function AssetResults({
+  assets,
+  selectedId,
+  onSelect,
+  totalItems,
+  displayRange,
+}: Props) {
   const winners = useStore((state) => state.overrides);
   const providersByAsset = useStore((state) => state.providersByAsset);
   const packOrder = useStore((state) => state.packOrder);
 
   // Helper to get winning pack for an asset
-  const getWinningPack = useCallback((assetId: string): string | undefined => {
-    // Check if asset is penciled to a specific pack
-    const override = winners[assetId];
-    if (override) {
-      return override.packId;
-    }
+  const getWinningPack = useCallback(
+    (assetId: string): string | undefined => {
+      // Check if asset is penciled to a specific pack
+      const override = winners[assetId];
+      if (override) {
+        return override.packId;
+      }
 
-    // Otherwise, get first provider in pack order
-    const providers = providersByAsset[assetId] ?? [];
-    if (providers.length === 0) return undefined;
+      // Otherwise, get first provider in pack order
+      const providers = providersByAsset[assetId] ?? [];
+      if (providers.length === 0) return undefined;
 
-    const sorted = [...providers].sort(
-      (a, b) => packOrder.indexOf(a) - packOrder.indexOf(b),
-    );
-    return sorted[0];
-  }, [winners, providersByAsset, packOrder]);
+      const sorted = [...providers].sort(
+        (a, b) => packOrder.indexOf(a) - packOrder.indexOf(b),
+      );
+      return sorted[0];
+    },
+    [winners, providersByAsset, packOrder],
+  );
 
   // Group assets by variant, but only group variants from the same winning pack
   const groupedAssets = useMemo(() => {
@@ -239,13 +250,16 @@ export default function AssetResults({ assets, selectedId, onSelect }: Props) {
     "assets (",
     groupedAssets.length,
     "groups) with lazy loading",
+    totalItems ? `| Total: ${totalItems}` : "",
   );
 
   if (assets.length === 0) {
     return (
       <div className={s.root}>
         <div className={s.emptyState}>
-          No assets found. Try searching for a block or texture.
+          {totalItems === 0
+            ? "No assets found. Try searching for a block or texture."
+            : "No results on this page."}
         </div>
       </div>
     );
@@ -253,6 +267,11 @@ export default function AssetResults({ assets, selectedId, onSelect }: Props) {
 
   return (
     <div className={s.root}>
+      {totalItems && displayRange && (
+        <div className={s.paginationInfo}>
+          Showing {displayRange.start}–{displayRange.end} of {totalItems} assets
+        </div>
+      )}
       <div className={s.results}>
         {groupedAssets.map((group) => (
           <AssetCard
