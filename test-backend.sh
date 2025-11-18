@@ -8,10 +8,13 @@ set -e
 echo "=== Weaverbird Backend Test ==="
 echo ""
 
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Paths
-PACKS_DIR="/Users/nicholaswillette/Repos/Weaverbird/__mocks__/resourcepacks"
+PACKS_DIR="$SCRIPT_DIR/__mocks__/resourcepacks"
 OUTPUT_DIR="/tmp/weaverbird-test-output"
-BINARY="./src-tauri/target/release/weaverbird"
+BINARY="$SCRIPT_DIR/src-tauri/target/release/weaverbird"
 
 # Colors for output
 RED='\033[0;31m'
