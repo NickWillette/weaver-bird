@@ -23,6 +23,11 @@ import ResourcePackCard, {
   type ResourcePackCardMetadata,
 } from "@/components/cards/ResourcePackCard";
 import Button from "@/ui/components/buttons/Button";
+import {
+  Combobox,
+  type ComboboxOption,
+} from "@/ui/components/Combobox/Combobox";
+import { Separator } from "@/ui/components/Separator/Separator";
 import s from "./styles.module.scss";
 
 interface PackItem {
@@ -154,15 +159,25 @@ export default function PackList({
   );
 
   const handleLauncherSelect = useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
+    (value: string) => {
       const launcher = availableLaunchers.find(
-        (l) => l.minecraft_dir === e.target.value,
+        (l) => l.minecraft_dir === value,
       );
       if (launcher && onLauncherChange) {
         onLauncherChange(launcher);
       }
     },
     [availableLaunchers, onLauncherChange],
+  );
+
+  const launcherOptions = useMemo<ComboboxOption[]>(
+    () =>
+      availableLaunchers.map((launcher) => ({
+        value: launcher.minecraft_dir,
+        label: launcher.name,
+        disabled: !launcher.found,
+      })),
+    [availableLaunchers],
   );
 
   return (
@@ -173,38 +188,45 @@ export default function PackList({
     >
       <div className={s.root}>
         {availableLaunchers.length > 0 && (
-          <div className={s.launcherSection}>
-            <label htmlFor="launcher-select" className={s.launcherLabel}>
-              Minecraft Location
-            </label>
-            <div className={s.launcherDropdownWrapper}>
-              {selectedLauncher?.icon_path && (
-                <img
-                  src={convertFileSrc(selectedLauncher.icon_path)}
-                  alt={`${selectedLauncher.name} icon`}
-                  className={s.launcherDropdownIcon}
-                />
-              )}
-              <select
-                id="launcher-select"
-                className={s.launcherDropdown}
+          <>
+            <div className={s.launcherSection}>
+              <label htmlFor="launcher-select" className={s.launcherLabel}>
+                Minecraft Location
+              </label>
+              <Combobox
+                options={launcherOptions}
                 value={selectedLauncher?.minecraft_dir || ""}
-                onChange={handleLauncherSelect}
-              >
-                {!selectedLauncher && (
-                  <option value="">Select a launcher...</option>
+                onValueChange={handleLauncherSelect}
+                placeholder="Select launcher..."
+                searchPlaceholder="Search launchers..."
+                emptyMessage="No launchers found"
+                renderTrigger={({ selectedLabel, placeholder, isOpen }) => (
+                  <div className={s.launcherDropdownWrapper}>
+                    {selectedLauncher?.icon_path && (
+                      <img
+                        src={convertFileSrc(selectedLauncher.icon_path)}
+                        alt={`${selectedLauncher.name} icon`}
+                        className={s.launcherDropdownIcon}
+                      />
+                    )}
+                    <button
+                      className={s.launcherDropdown}
+                      type="button"
+                      aria-expanded={isOpen}
+                    >
+                      <span className={s.launcherDropdownText}>
+                        {selectedLabel || placeholder}
+                      </span>
+                      <span className={s.launcherDropdownArrow}>
+                        {isOpen ? "▲" : "▼"}
+                      </span>
+                    </button>
+                  </div>
                 )}
-                {availableLaunchers.map((launcher) => (
-                  <option
-                    key={launcher.minecraft_dir}
-                    value={launcher.minecraft_dir}
-                  >
-                    {launcher.name}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
-          </div>
+            <Separator className={s.separator} />
+          </>
         )}
         <div className={s.headerSection}>
           <h2 className={s.header}>Resource Packs</h2>

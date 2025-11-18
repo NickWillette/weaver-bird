@@ -16,6 +16,11 @@ import BiomeColorPicker from "@components/BiomeColorPicker";
 import VariantChooser from "@components/VariantChooser";
 import BlockStatePanel from "@components/Preview3D/BlockStatePanel";
 import {
+  Combobox,
+  type ComboboxOption,
+} from "@/ui/components/Combobox/Combobox";
+import { Separator } from "@/ui/components/Separator/Separator";
+import {
   getColormapAssetId,
   guessColormapTypeForAsset,
   getBlockStateIdFromAssetId,
@@ -52,13 +57,13 @@ interface Props {
   onSeedChange?: (seed: number) => void;
 }
 
-const FOLIAGE_PREVIEW_OPTIONS = [
-  { id: "minecraft:block/oak_leaves", label: "Oak Leaves" },
-  { id: "minecraft:block/spruce_leaves", label: "Spruce Leaves" },
-  { id: "minecraft:block/birch_leaves", label: "Birch Leaves" },
-  { id: "minecraft:block/jungle_leaves", label: "Jungle Leaves" },
-  { id: "minecraft:block/acacia_leaves", label: "Acacia Leaves" },
-  { id: "minecraft:block/dark_oak_leaves", label: "Dark Oak Leaves" },
+const FOLIAGE_PREVIEW_OPTIONS: ComboboxOption[] = [
+  { value: "minecraft:block/oak_leaves", label: "Oak Leaves" },
+  { value: "minecraft:block/spruce_leaves", label: "Spruce Leaves" },
+  { value: "minecraft:block/birch_leaves", label: "Birch Leaves" },
+  { value: "minecraft:block/jungle_leaves", label: "Jungle Leaves" },
+  { value: "minecraft:block/acacia_leaves", label: "Acacia Leaves" },
+  { value: "minecraft:block/dark_oak_leaves", label: "Dark Oak Leaves" },
 ];
 
 export default function OptionsPanel({
@@ -189,19 +194,14 @@ export default function OptionsPanel({
         {effectiveColormapType === "foliage" && (
           <div className={s.leafSelector}>
             <label htmlFor="foliage-preview-select">Preview Leaves</label>
-            <select
-              id="foliage-preview-select"
+            <Combobox
+              options={FOLIAGE_PREVIEW_OPTIONS}
               value={foliagePreviewBlock}
-              onChange={(event) =>
-                onFoliagePreviewBlockChange(event.target.value)
-              }
-            >
-              {FOLIAGE_PREVIEW_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              onValueChange={onFoliagePreviewBlockChange}
+              placeholder="Select leaf type..."
+              searchPlaceholder="Search leaves..."
+              emptyMessage="No matching leaves"
+            />
           </div>
         )}
         <BiomeColorPicker
@@ -246,6 +246,7 @@ export default function OptionsPanel({
           <TabsContent value="pot">
             <div style={{ padding: "1rem" }}>
               <h3>Pot Display</h3>
+              <Separator style={{ margin: "0.75rem 0" }} />
               <label
                 style={{
                   display: "flex",
@@ -295,6 +296,7 @@ export default function OptionsPanel({
           <TabsContent value="variants">
             <div style={{ padding: "1rem" }}>
               <h3>Texture Variants</h3>
+              <Separator style={{ margin: "0.75rem 0" }} />
               <p style={{ fontSize: "0.85rem", marginBottom: "1rem" }}>
                 This texture has variants from {providers.length} different
                 resource packs. Click on a variant below to switch between

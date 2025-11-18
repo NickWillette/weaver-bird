@@ -54,6 +54,10 @@
 .launcherDropdown {
     flex: 1;
     min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-sm);
     padding: var(--spacing-sm) var(--spacing-md);
     background-color: var(--color-block-muted);
     color: var(--color-text);
@@ -61,7 +65,9 @@
     border-radius: var(--radius-sm);
     font-size: var(--font-size-sm);
     cursor: pointer;
-    transition: border-color 0.2s ease;
+    transition:
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
     font-family: var(--font-family);
     text-transform: uppercase;
     box-sizing: border-box;
@@ -75,6 +81,24 @@
         border-color: var(--color-primary);
         box-shadow: 0 0 0 3px rgba(43, 89, 195, 0.2);
     }
+}
+
+.launcherDropdownText {
+    flex: 1;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.launcherDropdownArrow {
+    font-size: 0.7rem;
+    line-height: 1;
+    opacity: 0.6;
+}
+
+.separator {
+    margin: var(--spacing-xs) 0;
 }
 
 .headerSection {
