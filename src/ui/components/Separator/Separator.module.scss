@@ -1,0 +1,79 @@
+@use "@/ui/tokens" as tokens;
+
+/**
+ * Separator Component - Anti-Design Style
+ *
+ * Chunky, playful dividers with punk aesthetic.
+ */
+
+.separator {
+  // Base styles
+  flex-shrink: 0;
+  background: var(--color-border);
+  position: relative;
+  isolation: isolate;
+
+  // Add subtle texture overlay
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    @include tokens.pattern-halftone-sm;
+    mix-blend-mode: soft-light;
+    opacity: 0.3;
+    pointer-events: none;
+  }
+}
+
+.horizontal {
+  // Horizontal separator - thick and chunky
+  width: 100%;
+  height: 3px;
+
+  // Slight asymmetric ends (punk aesthetic)
+  border-radius: 0.2rem 0.4rem 0.4rem 0.2rem;
+
+  // Very subtle rotation for playfulness
+  rotate: -0.2deg;
+
+  // Optional: Add shadow for depth
+  box-shadow: 2px 2px 0 rgb(0 0 0 / 15%);
+
+  // Add gradient overlay for visual interest
+  background: linear-gradient(
+    90deg,
+    var(--color-border) 0%,
+    var(--color-ink) 50%,
+    var(--color-border) 100%
+  );
+}
+
+.vertical {
+  // Vertical separator - tall and chunky
+  height: 100%;
+  width: 3px;
+
+  // Asymmetric ends
+  border-radius: 0.4rem 0.2rem 0.2rem 0.4rem;
+
+  // Slight rotation the other way
+  rotate: 0.3deg;
+
+  // Shadow for depth
+  box-shadow: 2px 2px 0 rgb(0 0 0 / 15%);
+
+  // Vertical gradient
+  background: linear-gradient(
+    180deg,
+    var(--color-border) 0%,
+    var(--color-ink) 50%,
+    var(--color-border) 100%
+  );
+}
+
+// Reduced motion support
+@media (prefers-reduced-motion: reduce) {
+  .separator {
+    rotate: 0deg;
+  }
+}
