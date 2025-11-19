@@ -30,8 +30,11 @@
     background-color: var(--color-bg-secondary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-md);
-    cursor: grab;
+    cursor: pointer;
     transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
 
     &:hover {
         box-shadow: var(--shadow-sm);
@@ -48,10 +51,46 @@
     }
 }
 
+.texturePreview {
+    flex-shrink: 0;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.textureIcon {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    image-rendering: pixelated;
+}
+
+.texturePlaceholder {
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(
+        45deg,
+        var(--color-bg-secondary),
+        var(--color-bg-secondary) 4px,
+        var(--color-border) 4px,
+        var(--color-border) 8px
+    );
+}
+
+.providerInfo {
+    flex: 1;
+    min-width: 0;
+}
+
 .providerName {
     font-weight: 600;
     color: var(--color-text);
-    margin-bottom: var(--spacing-xs);
 }
 
 .badge {
