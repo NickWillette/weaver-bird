@@ -324,13 +324,83 @@ export function normalizeBlockNameForBlockstate(name: string): string {
  * Extract the base name without variant suffixes
  * Example: "acacia_leaves_bushy1" -> "acacia_leaves"
  * Example: "activator_rail_on" -> "activator_rail"
+ * Example: "bamboo_stalk" -> "bamboo"
+ * Example: "chiseled_bookshelf_occupied" -> "chiseled_bookshelf"
  */
 export function getBaseName(assetId: string): string {
   let name = assetId.replace(/^minecraft:(block\/|item\/|)/, "");
 
+  // Handle special compound names without underscores (e.g., "acaciabutton" -> "acacia_button")
+  const compoundMappings: Record<string, string> = {
+    acaciabutton: "acacia_button",
+    birchbutton: "birch_button",
+    junglebutton: "jungle_button",
+    oakbutton: "oak_button",
+    sprucebutton: "spruce_button",
+    darkoak_button: "dark_oak_button",
+    darkoakbutton: "dark_oak_button",
+    crimsonbutton: "crimson_button",
+    warpedbutton: "warped_button",
+    bamboobutton: "bamboo_button",
+    cherrybutton: "cherry_button",
+    mangrovebutton: "mangrove_button",
+    stonebutton: "stone_button",
+    polished_blackstonebutton: "polished_blackstone_button",
+  };
+
+  // Check for compound name mappings
+  const lowerName = name.toLowerCase();
+  if (compoundMappings[lowerName]) {
+    name = compoundMappings[lowerName];
+  }
+
+  // Handle "_pp" abbreviation for pressure_plate
+  if (name.endsWith("_pp")) {
+    name = name.replace(/_pp$/, "_pressure_plate");
+  }
+
+  // Handle wheat stage naming variations
+  // "wheat_stage_0" -> "wheat", "wheat_stage0" -> "wheat"
+  if (name.match(/^wheat_stage/)) {
+    name = "wheat";
+  }
+
+  // Handle beetroots stage naming variations
+  if (name.match(/^beetroots_stage/)) {
+    name = "beetroots";
+  }
+
+  // Handle carrots stage naming variations
+  if (name.match(/^carrots_stage/)) {
+    name = "carrots";
+  }
+
+  // Handle potatoes stage naming variations
+  if (name.match(/^potatoes_stage/)) {
+    name = "potatoes";
+  }
+
+  // Handle sweet_berry_bush stage naming variations
+  if (name.match(/^sweet_berry_bush_stage/)) {
+    name = "sweet_berry_bush";
+  }
+
+  // Handle attached stems - "attached_melon_stem" -> "attached_melon_stem"
+  // These have their own blockstate files
+  if (name.startsWith("attached_") && name.endsWith("_stem")) {
+    // Keep as is - they have their own blockstates
+  }
+
   // Remove common structural suffixes (top/bottom, head/foot, etc.)
   name = name.replace(
     /_(top|bottom|upper|lower|head|foot|side|front|back|left|right|inventory|bushy|stage\d+)\d*$/,
+    "",
+  );
+
+  // Remove texture-specific suffixes that don't correspond to blockstate names
+  // These are textures used by blocks but the blockstate file has a different name
+  name = name.replace(
+    /_(stalk|stem|occupied|empty|overlay|particle|inner|outer|outer_ew|outer_ns|contents|spore|blossom|horizontal|vertical|still|flow|nodule|attached|tip|tip_merge|frustum|base|segment|main|cross|hash|outline|inside|corner|post|noside|noside_alt|alt|inventory_2|block_atlas|colormap|lock|tinted_cross|end|walls|honey|off|smooth)\d*$/,
     "",
   );
 
@@ -339,6 +409,10 @@ export function getBaseName(assetId: string): string {
 
   // Remove trailing numbers
   name = name.replace(/\d+$/, "");
+
+  // Handle stripped wood/stem
+  // "stripped_crimson_stem" should become "stripped_crimson_stem" not "stripped_crimson"
+  // But "stripped_crimson" texture should map to "stripped_crimson_stem" blockstate
 
   return name;
 }

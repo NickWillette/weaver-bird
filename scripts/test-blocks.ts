@@ -54,15 +54,27 @@ interface TestResult {
   modelCount: number;
 }
 
-// Paths
+// Paths - can be overridden with command line arguments
 const PROJECT_ROOT = path.resolve(__dirname, "..");
 const MOCK_PACKS_DIR = path.join(PROJECT_ROOT, "__mocks__/resourcepacks");
 const STAY_TRUE_DIR = path.join(MOCK_PACKS_DIR, "Stay True");
+
+// Check for custom vanilla path from args
+const args = process.argv.slice(2);
+const vanillaPathArg = args.find(arg => arg.startsWith('--vanilla='));
+const VANILLA_PATH = vanillaPathArg
+  ? vanillaPathArg.split('=')[1]
+  : process.env.VANILLA_TEXTURES_PATH || '';
+
+const TEST_VANILLA = args.includes('--vanilla') || !!VANILLA_PATH;
+const PACK_DIR = TEST_VANILLA && VANILLA_PATH ? VANILLA_PATH : STAY_TRUE_DIR;
+
 const BLOCKSTATES_DIR = path.join(
-  STAY_TRUE_DIR,
+  PACK_DIR,
   "assets/minecraft/blockstates"
 );
-const MODELS_DIR = path.join(STAY_TRUE_DIR, "assets/minecraft/models");
+const MODELS_DIR = path.join(PACK_DIR, "assets/minecraft/models");
+const TEXTURES_DIR = path.join(PACK_DIR, "assets/minecraft/textures/block");
 
 // Track loaded models to avoid infinite loops
 const loadedModels = new Set<string>();
@@ -134,7 +146,133 @@ function getTexturePath(textureId: string): string {
     texturePath = texturePath.split(":")[1];
   }
 
-  return path.join(STAY_TRUE_DIR, "assets/minecraft/textures", `${texturePath}.png`);
+  return path.join(PACK_DIR, "assets/minecraft/textures", `${texturePath}.png`);
+}
+
+/**
+ * Get the base blockstate name from a texture name
+ * This mirrors the logic in assetUtils.ts getBaseName
+ */
+function getBlockstateFromTexture(textureName: string): string {
+  let name = textureName;
+
+  // Handle special compound names without underscores
+  const compoundMappings: Record<string, string> = {
+    acaciabutton: "acacia_button",
+    birchbutton: "birch_button",
+    junglebutton: "jungle_button",
+    oakbutton: "oak_button",
+    sprucebutton: "spruce_button",
+    darkoak_button: "dark_oak_button",
+    darkoakbutton: "dark_oak_button",
+    crimsonbutton: "crimson_button",
+    warpedbutton: "warped_button",
+    bamboobutton: "bamboo_button",
+    cherrybutton: "cherry_button",
+    mangrovebutton: "mangrove_button",
+    stonebutton: "stone_button",
+    polished_blackstonebutton: "polished_blackstone_button",
+  };
+
+  const lowerName = name.toLowerCase();
+  if (compoundMappings[lowerName]) {
+    name = compoundMappings[lowerName];
+  }
+
+  // Handle "_pp" abbreviation for pressure_plate
+  if (name.endsWith("_pp")) {
+    name = name.replace(/_pp$/, "_pressure_plate");
+  }
+
+  // Handle crop stage naming variations
+  if (name.match(/^wheat_stage/)) {
+    name = "wheat";
+  }
+  if (name.match(/^beetroots_stage/)) {
+    name = "beetroots";
+  }
+  if (name.match(/^carrots_stage/)) {
+    name = "carrots";
+  }
+  if (name.match(/^potatoes_stage/)) {
+    name = "potatoes";
+  }
+  if (name.match(/^sweet_berry_bush_stage/)) {
+    name = "sweet_berry_bush";
+  }
+
+  // Remove common structural suffixes (top/bottom, head/foot, etc.)
+  name = name.replace(
+    /_(top|bottom|upper|lower|head|foot|side|front|back|left|right|inventory|bushy|stage\d+)\d*$/,
+    "",
+  );
+
+  // Remove texture-specific suffixes that don't correspond to blockstate names
+  name = name.replace(
+    /_(stalk|stem|occupied|empty|overlay|particle|inner|outer|outer_ew|outer_ns|contents|spore|blossom|horizontal|vertical|still|flow|nodule|attached|tip|tip_merge|frustum|base|segment|main|cross|hash|outline|inside|corner|post|noside|noside_alt|alt|inventory_2|block_atlas|colormap|lock|tinted_cross|end|walls|honey|off|smooth)\d*$/,
+    "",
+  );
+
+  // Remove state suffixes (on/off, lit, open/closed, etc.)
+  name = name.replace(/_(on|off|lit|open|closed|active|inactive|triggered)$/, "");
+
+  // Remove trailing numbers
+  name = name.replace(/\d+$/, "");
+
+  // Handle potted plants
+  if (name.endsWith("_potted")) {
+    name = `potted_${name.replace(/_potted$/, "")}`;
+  }
+
+  return name;
+}
+
+/**
+ * Test if a texture can be mapped to a valid blockstate
+ */
+function testTexture(textureName: string): TestResult {
+  const blockstateName = getBlockstateFromTexture(textureName);
+  const blockstatePath = path.join(BLOCKSTATES_DIR, `${blockstateName}.json`);
+
+  try {
+    if (!fs.existsSync(blockstatePath)) {
+      return {
+        blockId: textureName,
+        status: "error",
+        error: `Blockstate not found: ${blockstateName} (texture: ${textureName})`,
+        modelCount: 0,
+      };
+    }
+
+    // Read and parse blockstate
+    const content = fs.readFileSync(blockstatePath, "utf-8");
+    const blockstate: Blockstate = JSON.parse(content);
+
+    // Extract all model references
+    const models = extractModels(blockstate);
+
+    if (models.length === 0) {
+      return {
+        blockId: textureName,
+        status: "error",
+        error: `No models found in blockstate ${blockstateName}`,
+        modelCount: 0,
+      };
+    }
+
+    return {
+      blockId: textureName,
+      status: "success",
+      modelCount: models.length,
+    };
+  } catch (err) {
+    return {
+      blockId: textureName,
+      status: "error",
+      error: err instanceof Error ? err.message : String(err),
+      modelCount: 0,
+    };
+  }
 }
 
 function extractModels(blockstate: Blockstate): string[] {
@@ -218,61 +356,161 @@ function testBlock(blockId: string): TestResult {
 
 async function main() {
   console.log("=== Block Tester ===\n");
-  console.log(`Mock packs directory: ${MOCK_PACKS_DIR}`);
-  console.log(`Testing pack: Stay True`);
+
+  const testTextures = args.includes('--textures');
+  const stopOnError = !args.includes('--continue');
+
+  console.log(`Pack directory: ${PACK_DIR}`);
+  console.log(`Mode: ${testTextures ? 'Testing textures' : 'Testing blockstates'}`);
+  console.log(`Stop on error: ${stopOnError}`);
   console.log();
 
   // Check directories exist
-  if (!fs.existsSync(STAY_TRUE_DIR)) {
-    console.error(`ERROR: Stay True pack not found at ${STAY_TRUE_DIR}`);
+  if (!fs.existsSync(PACK_DIR)) {
+    console.error(`ERROR: Pack not found at ${PACK_DIR}`);
     process.exit(1);
   }
 
-  // Get all blockstate files
-  const blockFiles = fs
-    .readdirSync(BLOCKSTATES_DIR)
-    .filter((f) => f.endsWith(".json"))
-    .map((f) => f.replace(".json", ""))
-    .sort();
+  let itemsToTest: string[];
+  let testFn: (id: string) => TestResult;
 
-  console.log(`Found ${blockFiles.length} blocks to test\n`);
+  if (testTextures) {
+    // Test all texture files
+    if (!fs.existsSync(TEXTURES_DIR)) {
+      console.error(`ERROR: Textures directory not found at ${TEXTURES_DIR}`);
+      process.exit(1);
+    }
+
+    itemsToTest = fs
+      .readdirSync(TEXTURES_DIR)
+      .filter((f) => f.endsWith(".png"))
+      .map((f) => f.replace(".png", ""))
+      .sort();
+
+    testFn = testTexture;
+    console.log(`Found ${itemsToTest.length} textures to test\n`);
+  } else {
+    // Test all blockstate files
+    if (!fs.existsSync(BLOCKSTATES_DIR)) {
+      console.error(`ERROR: Blockstates directory not found at ${BLOCKSTATES_DIR}`);
+      process.exit(1);
+    }
+
+    itemsToTest = fs
+      .readdirSync(BLOCKSTATES_DIR)
+      .filter((f) => f.endsWith(".json"))
+      .map((f) => f.replace(".json", ""))
+      .sort();
+
+    testFn = testBlock;
+    console.log(`Found ${itemsToTest.length} blockstates to test\n`);
+  }
 
   // Run tests
   const results: TestResult[] = [];
   let successCount = 0;
   let errorCount = 0;
+  const errors: Array<{ id: string; error: string }> = [];
 
-  for (const blockId of blockFiles) {
-    const result = testBlock(blockId);
+  for (const itemId of itemsToTest) {
+    const result = testFn(itemId);
     results.push(result);
 
     if (result.status === "success") {
-      console.log(`✓ ${blockId} (${result.modelCount} models)`);
+      console.log(`✓ ${itemId} (${result.modelCount} models)`);
       successCount++;
     } else {
-      console.log(`✗ ${blockId}: ${result.error}`);
+      console.log(`✗ ${itemId}: ${result.error}`);
       errorCount++;
+      errors.push({ id: itemId, error: result.error || 'Unknown error' });
 
-      // Stop on first error
-      console.log("\n=== STOPPED ON FIRST ERROR ===");
-      console.log(`Block: ${blockId}`);
-      console.log(`Error: ${result.error}`);
-      break;
+      if (stopOnError) {
+        // Stop on first error
+        console.log("\n=== STOPPED ON FIRST ERROR ===");
+        console.log(`Item: ${itemId}`);
+        console.log(`Error: ${result.error}`);
+        break;
+      }
     }
   }
 
   // Print summary
   console.log("\n=== Summary ===");
-  console.log(`Total: ${blockFiles.length}`);
+  console.log(`Total: ${itemsToTest.length}`);
   console.log(`Success: ${successCount}`);
   console.log(`Error: ${errorCount}`);
-  console.log(`Remaining: ${blockFiles.length - successCount - errorCount}`);
+  console.log(`Remaining: ${itemsToTest.length - successCount - errorCount}`);
+
+  if (errors.length > 0 && !stopOnError) {
+    console.log("\n=== All Errors ===");
+    // Group errors by type
+    const errorsByType = new Map<string, string[]>();
+    for (const { id, error } of errors) {
+      const match = error.match(/Blockstate not found: (\S+)/);
+      if (match) {
+        const blockstate = match[1];
+        if (!errorsByType.has(blockstate)) {
+          errorsByType.set(blockstate, []);
+        }
+        errorsByType.get(blockstate)!.push(id);
+      } else {
+        if (!errorsByType.has('other')) {
+          errorsByType.set('other', []);
+        }
+        errorsByType.get('other')!.push(`${id}: ${error}`);
+      }
+    }
+
+    for (const [blockstate, textures] of errorsByType) {
+      if (blockstate === 'other') {
+        console.log(`\nOther errors:`);
+        for (const t of textures) {
+          console.log(`  - ${t}`);
+        }
+      } else {
+        console.log(`\nBlockstate "${blockstate}" not found for textures:`);
+        for (const t of textures) {
+          console.log(`  - ${t}`);
+        }
+      }
+    }
+  }
 
   if (errorCount > 0) {
     process.exit(1);
   }
 
-  console.log("\nAll blocks passed!");
+  console.log("\nAll items passed!");
+}
+
+// Usage instructions
+if (args.includes('--help')) {
+  console.log(`
+Block Tester - Test block rendering for Minecraft resource packs
+
+Usage:
+  npx tsx scripts/test-blocks.ts [options]
+
+Options:
+  --textures              Test all texture files instead of blockstates
+  --continue              Continue testing even after errors (show all errors)
+  --vanilla=<path>        Path to vanilla textures cache directory
+  --help                  Show this help message
+
+Examples:
+  # Test Stay True mock pack blockstates
+  npx tsx scripts/test-blocks.ts
+
+  # Test Stay True textures
+  npx tsx scripts/test-blocks.ts --textures
+
+  # Test vanilla textures (macOS)
+  npx tsx scripts/test-blocks.ts --textures --vanilla=~/Library/Caches/weaverbird/vanilla_textures
+
+  # Test all textures without stopping on errors
+  npx tsx scripts/test-blocks.ts --textures --continue
+`);
+  process.exit(0);
 }
 
 main().catch(console.error);
