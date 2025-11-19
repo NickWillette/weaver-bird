@@ -468,13 +468,91 @@ export function exportTestReport(summary: TestSummary): string {
       lines.push(`### ${category} (${results.length})`);
       lines.push('');
       for (const result of results) {
-        lines.push(`- \`${result.assetId}\`: ${result.error}`);
+        lines.push(`- \`${result.assetId}\` -> \`${result.blockStateId || 'unknown'}\`: ${result.error}`);
       }
       lines.push('');
     }
   }
 
   return lines.join('\n');
+}
+
+/**
+ * Run all block tests and generate a compact error report for fixing
+ * This is the main function to use - just run it and copy the output
+ */
+export async function runTestAndReport(options: TestOptions = {}): Promise<string> {
+  console.log('Running all block tests...\n');
+
+  const summary = await testAllBlocks({
+    ...options,
+    stopOnError: false,
+    verbose: false
+  });
+
+  if (summary.failed === 0) {
+    const msg = `All ${summary.passed} blocks passed!`;
+    console.log(msg);
+    return msg;
+  }
+
+  // Generate compact report grouped by error pattern
+  const lines: string[] = [
+    '## Block Test Error Report',
+    '',
+    `Total: ${summary.total} | Passed: ${summary.passed} | Failed: ${summary.failed}`,
+    '',
+  ];
+
+  // Group errors by the actual error message to find patterns
+  const errorsByMessage: Record<string, TestResult[]> = {};
+  for (const result of summary.failedAssets) {
+    const key = result.error || 'Unknown error';
+    if (!errorsByMessage[key]) {
+      errorsByMessage[key] = [];
+    }
+    errorsByMessage[key].push(result);
+  }
+
+  // Sort by count (most common first)
+  const sortedErrors = Object.entries(errorsByMessage)
+    .sort((a, b) => b[1].length - a[1].length);
+
+  for (const [errorMsg, results] of sortedErrors) {
+    lines.push(`### ${errorMsg} (${results.length} assets)`);
+    lines.push('');
+    lines.push('| Asset ID | Converted BlockState ID |');
+    lines.push('|----------|------------------------|');
+    for (const result of results) {
+      lines.push(`| \`${result.assetId}\` | \`${result.blockStateId || 'N/A'}\` |`);
+    }
+    lines.push('');
+  }
+
+  const report = lines.join('\n');
+
+  // Also log to console for easy copying
+  console.log('\n' + '='.repeat(60));
+  console.log('COPY THE REPORT BELOW:');
+  console.log('='.repeat(60) + '\n');
+  console.log(report);
+  console.log('\n' + '='.repeat(60));
+
+  return report;
+}
+
+/**
+ * Generate a JSON export of errors for programmatic analysis
+ */
+export function exportErrorsAsJson(summary: TestSummary): string {
+  const errors = summary.failedAssets.map(result => ({
+    assetId: result.assetId,
+    blockStateId: result.blockStateId,
+    error: result.error,
+    errorCode: result.errorCode,
+  }));
+
+  return JSON.stringify(errors, null, 2);
 }
 
 // Export to window for easy console access
@@ -484,4 +562,6 @@ if (typeof window !== 'undefined') {
   (window as unknown as { testBlocksByPattern: typeof testBlocksByPattern }).testBlocksByPattern = testBlocksByPattern;
   (window as unknown as { getUniqueBlockStateIds: typeof getUniqueBlockStateIds }).getUniqueBlockStateIds = getUniqueBlockStateIds;
   (window as unknown as { exportTestReport: typeof exportTestReport }).exportTestReport = exportTestReport;
+  (window as unknown as { runTestAndReport: typeof runTestAndReport }).runTestAndReport = runTestAndReport;
+  (window as unknown as { exportErrorsAsJson: typeof exportErrorsAsJson }).exportErrorsAsJson = exportErrorsAsJson;
 }

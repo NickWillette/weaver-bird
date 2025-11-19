@@ -11,6 +11,8 @@ export {
   testBlocksByPattern,
   getUniqueBlockStateIds,
   exportTestReport,
+  runTestAndReport,
+  exportErrorsAsJson,
   type TestResult,
   type TestSummary,
   type TestOptions,
