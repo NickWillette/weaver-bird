@@ -180,38 +180,18 @@ function calculateFaceOffsets(
 }
 
 /**
- * Check if a texture ID represents a leaf texture that needs foliage tinting
- * Only vanilla leaves that use grayscale textures should be tinted:
- * - Oak, Birch, Jungle, Acacia, Dark Oak (biome-dependent in vanilla)
- * - NOT Cherry (pink), Azalea (fixed color), or leaves with _inventory suffix
+ * Determines which colormap type to use for a texture.
+ * This is based on Minecraft's hardcoded colormap assignments.
+ *
+ * Returns "grass" for blocks that use grass.png colormap,
+ * "foliage" for blocks that use foliage.png colormap,
+ * or undefined if the block doesn't use a colormap.
+ *
+ * Note: In Minecraft, tintindex only indicates IF a face should be tinted,
+ * but WHICH colormap to use is hardcoded in the game logic per block type.
  */
-function needsFoliageTint(textureId: string): boolean {
-  if (!textureId.includes("leaves")) {
-    return false;
-  }
-
-  // Skip leaves that already have color baked in
-  if (textureId.includes("_inventory")) {
-    return false;
-  }
-
-  // Skip leaves with fixed colors (not biome-dependent)
-  const fixedColorLeaves = ["cherry", "azalea", "flowering_azalea"];
-  for (const leafType of fixedColorLeaves) {
-    if (textureId.includes(leafType)) {
-      return false;
-    }
-  }
-
-  // These are the biome-dependent leaves that need tinting
-  return true;
-}
-
-/**
- * Check if a texture ID represents grass/plant texture that needs grass tinting
- * Includes: grass blocks, tall grass, ferns, sugar cane, vines, lily pads, etc.
- */
-function needsGrassTint(textureId: string): boolean {
+function getColormapType(textureId: string): "grass" | "foliage" | undefined {
+  // Blocks that use grass.png colormap
   const grassTextures = [
     "grass_block_top",
     "grass_block_side",
@@ -221,7 +201,6 @@ function needsGrassTint(textureId: string): boolean {
     "fern",
     "large_fern",
     "sugar_cane",
-    "vine",
     "lily_pad",
     "attached_melon_stem",
     "attached_pumpkin_stem",
@@ -229,7 +208,42 @@ function needsGrassTint(textureId: string): boolean {
     "pumpkin_stem",
   ];
 
-  return grassTextures.some((pattern) => textureId.includes(pattern));
+  if (grassTextures.some((pattern) => textureId.includes(pattern))) {
+    return "grass";
+  }
+
+  // Blocks that use foliage.png colormap
+  // Leaves: Oak, Jungle, Acacia, Dark Oak, Mangrove (biome-dependent)
+  // NOT: Birch, Spruce, Cherry, Azalea (these have fixed colors)
+  if (textureId.includes("leaves")) {
+    // Skip leaves with _inventory suffix (these are pre-colored)
+    if (textureId.includes("_inventory")) {
+      return undefined;
+    }
+
+    // Skip leaves with fixed colors (not biome-dependent)
+    const fixedColorLeaves = [
+      "birch",
+      "spruce",
+      "cherry",
+      "azalea",
+      "flowering_azalea",
+    ];
+
+    if (fixedColorLeaves.some((leafType) => textureId.includes(leafType))) {
+      return undefined;
+    }
+
+    // Oak, Jungle, Acacia, Dark Oak, Mangrove use foliage colormap
+    return "foliage";
+  }
+
+  // Vines use foliage colormap
+  if (textureId.includes("vine")) {
+    return "foliage";
+  }
+
+  return undefined;
 }
 
 /**
@@ -283,13 +297,12 @@ function processElements(
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
 
       if (textureUrl) {
-        const tintType = textureId
-          ? needsGrassTint(textureId)
-            ? "grass"
-            : needsFoliageTint(textureId)
-              ? "foliage"
-              : undefined
-          : undefined;
+        // Data-driven tinting: Check tintindex from model JSON to determine IF we should tint
+        // Then use texture/block name to determine WHICH colormap (this matches Minecraft's behavior)
+        const shouldTint =
+          face.tintindex !== undefined && face.tintindex !== null;
+        const tintType =
+          shouldTint && textureId ? getColormapType(textureId) : undefined;
 
         faces.push({
           type: "top",
@@ -314,13 +327,12 @@ function processElements(
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
 
       if (textureUrl) {
-        const tintType = textureId
-          ? needsGrassTint(textureId)
-            ? "grass"
-            : needsFoliageTint(textureId)
-              ? "foliage"
-              : undefined
-          : undefined;
+        // Data-driven tinting: Check tintindex from model JSON to determine IF we should tint
+        // Then use texture/block name to determine WHICH colormap (this matches Minecraft's behavior)
+        const shouldTint =
+          face.tintindex !== undefined && face.tintindex !== null;
+        const tintType =
+          shouldTint && textureId ? getColormapType(textureId) : undefined;
 
         faces.push({
           type: "left",
@@ -345,13 +357,12 @@ function processElements(
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
 
       if (textureUrl) {
-        const tintType = textureId
-          ? needsGrassTint(textureId)
-            ? "grass"
-            : needsFoliageTint(textureId)
-              ? "foliage"
-              : undefined
-          : undefined;
+        // Data-driven tinting: Check tintindex from model JSON to determine IF we should tint
+        // Then use texture/block name to determine WHICH colormap (this matches Minecraft's behavior)
+        const shouldTint =
+          face.tintindex !== undefined && face.tintindex !== null;
+        const tintType =
+          shouldTint && textureId ? getColormapType(textureId) : undefined;
 
         faces.push({
           type: "right",
