@@ -95,16 +95,25 @@ function normalizeUV(
   const widthDelta = rawU2 - rawU1;
   const heightDelta = rawV2 - rawV1;
 
-  const width = Math.abs(widthDelta) || 1;
-  const height = Math.abs(heightDelta) || 1;
+  const width = Math.abs(widthDelta);
+  const height = Math.abs(heightDelta);
 
+  // If UV coordinates are [0,0,0,0] or result in 0 dimensions, use full texture
+  // This fixes trapdoors and other blocks with missing/invalid UV data
+  if (width === 0 || height === 0) {
+    return { u: 0, v: 0, width: 1, height: 1, flipX: 1, flipY: 1 };
+  }
+
+  // Always use minimum UV values as start position
+  // Don't use CSS flipping - it causes positioning issues with our current CSS
+  // The visual flipping is already handled by choosing the correct start position
   return {
     u: widthDelta >= 0 ? rawU1 : rawU2,
     v: heightDelta >= 0 ? rawV1 : rawV2,
     width,
     height,
-    flipX: widthDelta >= 0 ? 1 : -1,
-    flipY: heightDelta >= 0 ? 1 : -1,
+    flipX: 1, // No CSS flip on X
+    flipY: 1, // No CSS flip on Y
   };
 }
 
@@ -129,7 +138,6 @@ function calculateFaceOffsets(
   const [x2, y2, z2] = element.to;
 
   // Element dimensions
-  const width = x2 - x1;
   const height = y2 - y1;
   const depth = z2 - z1;
 
@@ -269,6 +277,59 @@ function processElements(
 }
 
 /**
+ * Checks if a block should use its 2D item icon instead of 3D block model
+ * (e.g., doors, beds use pre-rendered 2D icons in inventory)
+ */
+function shouldUse2DItemIcon(assetId: string): boolean {
+  const path = assetId.toLowerCase();
+
+  // Doors should use item icons (except trapdoors which are fine as 3D)
+  if (path.includes("door") && !path.includes("trapdoor")) {
+    return true;
+  }
+
+  // Beds should use item icons
+  if (path.includes("bed") && !path.includes("bedrock")) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Converts a block asset ID to its corresponding item asset ID
+ * Example: "minecraft:block/oak_door" -> "minecraft:item/oak_door"
+ */
+function getItemAssetId(blockAssetId: string): string {
+  // Extract namespace and block name
+  const match = blockAssetId.match(/^([^:]*:)?block\/(.+)$/);
+  if (!match) return blockAssetId;
+
+  const namespace = match[1] || "minecraft:";
+  let itemName = match[2];
+
+  // Remove block-specific suffixes like _top, _bottom, etc.
+  itemName = itemName.replace(/_(top|bottom|upper|lower|head|foot)$/, "");
+
+  return `${namespace}item/${itemName}`;
+}
+
+/**
+ * For leaves blocks, try to get the colored inventory variant texture ID
+ * Example: "minecraft:block/acacia_leaves" -> "minecraft:block/acacia_leaves_inventory"
+ */
+function getLeavesInventoryTextureId(textureId: string): string {
+  if (textureId.includes("leaves") && !textureId.includes("_inventory")) {
+    // Try to add _inventory suffix (or _bushy_inventory for bushy variants)
+    if (textureId.includes("_bushy")) {
+      return textureId.replace("_bushy", "_bushy_inventory");
+    }
+    return `${textureId}_inventory`;
+  }
+  return textureId;
+}
+
+/**
  * Checks if a block model is suitable for 3D isometric rendering.
  * Returns false for cross-shaped models (plants, flowers), which should use 2D.
  */
@@ -377,22 +438,77 @@ export default function MinecraftCSSBlock({
         setLoading(true);
         const normalizedAssetId = normalizeAssetId(assetId);
 
-        // Load texture URL helper
-        const loadTextureUrl = async (textureId: string): Promise<string> => {
+        // Check if this block should use a 2D item icon instead of 3D model
+        if (shouldUse2DItemIcon(normalizedAssetId)) {
+          const itemAssetId = getItemAssetId(normalizedAssetId);
           let texturePath: string;
 
           if (pack) {
             try {
               texturePath = await getPackTexturePath(
                 pack.path,
-                textureId,
+                itemAssetId,
                 pack.is_zip,
               );
             } catch {
-              texturePath = await getVanillaTexturePath(textureId);
+              texturePath = await getVanillaTexturePath(itemAssetId);
             }
           } else {
-            texturePath = await getVanillaTexturePath(textureId);
+            texturePath = await getVanillaTexturePath(itemAssetId);
+          }
+
+          const textureUrl = convertFileSrc(texturePath);
+          if (mounted) {
+            setFallbackTextureUrl(textureUrl);
+            setRenderedElements([]);
+            setError(false);
+            setLoading(false);
+          }
+          return;
+        }
+
+        // Load texture URL helper
+        const loadTextureUrl = async (textureId: string): Promise<string> => {
+          let texturePath: string;
+
+          // For leaves, try to load the colored inventory variant first
+          let finalTextureId = textureId;
+          if (textureId.includes("leaves")) {
+            const inventoryTextureId = getLeavesInventoryTextureId(textureId);
+            try {
+              // Try loading inventory variant first
+              if (pack) {
+                try {
+                  texturePath = await getPackTexturePath(
+                    pack.path,
+                    inventoryTextureId,
+                    pack.is_zip,
+                  );
+                  return convertFileSrc(texturePath);
+                } catch {
+                  // Fall through to try vanilla
+                }
+              }
+              texturePath = await getVanillaTexturePath(inventoryTextureId);
+              return convertFileSrc(texturePath);
+            } catch {
+              // Inventory variant doesn't exist, use base texture
+              finalTextureId = textureId;
+            }
+          }
+
+          if (pack) {
+            try {
+              texturePath = await getPackTexturePath(
+                pack.path,
+                finalTextureId,
+                pack.is_zip,
+              );
+            } catch {
+              texturePath = await getVanillaTexturePath(finalTextureId);
+            }
+          } else {
+            texturePath = await getVanillaTexturePath(finalTextureId);
           }
 
           return convertFileSrc(texturePath);
