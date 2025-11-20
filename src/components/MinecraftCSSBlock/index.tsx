@@ -4,7 +4,6 @@ import { getVanillaTexturePath, getPackTexturePath } from "@lib/tauri";
 import {
   resolveBlockState,
   loadModelJson,
-  BlockModel,
   ModelElement,
 } from "@lib/tauri/blockModels";
 import { getBlockStateIdFromAssetId, normalizeAssetId } from "@lib/assetUtils";
@@ -52,7 +51,7 @@ interface RenderedElement {
  */
 function resolveTextureRef(
   ref: string,
-  textures: Record<string, string>
+  textures: Record<string, string>,
 ): string | null {
   if (!ref) return null;
 
@@ -89,26 +88,68 @@ function normalizeUV(uv: [number, number, number, number] | undefined): {
 }
 
 /**
- * Converts 3D Minecraft coordinates to 2D isometric screen coordinates
- * Minecraft: X=east/west, Y=up/down, Z=north/south
- * Isometric view: looking from south-east, above
+ * Calculates face positions for isometric rendering
+ * Returns pixel offsets from center for each face type
+ *
+ * For a standard isometric view (30° angles):
+ * - Top face: centered above, forms a diamond
+ * - Left face: below-left of top, shares top-left edge
+ * - Right face: below-right of top, shares top-right edge
  */
-function toIsometric(
-  x: number,
-  y: number,
-  z: number,
-  scale: number
-): { screenX: number; screenY: number } {
-  // Isometric projection angles (30 degrees)
-  const cos30 = 0.866;
-  const sin30 = 0.5;
+function calculateFaceOffsets(
+  element: { from: number[]; to: number[] },
+  scale: number,
+  blockCenter: { x: number; y: number; z: number },
+): {
+  top: { x: number; y: number };
+  left: { x: number; y: number };
+  right: { x: number; y: number };
+} {
+  const [x1, y1, z1] = element.from;
+  const [x2, y2, z2] = element.to;
 
-  // Convert to isometric 2D
-  // X goes right+down, Z goes left+down, Y goes up
-  const screenX = (x - z) * cos30 * scale;
-  const screenY = ((x + z) * sin30 - y) * scale;
+  // Element dimensions
+  const width = x2 - x1;
+  const height = y2 - y1;
+  const depth = z2 - z1;
 
-  return { screenX, screenY };
+  // Calculate element vertical center relative to block center (8,8,8)
+  const relY = (y1 + y2) / 2 - blockCenter.y;
+
+  // For isometric projection with:
+  // - Top face: rotate(45deg) scaleY(0.577)
+  // - Side faces: skewY(±30deg)
+
+  // The top face after transforms has effective height of width * 0.577 * sqrt(2) / 2
+  // But we need to position based on the visual result
+
+  // Tan(30°) ≈ 0.577
+  const tan30 = 0.577;
+
+  // Top face width after 45deg rotation becomes diagonal = width * sqrt(2) * 0.707 = width
+  // Its visual height = width * 0.577
+  const topVisualHeight = Math.max(width, depth) * scale * tan30;
+
+  // Top face center Y: element top minus half the visual height of top face
+  const topY = -relY * scale - (height / 2) * scale - topVisualHeight / 2;
+
+  // Left face (south) - positioned to the left
+  // After skewY(30deg), the top edge shifts right by height * tan(30)
+  // So we offset left to compensate
+  const leftX = -(width / 2) * scale;
+  const leftY = -relY * scale;
+
+  // Right face (east) - positioned to the right
+  // After skewY(-30deg), the top edge shifts left by height * tan(30)
+  // So we offset right to compensate
+  const rightX = (depth / 2) * scale;
+  const rightY = -relY * scale;
+
+  return {
+    top: { x: 0, y: topY },
+    left: { x: leftX, y: leftY },
+    right: { x: rightX, y: rightY },
+  };
 }
 
 /**
@@ -118,9 +159,12 @@ function processElements(
   elements: ModelElement[],
   textures: Record<string, string>,
   textureUrls: Map<string, string>,
-  scale: number
+  scale: number,
 ): RenderedElement[] {
   const renderedElements: RenderedElement[] = [];
+
+  // Block center in Minecraft coordinates (0-16 space)
+  const blockCenter = { x: 8, y: 8, z: 8 };
 
   for (const element of elements) {
     const faces: RenderedFace[] = [];
@@ -132,10 +176,11 @@ function processElements(
     const height = y2 - y1;
     const depth = z2 - z1;
 
-    // Calculate isometric position of element origin (front-bottom-left corner)
-    // We use the center-bottom of the element for positioning
-    const centerX = (x1 + x2) / 2;
-    const centerZ = (z1 + z2) / 2;
+    // Calculate face positions
+    const offsets = calculateFaceOffsets(element, scale, blockCenter);
+
+    // Z-index base for this element (higher Y = rendered on top)
+    const centerY = (y1 + y2) / 2;
 
     // Process each visible face
     // Top face (up) - always visible from above
@@ -145,18 +190,15 @@ function processElements(
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
 
       if (textureUrl) {
-        // Top face position: at the top of the element
-        const pos = toIsometric(centerX, y2, centerZ, scale);
-
         faces.push({
           type: "top",
           textureUrl,
-          x: pos.screenX,
-          y: pos.screenY,
+          x: offsets.top.x,
+          y: offsets.top.y,
           width: width * scale,
           height: depth * scale,
           uv: normalizeUV(face.uv),
-          zIndex: Math.round(y2 * 10 + centerX + centerZ),
+          zIndex: Math.round(centerY * 10 + 100),
           brightness: 1.0,
         });
       }
@@ -169,19 +211,16 @@ function processElements(
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
 
       if (textureUrl) {
-        // South face: front of the element
-        const pos = toIsometric(centerX, y1 + height / 2, z2, scale);
-
         faces.push({
           type: "left",
           textureUrl,
-          x: pos.screenX,
-          y: pos.screenY,
+          x: offsets.left.x,
+          y: offsets.left.y,
           width: width * scale,
           height: height * scale,
           uv: normalizeUV(face.uv),
-          zIndex: Math.round(z2 * 10 + centerX + y1),
-          brightness: 0.85,
+          zIndex: Math.round(centerY * 10 + 50),
+          brightness: 0.8,
         });
       }
     }
@@ -193,19 +232,16 @@ function processElements(
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
 
       if (textureUrl) {
-        // East face: right side of the element
-        const pos = toIsometric(x2, y1 + height / 2, centerZ, scale);
-
         faces.push({
           type: "right",
           textureUrl,
-          x: pos.screenX,
-          y: pos.screenY,
+          x: offsets.right.x,
+          y: offsets.right.y,
           width: depth * scale,
           height: height * scale,
           uv: normalizeUV(face.uv),
-          zIndex: Math.round(x2 * 10 + centerZ + y1),
-          brightness: 0.7,
+          zIndex: Math.round(centerY * 10),
+          brightness: 0.6,
         });
       }
     }
@@ -219,24 +255,75 @@ function processElements(
 }
 
 /**
+ * Checks if a block model is suitable for 3D isometric rendering.
+ * Returns false for cross-shaped models (plants, flowers), which should use 2D.
+ */
+function isSuitableFor3D(elements: ModelElement[]): boolean {
+  if (elements.length === 0) return false;
+
+  // Check if any element has the faces we need for isometric view
+  let hasIsometricFaces = false;
+
+  for (const element of elements) {
+    const faces = element.faces;
+    // We need at least up OR (south AND east) for a reasonable 3D render
+    if (faces.up || (faces.south && faces.east)) {
+      hasIsometricFaces = true;
+      break;
+    }
+  }
+
+  if (!hasIsometricFaces) return false;
+
+  // Check for cross-shaped models (typically have diagonal rotated elements)
+  // Cross models usually have elements rotated 45 degrees
+  for (const element of elements) {
+    if (element.rotation && Math.abs(element.rotation.angle) === 45) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Creates a default full-block element for simple blocks without elements array
  */
-function createDefaultElement(textures: Record<string, string>): ModelElement[] {
+function createDefaultElement(
+  textures: Record<string, string>,
+): ModelElement[] {
   // Resolve default textures for each face
-  const allTexture = textures.all || textures.particle || Object.values(textures)[0] || "";
+  const allTexture =
+    textures.all || textures.particle || Object.values(textures)[0] || "";
   const topTexture = textures.up || textures.top || textures.end || allTexture;
-  const southTexture = textures.south || textures.north || textures.side || allTexture;
-  const eastTexture = textures.east || textures.west || textures.side || allTexture;
+  const southTexture =
+    textures.south || textures.north || textures.side || allTexture;
+  const eastTexture =
+    textures.east || textures.west || textures.side || allTexture;
 
-  return [{
-    from: [0, 0, 0],
-    to: [16, 16, 16],
-    faces: {
-      up: { texture: topTexture.startsWith("#") ? topTexture : `#${Object.keys(textures).find(k => textures[k] === topTexture) || "all"}` },
-      south: { texture: southTexture.startsWith("#") ? southTexture : `#${Object.keys(textures).find(k => textures[k] === southTexture) || "all"}` },
-      east: { texture: eastTexture.startsWith("#") ? eastTexture : `#${Object.keys(textures).find(k => textures[k] === eastTexture) || "all"}` },
+  return [
+    {
+      from: [0, 0, 0],
+      to: [16, 16, 16],
+      faces: {
+        up: {
+          texture: topTexture.startsWith("#")
+            ? topTexture
+            : `#${Object.keys(textures).find((k) => textures[k] === topTexture) || "all"}`,
+        },
+        south: {
+          texture: southTexture.startsWith("#")
+            ? southTexture
+            : `#${Object.keys(textures).find((k) => textures[k] === southTexture) || "all"}`,
+        },
+        east: {
+          texture: eastTexture.startsWith("#")
+            ? eastTexture
+            : `#${Object.keys(textures).find((k) => textures[k] === eastTexture) || "all"}`,
+        },
+      },
     },
-  }];
+  ];
 }
 
 /**
@@ -250,14 +337,19 @@ export default function MinecraftCSSBlock({
   size = 64,
   onError,
 }: MinecraftCSSBlockProps) {
-  const [renderedElements, setRenderedElements] = useState<RenderedElement[]>([]);
+  const [renderedElements, setRenderedElements] = useState<RenderedElement[]>(
+    [],
+  );
+  const [fallbackTextureUrl, setFallbackTextureUrl] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Get pack info from store
   const packs = useStore((state) => state.packs);
   const packsDir = useStore((state) => state.packsDir);
-  const pack = packId ? packs.find((p) => p.id === packId) : null;
+  const pack = packId ? packs[packId] : null;
 
   // Scale factor: convert 16-unit Minecraft space to pixel size
   const scale = useMemo(() => (size * 0.6) / 16, [size]);
@@ -279,7 +371,7 @@ export default function MinecraftCSSBlock({
               texturePath = await getPackTexturePath(
                 pack.path,
                 textureId,
-                pack.is_zip
+                pack.is_zip,
               );
             } catch {
               texturePath = await getVanillaTexturePath(textureId);
@@ -302,7 +394,7 @@ export default function MinecraftCSSBlock({
             const resolution = await resolveBlockState(
               packId,
               blockStateId,
-              packsDir
+              packsDir,
             );
 
             if (resolution.models.length > 0) {
@@ -331,11 +423,24 @@ export default function MinecraftCSSBlock({
 
               const loadedTextures = await Promise.all(loadPromises);
               textureUrls = new Map(loadedTextures);
+
+              // Check if this model is suitable for 3D rendering
+              if (!isSuitableFor3D(elements)) {
+                // Fall back to 2D texture for cross/plant models
+                const fallbackTexture = await loadTextureUrl(normalizedAssetId);
+                if (mounted) {
+                  setFallbackTextureUrl(fallbackTexture);
+                  setRenderedElements([]);
+                  setError(false);
+                  setLoading(false);
+                }
+                return;
+              }
             }
           } catch (modelError) {
             console.debug(
               `[MinecraftCSSBlock] Could not load block model for ${assetId}`,
-              modelError
+              modelError,
             );
           }
         }
@@ -349,9 +454,15 @@ export default function MinecraftCSSBlock({
         }
 
         // Process elements into renderable faces
-        const rendered = processElements(elements, textures, textureUrls, scale);
+        const rendered = processElements(
+          elements,
+          textures,
+          textureUrls,
+          scale,
+        );
 
         if (mounted) {
+          setFallbackTextureUrl(null);
           setRenderedElements(rendered);
           setError(false);
           setLoading(false);
@@ -359,7 +470,7 @@ export default function MinecraftCSSBlock({
       } catch (err) {
         console.warn(
           `[MinecraftCSSBlock] Failed to load block for ${assetId}:`,
-          err
+          err,
         );
         if (mounted) {
           setError(true);
@@ -393,32 +504,53 @@ export default function MinecraftCSSBlock({
     );
   }
 
-  if (error || sortedFaces.length === 0) {
+  if (error) {
+    return null;
+  }
+
+  // Render 2D fallback for cross/plant blocks
+  if (fallbackTextureUrl) {
+    return (
+      <div className={s.blockContainer} style={{ width: size, height: size }}>
+        <img
+          src={fallbackTextureUrl}
+          alt={alt}
+          className={s.fallbackTexture}
+          onError={() => {
+            setError(true);
+            onError?.();
+          }}
+          draggable={false}
+        />
+      </div>
+    );
+  }
+
+  if (sortedFaces.length === 0) {
     return null;
   }
 
   return (
-    <div
-      className={s.blockContainer}
-      style={{ width: size, height: size }}
-    >
+    <div className={s.blockContainer} style={{ width: size, height: size }}>
       <div className={s.blockScene}>
         {sortedFaces.map((face, index) => (
           <div
             key={index}
             className={`${s.face} ${s[`face${face.type.charAt(0).toUpperCase()}${face.type.slice(1)}`]}`}
-            style={{
-              '--face-x': `${face.x}px`,
-              '--face-y': `${face.y}px`,
-              '--face-width': `${face.width}px`,
-              '--face-height': `${face.height}px`,
-              '--face-brightness': face.brightness,
-              '--uv-x': face.uv.u1,
-              '--uv-y': face.uv.v1,
-              '--uv-width': face.uv.u2 - face.uv.u1,
-              '--uv-height': face.uv.v2 - face.uv.v1,
-              zIndex: face.zIndex,
-            } as React.CSSProperties}
+            style={
+              {
+                "--face-x": `${face.x}px`,
+                "--face-y": `${face.y}px`,
+                "--face-width": `${face.width}px`,
+                "--face-height": `${face.height}px`,
+                "--face-brightness": face.brightness,
+                "--uv-x": face.uv.u1,
+                "--uv-y": face.uv.v1,
+                "--uv-width": face.uv.u2 - face.uv.u1,
+                "--uv-height": face.uv.v2 - face.uv.v1,
+                zIndex: face.zIndex,
+              } as React.CSSProperties
+            }
           >
             <img
               src={face.textureUrl}
