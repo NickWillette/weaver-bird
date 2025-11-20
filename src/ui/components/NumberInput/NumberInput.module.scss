@@ -1,0 +1,137 @@
+@use "@/ui/tokens" as tokens;
+
+// Input group container
+.inputGroup {
+    display: flex;
+    align-items: center;
+    position: relative;
+
+    @include tokens.border-standard;
+    @include tokens.radius-quirky-sm;
+    @include tokens.shadow-sm;
+
+    background: var(--color-block);
+    overflow: hidden;
+
+    transition:
+        box-shadow 180ms var(--spring-bezier),
+        border-color 180ms ease;
+
+    &:hover:not(.disabled) {
+        border-color: var(--color-primary);
+    }
+
+    &:focus-within:not(.disabled) {
+        border-color: var(--color-primary);
+        @include tokens.shadow-md;
+    }
+
+    &.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+}
+
+// Addon (prefix/suffix)
+.addon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 var(--spacing-xs);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-light);
+    background: var(--color-bg);
+    border-right: 2px solid var(--color-ink);
+    flex-shrink: 0;
+    user-select: none;
+
+    .sm & {
+        padding: 0 4px;
+        font-size: 0.65rem;
+    }
+}
+
+.suffix {
+    border-right: none;
+    border-left: 2px solid var(--color-ink);
+}
+
+// Base input styles
+.input {
+    flex: 1;
+    min-width: 0;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background: var(--color-block);
+    border: none;
+    color: var(--color-text);
+    font-family: var(--font-family);
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-align: right;
+
+    &:focus {
+        outline: none;
+    }
+
+    &:disabled {
+        cursor: not-allowed;
+        color: var(--color-text-light);
+    }
+
+    /* Remove spinner buttons on number inputs */
+    &::-webkit-outer-spin-button,
+    &::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
+    /* Firefox */
+    &[type="number"] {
+        -moz-appearance: textfield;
+    }
+
+    // Standalone input (no addons)
+    &:not(.withAddons) {
+        @include tokens.border-standard;
+        @include tokens.radius-quirky-sm;
+        @include tokens.shadow-sm;
+
+        transition:
+            box-shadow 180ms var(--spring-bezier),
+            border-color 180ms ease;
+
+        &:hover:not(:disabled) {
+            border-color: var(--color-primary);
+        }
+
+        &:focus:not(:disabled) {
+            border-color: var(--color-primary);
+            @include tokens.shadow-md;
+        }
+    }
+
+    // Error state
+    &.error {
+        border-color: var(--color-primary);
+    }
+}
+
+// Size variants
+.sm {
+    .input,
+    &.input {
+        padding: 2px 6px;
+        font-size: 0.7rem;
+    }
+}
+
+.md {
+    .input,
+    &.input {
+        padding: var(--spacing-xs) var(--spacing-sm);
+        font-size: 0.75rem;
+    }
+}

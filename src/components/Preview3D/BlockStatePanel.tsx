@@ -10,7 +10,27 @@ import {
   Combobox,
   type ComboboxOption,
 } from "@/ui/components/Combobox/Combobox";
+import { NumberInput } from "@/ui/components/NumberInput";
+import { Slider } from "@/ui/components/Slider/Slider";
 import s from "./BlockStatePanel.module.scss";
+
+// Property descriptions for common block state properties
+const PROPERTY_DESCRIPTIONS: Record<string, string> = {
+  distance: "Distance from nearest log (1-7). Leaves with distance 7 will decay unless persistent.",
+  persistent: "Player-placed leaves that won't decay naturally.",
+  waterlogged: "Whether this block contains water.",
+  facing: "Direction the block faces.",
+  axis: "Orientation axis of the block.",
+  half: "Upper or lower half of a two-block-tall structure.",
+  type: "Variant type of this block.",
+  age: "Growth stage of crops or plants.",
+  level: "Fluid level or fill amount.",
+  power: "Redstone signal strength (0-15).",
+  lit: "Whether this block is currently lit/active.",
+  open: "Whether this block is in an open state.",
+  powered: "Whether this block is receiving redstone power.",
+  snowy: "Whether the block has snow on top.",
+};
 
 interface Props {
   assetId: string;
@@ -162,20 +182,45 @@ export default function BlockStatePanel({
         );
       }
 
-      case "int":
+      case "int": {
+        const min = prop.min ?? 0;
+        const max = prop.max ?? 100;
+        const range = max - min;
+        const useSlider = range <= 15 && range > 0; // Use slider for small ranges
+        const description = PROPERTY_DESCRIPTIONS[prop.name];
+
         return (
-          <label key={prop.name} className={s.property}>
-            <span className={s.propertyName}>{prop.name}</span>
-            <input
-              type="number"
-              value={currentValue}
-              onChange={(e) => handleChange(e.target.value)}
-              min={prop.min}
-              max={prop.max}
-              className={s.numberInput}
-            />
-          </label>
+          <div key={prop.name} className={s.propertyWithDescription}>
+            {description && (
+              <div className={s.propertyDescription}>{description}</div>
+            )}
+            <div className={s.property}>
+              <span className={s.propertyName}>{prop.name}</span>
+              {useSlider ? (
+                <div className={s.sliderControl}>
+                  <Slider
+                    min={min}
+                    max={max}
+                    step={1}
+                    value={[parseInt(currentValue) || min]}
+                    onValueChange={(values) => handleChange(String(values[0]))}
+                    className={s.slider}
+                  />
+                  <span className={s.sliderValue}>{currentValue}</span>
+                </div>
+              ) : (
+                <NumberInput
+                  value={currentValue}
+                  onChange={(e) => handleChange(e.target.value)}
+                  min={min}
+                  max={max}
+                  size="sm"
+                />
+              )}
+            </div>
+          </div>
         );
+      }
 
       default:
         return null;
@@ -217,17 +262,16 @@ export default function BlockStatePanel({
           selected when multiple variants exist. Change the seed to see
           different random variations of this block.
         </div>
-        <label className={s.property}>
+        <div className={s.property}>
           <span className={s.propertyName}>Seed Value</span>
-          <input
-            type="number"
+          <NumberInput
             value={seed}
             onChange={(e) => onSeedChange(parseInt(e.target.value) || 0)}
-            className={s.numberInput}
             min={0}
             step={1}
+            size="sm"
           />
-        </label>
+        </div>
         <button
           onClick={() => onSeedChange(Math.floor(Math.random() * 1000000))}
           className={s.randomButton}
