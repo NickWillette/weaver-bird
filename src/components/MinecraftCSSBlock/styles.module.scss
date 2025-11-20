@@ -90,8 +90,6 @@
       calc(-50% + var(--face-y))
     )
     rotate(-45deg)
-    skewX(15deg)
-    skewY(15deg)
     scaleY(0.866);
 }
 
@@ -105,9 +103,9 @@
       calc(-50% + var(--face-x)),
       calc(-50% + var(--face-y))
     )
-    rotate(-30deg)
+    rotate(30deg)
     skewX(-30deg)
-    scaleY(0.864);
+    scaleY(0.866);
 }
 
 // Right face (east) - vertical parallelogram skewed right
@@ -120,7 +118,7 @@
       calc(-50% + var(--face-x)),
       calc(-50% + var(--face-y))
     )
-    rotate(30deg)
+    rotate(-30deg)
     skewX(30deg)
-    scaleY(0.864);
+    scaleY(0.866);
 }
