@@ -14,6 +14,7 @@ import {
   clearTintCache,
   type TintColor,
 } from "@lib/textureColorization";
+import { getBlockTintType } from "@/constants/vanillaBlockColors";
 import s from "./styles.module.scss";
 
 interface MinecraftCSSBlockProps {
@@ -181,66 +182,39 @@ function calculateFaceOffsets(
 
 /**
  * Determines which colormap type to use for a texture.
- * This is based on Minecraft's hardcoded colormap assignments.
  *
- * Returns "grass" for blocks that use grass.png colormap,
- * "foliage" for blocks that use foliage.png colormap,
- * or undefined if the block doesn't use a colormap.
+ * This checks against Minecraft's vanilla BlockColors registry to determine
+ * if a texture/block should be tinted and which colormap to use.
  *
  * Note: In Minecraft, tintindex only indicates IF a face should be tinted,
- * but WHICH colormap to use is hardcoded in the game logic per block type.
+ * but WHICH colormap to use is hardcoded in the game's BlockColors registry.
+ *
+ * @param textureId - Texture ID (e.g., "minecraft:block/oak_leaves")
+ * @returns Colormap type or undefined
  */
 function getColormapType(textureId: string): "grass" | "foliage" | undefined {
-  // Blocks that use grass.png colormap
-  const grassTextures = [
-    "grass_block_top",
-    "grass_block_side",
-    "grass_block_side_overlay",
-    "tall_grass",
-    "grass",
-    "fern",
-    "large_fern",
-    "sugar_cane",
-    "lily_pad",
-    "attached_melon_stem",
-    "attached_pumpkin_stem",
-    "melon_stem",
-    "pumpkin_stem",
-  ];
+  // Extract block name from texture ID
+  // e.g., "minecraft:block/oak_leaves" -> "minecraft:oak_leaves"
+  let blockId = textureId;
 
-  if (grassTextures.some((pattern) => textureId.includes(pattern))) {
-    return "grass";
+  // Handle texture paths that include "/block/" or "/item/"
+  if (blockId.includes("/block/")) {
+    blockId = blockId.replace("/block/", ":");
+  } else if (blockId.includes("/item/")) {
+    blockId = blockId.replace("/item/", ":");
   }
 
-  // Blocks that use foliage.png colormap
-  // Leaves: Oak, Jungle, Acacia, Dark Oak, Mangrove (biome-dependent)
-  // NOT: Birch, Spruce, Cherry, Azalea (these have fixed colors)
-  if (textureId.includes("leaves")) {
-    // Skip leaves with _inventory suffix (these are pre-colored)
-    if (textureId.includes("_inventory")) {
-      return undefined;
-    }
-
-    // Skip leaves with fixed colors (not biome-dependent)
-    const fixedColorLeaves = [
-      "birch",
-      "spruce",
-      "cherry",
-      "azalea",
-      "flowering_azalea",
-    ];
-
-    if (fixedColorLeaves.some((leafType) => textureId.includes(leafType))) {
-      return undefined;
-    }
-
-    // Oak, Jungle, Acacia, Dark Oak, Mangrove use foliage colormap
-    return "foliage";
+  // Ensure namespace
+  if (!blockId.includes(":")) {
+    blockId = `minecraft:${blockId}`;
   }
 
-  // Vines use foliage colormap
-  if (textureId.includes("vine")) {
-    return "foliage";
+  // Check against vanilla block colors registry
+  const tintType = getBlockTintType(blockId);
+
+  // Only return grass/foliage (we don't handle water/special in CSS renderer yet)
+  if (tintType === "grass" || tintType === "foliage") {
+    return tintType;
   }
 
   return undefined;
