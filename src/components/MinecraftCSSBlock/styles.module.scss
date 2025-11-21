@@ -26,6 +26,11 @@
     image-rendering: pixelated;
     image-rendering: -moz-crisp-edges;
     image-rendering: crisp-edges;
+
+    // Safari/WebKit optimization for smooth transitions
+    // This is the 2D fallback shown before 3D model loads
+    transform: translateZ(0);
+    backface-visibility: hidden;
 }
 
 .loading {
@@ -64,6 +69,14 @@
     // Isometric view: rotate the whole scene
     // rotateX(-30deg) tilts down to see top, rotateY(-45deg) rotates to see two sides
     transform: translateY(10%) rotateX(-30deg) rotateY(-45deg);
+
+    // Safari/WebKit optimizations for smoother 3D rendering
+    // Force hardware acceleration with translateZ(0)
+    // Note: already using translate3d in face transforms, but this ensures scene is also accelerated
+    backface-visibility: hidden;
+    // Hint browser that transform will change (for Safari performance)
+    // Applied to scene once when 3D model loads
+    will-change: transform;
 }
 
 // Base face styles
@@ -78,6 +91,10 @@
     // Using padding instead of scale to avoid blurring textures
     margin: -0.5px;
     padding: 0.5px;
+
+    // Safari/WebKit optimizations
+    backface-visibility: hidden;
+    // Force hardware acceleration (already using translate3d in transforms)
 
     img {
         // Position and scale image for UV mapping
