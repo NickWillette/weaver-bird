@@ -2,6 +2,7 @@
 use crate::model::{AssetRecord, OverrideSelection, PackMeta};
 use crate::util::zip;
 use anyhow::{anyhow, Result};
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -88,27 +89,34 @@ pub fn build_weaver_nest(
         }
     }
 
-    // Copy winner files to output
+    // Copy winner files to output in parallel
+    println!("[build_weaver_nest] Copying {} files in PARALLEL", winners.len());
     let pack_map: HashMap<String, &PackMeta> = packs.iter().map(|p| (p.id.clone(), p)).collect();
 
-    for winner in winners {
-        let source_pack = pack_map
-            .get(&winner.source_pack_id)
-            .ok_or_else(|| anyhow!("Pack not found: {}", winner.source_pack_id))?;
+    // Process files in parallel
+    winners
+        .par_iter()
+        .try_for_each(|winner| -> Result<()> {
+            let source_pack = pack_map
+                .get(&winner.source_pack_id)
+                .ok_or_else(|| anyhow!("Pack not found: {}", winner.source_pack_id))?;
 
-        let content = if winner.source_is_zip {
-            zip::extract_zip_entry(&source_pack.path, &winner.source_path)?
-        } else {
-            let full_path = Path::new(&source_pack.path).join(&winner.source_path);
-            fs::read(&full_path)?
-        };
+            let content = if winner.source_is_zip {
+                zip::extract_zip_entry(&source_pack.path, &winner.source_path)?
+            } else {
+                let full_path = Path::new(&source_pack.path).join(&winner.source_path);
+                fs::read(&full_path)?
+            };
 
-        // Write to output
-        let output_file_path = output_path.join(&winner.source_path);
-        fs::create_dir_all(output_file_path.parent().unwrap())?;
-        fs::write(&output_file_path, content)?;
-    }
+            // Write to output
+            let output_file_path = output_path.join(&winner.source_path);
+            fs::create_dir_all(output_file_path.parent().unwrap())?;
+            fs::write(&output_file_path, content)?;
 
+            Ok(())
+        })?;
+
+    println!("[build_weaver_nest] Successfully copied all files");
     Ok(())
 }
 

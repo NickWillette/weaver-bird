@@ -2,6 +2,7 @@
 use crate::model::{AssetRecord, PackMeta};
 use crate::util::zip;
 use anyhow::Result;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -14,33 +15,49 @@ pub fn index_assets(
     packs: &[PackMeta],
 ) -> Result<(Vec<AssetRecord>, HashMap<String, Vec<String>>)> {
     println!(
-        "[index_assets] Starting asset indexing for {} packs",
+        "[index_assets] Starting PARALLEL asset indexing for {} packs",
         packs.len()
     );
+
+    // Parallelize indexing of individual packs
+    let pack_results: Vec<_> = packs
+        .par_iter()
+        .enumerate()
+        .map(|(i, pack)| {
+            println!(
+                "[index_assets] Indexing pack {}/{}: {} (is_zip: {})",
+                i + 1,
+                packs.len(),
+                pack.name,
+                pack.is_zip
+            );
+            let pack_assets = if pack.is_zip {
+                index_zip_pack(&pack.path, &pack.id)
+            } else {
+                index_folder_pack(&pack.path, &pack.id)
+            };
+
+            match pack_assets {
+                Ok(assets) => {
+                    println!("[index_assets] Found {} assets in pack {}", assets.len(), pack.name);
+                    Ok((pack.id.clone(), assets))
+                }
+                Err(e) => Err(e)
+            }
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    // Merge results sequentially (this is fast compared to I/O)
     let mut assets_map: HashMap<String, AssetRecord> = HashMap::new();
     let mut providers: HashMap<String, Vec<String>> = HashMap::new();
 
-    for (i, pack) in packs.iter().enumerate() {
-        println!(
-            "[index_assets] Indexing pack {}/{}: {} (is_zip: {})",
-            i + 1,
-            packs.len(),
-            pack.name,
-            pack.is_zip
-        );
-        let pack_assets = if pack.is_zip {
-            index_zip_pack(&pack.path, &pack.id)?
-        } else {
-            index_folder_pack(&pack.path, &pack.id)?
-        };
-        println!("[index_assets] Found {} assets in pack", pack_assets.len());
-
+    for (pack_id, pack_assets) in pack_results {
         for (asset_id, files) in pack_assets {
             // Track provider
             providers
                 .entry(asset_id.clone())
                 .or_insert_with(Vec::new)
-                .push(pack.id.clone());
+                .push(pack_id.clone());
 
             // Merge into assets map
             assets_map

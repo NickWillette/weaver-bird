@@ -1,5 +1,6 @@
 /// Utilities for extracting and caching vanilla Minecraft textures
 use anyhow::{anyhow, Context, Result};
+use rayon::prelude::*;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -202,17 +203,18 @@ pub fn extract_vanilla_textures(jar_path: &Path) -> Result<PathBuf> {
         fs::create_dir_all(&cache_dir).context("Failed to recreate cache directory")?;
     }
 
-    // Open the JAR file (it's a ZIP archive)
+    // First pass: collect all files that need to be extracted
     let jar_file = fs::File::open(jar_path).context("Failed to open Minecraft JAR file")?;
     let mut archive = ZipArchive::new(jar_file).context("Failed to read JAR archive")?;
 
-    // Extract textures, models, and blockstates from assets/minecraft/
+    let mut files_to_extract = Vec::new();
+
     for i in 0..archive.len() {
-        let mut file = archive
+        let file = archive
             .by_index(i)
             .context("Failed to read archive entry")?;
 
-        let file_path = file.name();
+        let file_path = file.name().to_string();
 
         // Extract textures (PNG), models (JSON), and blockstates (JSON)
         let should_extract = (file_path.starts_with("assets/minecraft/textures/")
@@ -222,8 +224,35 @@ pub fn extract_vanilla_textures(jar_path: &Path) -> Result<PathBuf> {
                 && file_path.ends_with(".json"));
 
         if should_extract {
+            files_to_extract.push((i, file_path));
+        }
+    }
+
+    println!(
+        "[vanilla_textures] Found {} files to extract, extracting in PARALLEL",
+        files_to_extract.len()
+    );
+
+    // Second pass: extract files in parallel
+    // Each thread opens its own ZipArchive instance
+    let jar_path_clone = jar_path.to_path_buf();
+    let cache_dir_clone = cache_dir.clone();
+
+    files_to_extract
+        .par_iter()
+        .try_for_each(|(index, file_path)| -> Result<()> {
+            // Open archive in this thread
+            let jar_file = fs::File::open(&jar_path_clone)
+                .context("Failed to open Minecraft JAR file")?;
+            let mut archive = ZipArchive::new(jar_file)
+                .context("Failed to read JAR archive")?;
+
+            let mut file = archive
+                .by_index(*index)
+                .context("Failed to read archive entry")?;
+
             // Keep the full structure: assets/minecraft/...
-            let output_path = cache_dir.join(file_path);
+            let output_path = cache_dir_clone.join(file_path);
 
             // Create parent directories
             if let Some(parent) = output_path.parent() {
@@ -238,14 +267,15 @@ pub fn extract_vanilla_textures(jar_path: &Path) -> Result<PathBuf> {
                 .context("Failed to read from JAR")?;
             std::io::copy(&mut buffer.as_slice(), &mut output_file)
                 .context("Failed to write file")?;
-        }
-    }
+
+            Ok(())
+        })?;
 
     // Create marker file to indicate extraction is complete (v2 = includes models & blockstates)
     fs::write(marker_file, "extracted_v2").context("Failed to create extraction marker")?;
 
     println!(
-        "[vanilla_textures] Successfully extracted vanilla assets (textures, models, blockstates)"
+        "[vanilla_textures] Successfully extracted vanilla assets (textures, models, blockstates) in PARALLEL"
     );
     Ok(cache_dir)
 }
