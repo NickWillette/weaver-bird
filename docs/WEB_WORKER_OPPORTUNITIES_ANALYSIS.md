@@ -14,8 +14,11 @@ After analyzing the Weaverbird codebase, I've identified **5 key opportunities**
 
 ✅ **Already Implemented:**
 - `blockGeometry.worker.ts` - Block model face geometry processing
-- **Impact:** 95% reduction in main thread blocking (45ms → 2ms)
-- **Result:** Smooth scrolling during 2D→3D transitions
+  - **Impact:** 95% reduction in main thread blocking (45ms → 2ms)
+  - **Result:** Smooth scrolling during 2D→3D transitions
+- `threeGeometry.worker.ts` - Three.js model conversion (Priority 2)
+  - **Impact:** 85-87% reduction in main thread blocking (20-40ms → 3-5ms)
+  - **Result:** Responsive UI during 3D preview loading
 
 ---
 
@@ -325,10 +328,11 @@ Leave pack scanning in Rust where it belongs.
    - Estimated time: 3-4 hours
 
 ### Phase 2: 3D Performance (3-5 days)
-2. ⭐ **Three.js Model Conversion Worker** (Priority 2)
+2. ✅ **Three.js Model Conversion Worker** (Priority 2) - **COMPLETE**
    - Significant 3D preview improvement
-   - Requires design decision (OffscreenCanvas vs data pre-compute)
-   - Estimated time: 4-6 hours
+   - Chose data pre-compute approach over OffscreenCanvas
+   - Implementation time: ~4 hours
+   - See [THREE_GEOMETRY_WORKER.md](./THREE_GEOMETRY_WORKER.md) for details
 
 ### Phase 3: Polish (1-2 days)
 3. ⭐ **Colormap Sampling Worker** (Priority 3)
