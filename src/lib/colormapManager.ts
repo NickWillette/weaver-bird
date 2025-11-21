@@ -8,7 +8,7 @@
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getPackTexturePath, getVanillaTexturePath } from "@lib/tauri";
 import { getBiomesWithCoords } from "@components/BiomeColorPicker/biomeData";
-import { sampleColormapAtCoordinates } from "@lib/colormapSampler";
+import { colormapSamplerWorker } from "@lib/colormapSamplerWorker";
 import type { PackMeta } from "@state/types";
 
 const GRASS_COLORMAP_ASSET_ID = "minecraft:colormap/grass";
@@ -90,6 +90,7 @@ export async function loadColormapUrl(
 
 /**
  * Sample colors from both grass and foliage colormaps at given coordinates
+ * Uses Web Worker for non-blocking processing
  */
 export async function sampleColormapColors(
   grassColormapUrl: string | null,
@@ -100,36 +101,59 @@ export async function sampleColormapColors(
   grassColor: { r: number; g: number; b: number } | null;
   foliageColor: { r: number; g: number; b: number } | null;
 }> {
-  const results = {
-    grassColor: null as { r: number; g: number; b: number } | null,
-    foliageColor: null as { r: number; g: number; b: number } | null,
-  };
-
   try {
-    if (grassColormapUrl) {
-      results.grassColor = await sampleColormapAtCoordinates(
-        grassColormapUrl,
-        x,
-        y,
-      );
-    }
-  } catch (error) {
-    console.error(`[ColormapManager] Failed to sample grass color:`, error);
-  }
+    // Use the worker to sample both colormaps at once
+    const result = await colormapSamplerWorker.sampleSingle(
+      grassColormapUrl,
+      foliageColormapUrl,
+      x,
+      y,
+    );
 
+    return {
+      grassColor: result.grassColor,
+      foliageColor: result.foliageColor,
+    };
+  } catch (error) {
+    console.error(`[ColormapManager] Failed to sample colors:`, error);
+    return {
+      grassColor: null,
+      foliageColor: null,
+    };
+  }
+}
+
+/**
+ * Sample colors from both colormaps at multiple coordinates in batch
+ * Uses Web Worker for efficient parallel processing
+ * Useful for pre-caching all biome colors at once
+ */
+export async function sampleColormapColorsBatch(
+  grassColormapUrl: string | null,
+  foliageColormapUrl: string | null,
+  coordinates: Array<{ x: number; y: number }>,
+): Promise<
+  Array<{
+    grassColor: { r: number; g: number; b: number } | null;
+    foliageColor: { r: number; g: number; b: number } | null;
+  }>
+> {
   try {
-    if (foliageColormapUrl) {
-      results.foliageColor = await sampleColormapAtCoordinates(
-        foliageColormapUrl,
-        x,
-        y,
-      );
-    }
-  } catch (error) {
-    console.error(`[ColormapManager] Failed to sample foliage color:`, error);
-  }
+    const results = await colormapSamplerWorker.sampleBatch(
+      grassColormapUrl,
+      foliageColormapUrl,
+      coordinates,
+    );
 
-  return results;
+    return results;
+  } catch (error) {
+    console.error(`[ColormapManager] Failed to sample colors in batch:`, error);
+    // Return empty results for all coordinates
+    return coordinates.map(() => ({
+      grassColor: null,
+      foliageColor: null,
+    }));
+  }
 }
 
 /**
