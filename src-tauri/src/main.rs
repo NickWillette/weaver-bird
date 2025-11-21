@@ -13,18 +13,24 @@ use weaverbird_lib::commands::{
     BuildWeaverNestRequest,
 };
 
-/// Tauri command wrapper for scanning resource packs
+/// Tauri command wrapper for scanning resource packs (async for non-blocking UI)
 #[tauri::command]
-fn scan_packs_folder(
+async fn scan_packs_folder(
     packs_dir: String,
 ) -> Result<weaverbird_lib::model::ScanResult, weaverbird_lib::AppError> {
-    scan_packs_folder_impl(packs_dir)
+    // Use spawn_blocking for CPU/IO-heavy work with rayon parallelism
+    tokio::task::spawn_blocking(move || scan_packs_folder_impl(packs_dir))
+        .await
+        .map_err(|e| weaverbird_lib::AppError::internal(format!("Task join error: {}", e)))?
 }
 
-/// Tauri command wrapper for building Weaver Nest
+/// Tauri command wrapper for building Weaver Nest (async for non-blocking UI)
 #[tauri::command]
-fn build_weaver_nest(request: BuildWeaverNestRequest) -> Result<String, weaverbird_lib::AppError> {
-    build_weaver_nest_impl(request)
+async fn build_weaver_nest(request: BuildWeaverNestRequest) -> Result<String, weaverbird_lib::AppError> {
+    // Use spawn_blocking for CPU/IO-heavy work with rayon parallelism
+    tokio::task::spawn_blocking(move || build_weaver_nest_impl(request))
+        .await
+        .map_err(|e| weaverbird_lib::AppError::internal(format!("Task join error: {}", e)))?
 }
 
 /// Tauri command wrapper for getting default packs directory
@@ -33,10 +39,13 @@ fn get_default_packs_dir() -> Result<String, weaverbird_lib::AppError> {
     get_default_packs_dir_impl()
 }
 
-/// Tauri command wrapper for initializing vanilla textures
+/// Tauri command wrapper for initializing vanilla textures (async for non-blocking UI)
 #[tauri::command]
-fn initialize_vanilla_textures() -> Result<String, weaverbird_lib::AppError> {
-    initialize_vanilla_textures_impl()
+async fn initialize_vanilla_textures() -> Result<String, weaverbird_lib::AppError> {
+    // Use spawn_blocking for CPU/IO-heavy vanilla texture extraction
+    tokio::task::spawn_blocking(move || initialize_vanilla_textures_impl())
+        .await
+        .map_err(|e| weaverbird_lib::AppError::internal(format!("Task join error: {}", e)))?
 }
 
 /// Tauri command wrapper for getting vanilla texture path
@@ -63,12 +72,15 @@ fn get_suggested_minecraft_paths() -> Result<Vec<String>, weaverbird_lib::AppErr
     get_suggested_minecraft_paths_impl()
 }
 
-/// Tauri command wrapper for initializing vanilla textures from custom directory
+/// Tauri command wrapper for initializing vanilla textures from custom directory (async)
 #[tauri::command]
-fn initialize_vanilla_textures_from_custom_dir(
+async fn initialize_vanilla_textures_from_custom_dir(
     minecraft_dir: String,
 ) -> Result<String, weaverbird_lib::AppError> {
-    initialize_vanilla_textures_from_custom_dir_impl(minecraft_dir)
+    // Use spawn_blocking for CPU/IO-heavy vanilla texture extraction
+    tokio::task::spawn_blocking(move || initialize_vanilla_textures_from_custom_dir_impl(minecraft_dir))
+        .await
+        .map_err(|e| weaverbird_lib::AppError::internal(format!("Task join error: {}", e)))?
 }
 
 /// Tauri command wrapper for detecting all launchers
@@ -135,16 +147,21 @@ fn get_block_state_schema(
     get_block_state_schema_impl(pack_id, block_id, packs_dir)
 }
 
-/// Tauri command wrapper for resolving block state to models
+/// Tauri command wrapper for resolving block state to models (async for non-blocking)
 #[tauri::command]
-fn resolve_block_state(
+async fn resolve_block_state(
     pack_id: String,
     block_id: String,
     packs_dir: String,
     state_props: Option<std::collections::HashMap<String, String>>,
     seed: Option<u64>,
 ) -> Result<weaverbird_lib::util::blockstates::ResolutionResult, weaverbird_lib::AppError> {
-    resolve_block_state_impl(pack_id, block_id, packs_dir, state_props, seed)
+    // Use spawn_blocking for potentially recursive model resolution
+    tokio::task::spawn_blocking(move || {
+        resolve_block_state_impl(pack_id, block_id, packs_dir, state_props, seed)
+    })
+    .await
+    .map_err(|e| weaverbird_lib::AppError::internal(format!("Task join error: {}", e)))?
 }
 
 fn main() {

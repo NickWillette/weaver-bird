@@ -1,15 +1,21 @@
 /// Scan a directory for resource packs (both .zip and uncompressed folders)
 use crate::model::PackMeta;
 use anyhow::Result;
+use rayon::prelude::*;
 use std::fs;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 use zip::ZipArchive;
 
+enum PackEntry {
+    Zip(PathBuf, String, u64), // path, name, size
+    Dir(PathBuf, String), // path, name
+}
+
 /// Scan a directory for resource packs (.zip files and uncompressed folders)
 pub fn scan_packs(packs_dir: &str) -> Result<Vec<PackMeta>> {
-    println!("[scan_packs] Starting scan of: {}", packs_dir);
+    println!("[scan_packs] Starting PARALLEL scan of: {}", packs_dir);
     let path = Path::new(packs_dir);
 
     if !path.exists() {
@@ -20,15 +26,15 @@ pub fn scan_packs(packs_dir: &str) -> Result<Vec<PackMeta>> {
         anyhow::bail!("Path is not a directory: {}", packs_dir);
     }
 
-    let mut packs = Vec::new();
+    // First pass: collect all pack entries
+    let mut pack_entries = Vec::new();
 
-    // Scan directory entries
     println!("[scan_packs] Reading directory entries...");
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let entry_path = entry.path();
         let file_name = entry.file_name();
-        let file_name_str = file_name.to_string_lossy();
+        let file_name_str = file_name.to_string_lossy().to_string();
 
         // Skip hidden files and non-pack folders
         if file_name_str.starts_with('.') {
@@ -37,22 +43,12 @@ pub fn scan_packs(packs_dir: &str) -> Result<Vec<PackMeta>> {
 
         // Check for .zip files
         if entry_path.is_file() && entry_path.extension().map_or(false, |ext| ext == "zip") {
-            println!("[scan_packs] Found ZIP: {}", file_name_str);
             if let Ok(metadata) = entry.metadata() {
-                println!("[scan_packs] Extracting metadata from ZIP...");
-                let (description, icon_data) = extract_pack_metadata_from_zip(&entry_path);
-                println!("[scan_packs] Metadata extracted");
-
-                let pack = PackMeta {
-                    id: file_name_str.to_string(),
-                    name: file_name_str.trim_end_matches(".zip").to_string(),
-                    path: entry_path.to_string_lossy().to_string(),
-                    size: metadata.len(),
-                    is_zip: true,
-                    description,
-                    icon_data,
-                };
-                packs.push(pack);
+                pack_entries.push(PackEntry::Zip(
+                    entry_path,
+                    file_name_str,
+                    metadata.len()
+                ));
             }
         }
 
@@ -60,32 +56,61 @@ pub fn scan_packs(packs_dir: &str) -> Result<Vec<PackMeta>> {
         if entry_path.is_dir() {
             let pack_mcmeta = entry_path.join("pack.mcmeta");
             if pack_mcmeta.exists() {
-                let size = calculate_dir_size(&entry_path);
-                let (description, icon_data) = extract_pack_metadata_from_dir(&entry_path);
-
-                let pack = PackMeta {
-                    id: file_name_str.to_string(),
-                    name: file_name_str.to_string(),
-                    path: entry_path.to_string_lossy().to_string(),
-                    size,
-                    is_zip: false,
-                    description,
-                    icon_data,
-                };
-                packs.push(pack);
+                pack_entries.push(PackEntry::Dir(entry_path, file_name_str));
             }
         }
     }
 
-    // Sort packs by name for consistent ordering
-    packs.sort_by(|a, b| a.name.cmp(&b.name));
+    println!("[scan_packs] Found {} packs, extracting metadata in PARALLEL", pack_entries.len());
 
-    println!("[scan_packs] Found {} packs total:", packs.len());
-    for pack in &packs {
+    // Second pass: extract metadata in parallel
+    let packs: Vec<PackMeta> = pack_entries
+        .par_iter()
+        .filter_map(|entry| {
+            match entry {
+                PackEntry::Zip(entry_path, file_name_str, size) => {
+                    println!("[scan_packs] Processing ZIP: {}", file_name_str);
+                    let (description, icon_data) = extract_pack_metadata_from_zip(entry_path);
+
+                    Some(PackMeta {
+                        id: file_name_str.clone(),
+                        name: file_name_str.trim_end_matches(".zip").to_string(),
+                        path: entry_path.to_string_lossy().to_string(),
+                        size: *size,
+                        is_zip: true,
+                        description,
+                        icon_data,
+                    })
+                }
+                PackEntry::Dir(entry_path, file_name_str) => {
+                    println!("[scan_packs] Processing directory: {}", file_name_str);
+                    let size = calculate_dir_size(entry_path);
+                    let (description, icon_data) = extract_pack_metadata_from_dir(entry_path);
+
+                    Some(PackMeta {
+                        id: file_name_str.clone(),
+                        name: file_name_str.clone(),
+                        path: entry_path.to_string_lossy().to_string(),
+                        size,
+                        is_zip: false,
+                        description,
+                        icon_data,
+                    })
+                }
+            }
+        })
+        .collect();
+
+    // Sort packs by name for consistent ordering
+    let mut sorted_packs = packs;
+    sorted_packs.sort_by(|a, b| a.name.cmp(&b.name));
+
+    println!("[scan_packs] Found {} packs total:", sorted_packs.len());
+    for pack in &sorted_packs {
         println!("[scan_packs]   - {} (is_zip: {})", pack.name, pack.is_zip);
     }
 
-    Ok(packs)
+    Ok(sorted_packs)
 }
 
 /// Calculate total size of a directory recursively
