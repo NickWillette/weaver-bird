@@ -39,6 +39,8 @@ import {
   type TintColor,
 } from "@lib/textureColorization";
 import { getBlockTintType } from "@/constants/vanillaBlockColors";
+import { transitionQueue } from "@lib/transitionQueue";
+import { blockGeometryWorker } from "@lib/blockGeometryWorker";
 import s from "./styles.module.scss";
 
 interface MinecraftCSSBlockProps {
@@ -248,7 +250,12 @@ function getColormapType(textureId: string): "grass" | "foliage" | undefined {
 
 /**
  * Processes block model elements into renderable face data
+ *
+ * NOTE: This function is no longer used - processing is now done in a Web Worker
+ * for better performance. See src/workers/blockGeometry.worker.ts
+ * Keeping this code for reference/fallback purposes.
  */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 function processElements(
   elements: ModelElement[],
   textures: Record<string, string>,
@@ -548,37 +555,38 @@ export default function MinecraftCSSBlock({
 
   // OPTIMIZATION: Determine if this block uses tinting to avoid unnecessary subscriptions
   const needsGrassTint = useMemo(() => {
-    return assetId.includes('grass') ||
-           assetId.includes('fern') ||
-           assetId.includes('tall_grass') ||
-           assetId.includes('sugar_cane');
+    return (
+      assetId.includes("grass") ||
+      assetId.includes("fern") ||
+      assetId.includes("tall_grass") ||
+      assetId.includes("sugar_cane")
+    );
   }, [assetId]);
 
   const needsFoliageTint = useMemo(() => {
-    return assetId.includes('leaves') ||
-           assetId.includes('vine');
+    return assetId.includes("leaves") || assetId.includes("vine");
   }, [assetId]);
 
   const needsAnyTint = needsGrassTint || needsFoliageTint;
 
   // Get selected biome/colors for tinting - only subscribe if needed
   const selectedBiomeId = useStore((state) =>
-    needsAnyTint ? state.selectedBiomeId : undefined
+    needsAnyTint ? state.selectedBiomeId : undefined,
   );
   const selectedGrassColor = useStore((state) =>
-    needsGrassTint ? state.selectedGrassColor : undefined
+    needsGrassTint ? state.selectedGrassColor : undefined,
   );
   const selectedFoliageColor = useStore((state) =>
-    needsFoliageTint ? state.selectedFoliageColor : undefined
+    needsFoliageTint ? state.selectedFoliageColor : undefined,
   );
 
   // Subscribe to colormap URLs only if block uses tinting
   // This prevents non-tinted blocks from re-rendering on pack order changes
   const grassColormapUrl = useStore((state) =>
-    needsGrassTint ? state.grassColormapUrl : undefined
+    needsGrassTint ? state.grassColormapUrl : undefined,
   );
   const foliageColormapUrl = useStore((state) =>
-    needsFoliageTint ? state.foliageColormapUrl : undefined
+    needsFoliageTint ? state.foliageColormapUrl : undefined,
   );
 
   // Prevent unused variable warnings
@@ -618,21 +626,30 @@ export default function MinecraftCSSBlock({
   // 0.5 gives a good fill of the card while leaving padding for isometric projection
   const scale = useMemo(() => (size * 0.5) / 16, [size]);
 
-  // OPTIMIZATION: Defer 3D model rendering until browser is idle
+  // OPTIMIZATION: Defer 3D model rendering until browser is idle + use global transition queue
   // This allows fast initial page load with simple textures, then upgrades to 3D progressively
   // STAGGER: Add progressive delay to prevent all cards from transitioning simultaneously
+  // QUEUE: Use global transition queue to ensure only 1-2 transitions per frame
   // This is especially important for Safari/WebKit which struggles with many 3D transforms at once
   useEffect(() => {
-    const idleCallback = window.requestIdleCallback || ((cb) => setTimeout(cb, 100));
+    const idleCallback =
+      window.requestIdleCallback || ((cb) => setTimeout(cb, 100));
 
-    // Stagger delay: 40ms per card to spread out 3D transitions
-    // This prevents Safari from being overwhelmed with simultaneous 3D transform calculations
-    const staggerDelay = staggerIndex * 40;
+    // Stagger delay: 100ms per card to spread out initial scheduling
+    // Increased from 40ms to further prevent Safari from being overwhelmed with simultaneous 3D transform calculations
+    const staggerDelay = staggerIndex * 100;
     const baseTimeout = 500 + staggerDelay;
 
-    const handle = idleCallback(() => {
-      setUse3DModel(true);
-    }, { timeout: baseTimeout }); // Base 500ms + stagger delay
+    const handle = idleCallback(
+      () => {
+        // Instead of directly setting use3DModel, enqueue the transition
+        // This ensures only 1-2 blocks transition per frame, preventing layout thrashing
+        transitionQueue.enqueue(() => {
+          setUse3DModel(true);
+        });
+      },
+      { timeout: baseTimeout },
+    ); // Base 500ms + stagger delay
 
     return () => {
       if (window.cancelIdleCallback) {
@@ -667,7 +684,13 @@ export default function MinecraftCSSBlock({
 
     const loadBlockData = async () => {
       try {
-        setLoading(true);
+        // Only show loading shimmer on initial load, not during 2D→3D transition
+        // The 2D fallback image already acts as a loading state for the 3D model
+        const hasExistingFallback = fallbackTextureUrl !== null;
+        if (!hasExistingFallback) {
+          setLoading(true);
+        }
+
         const normalizedAssetId = normalizeAssetId(assetId);
 
         // OPTIMIZATION: If 3D model not yet requested, just load simple flat texture
@@ -828,8 +851,9 @@ export default function MinecraftCSSBlock({
           elements = createDefaultElement(textures);
         }
 
-        // Process elements into renderable faces
-        const rendered = processElements(
+        // Process elements into renderable faces using Web Worker
+        // This offloads the CPU-intensive geometry calculation to a background thread
+        const rendered = await blockGeometryWorker.processElements(
           elements,
           textures,
           textureUrls,
@@ -838,7 +862,7 @@ export default function MinecraftCSSBlock({
 
         if (mounted) {
           setFallbackTextureUrl(null);
-          setRenderedElements(rendered);
+          setRenderedElements(rendered as any); // Types are compatible
           setError(false);
           setLoading(false);
         }

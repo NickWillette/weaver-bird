@@ -74,9 +74,10 @@
     // Force hardware acceleration with translateZ(0)
     // Note: already using translate3d in face transforms, but this ensures scene is also accelerated
     backface-visibility: hidden;
-    // Hint browser that transform will change (for Safari performance)
-    // Applied to scene once when 3D model loads
-    will-change: transform;
+    // REMOVED: will-change: transform
+    // Reason: Pre-allocating GPU layers for all blocks caused Safari to freeze
+    // when many blocks transitioned simultaneously. Safari will still hardware-accelerate
+    // via translate3d, but now allocates layers on-demand which spreads GPU work across frames.
 }
 
 // Base face styles
