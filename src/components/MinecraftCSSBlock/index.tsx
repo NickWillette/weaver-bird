@@ -50,6 +50,8 @@ interface MinecraftCSSBlockProps {
   alt?: string;
   /** Size of the block in pixels (default 64) */
   size?: number;
+  /** Index for staggering 3D model loading to prevent simultaneous transitions */
+  staggerIndex?: number;
   /** Callback when textures fail to load */
   onError?: () => void;
 }
@@ -520,6 +522,7 @@ export default function MinecraftCSSBlock({
   packId,
   alt = "Block",
   size = 64,
+  staggerIndex = 0,
   onError,
 }: MinecraftCSSBlockProps) {
   const [renderedElements, setRenderedElements] = useState<RenderedElement[]>(
@@ -617,11 +620,19 @@ export default function MinecraftCSSBlock({
 
   // OPTIMIZATION: Defer 3D model rendering until browser is idle
   // This allows fast initial page load with simple textures, then upgrades to 3D progressively
+  // STAGGER: Add progressive delay to prevent all cards from transitioning simultaneously
+  // This is especially important for Safari/WebKit which struggles with many 3D transforms at once
   useEffect(() => {
     const idleCallback = window.requestIdleCallback || ((cb) => setTimeout(cb, 100));
+
+    // Stagger delay: 40ms per card to spread out 3D transitions
+    // This prevents Safari from being overwhelmed with simultaneous 3D transform calculations
+    const staggerDelay = staggerIndex * 40;
+    const baseTimeout = 500 + staggerDelay;
+
     const handle = idleCallback(() => {
       setUse3DModel(true);
-    }, { timeout: 500 }); // Ensure it runs within 500ms even if not idle
+    }, { timeout: baseTimeout }); // Base 500ms + stagger delay
 
     return () => {
       if (window.cancelIdleCallback) {
@@ -630,7 +641,7 @@ export default function MinecraftCSSBlock({
         clearTimeout(handle as unknown as number);
       }
     };
-  }, [assetId]); // Reset when assetId changes
+  }, [assetId, staggerIndex]); // Reset when assetId or staggerIndex changes
 
   useEffect(() => {
     let mounted = true;

@@ -64,6 +64,7 @@ interface AssetCardProps {
   isSelected: boolean;
   onSelect: () => void;
   variantCount?: number; // Number of variants if this is a grouped asset
+  staggerIndex?: number; // Index for staggering 3D model loading
 }
 
 const AssetCard = memo(
@@ -72,6 +73,7 @@ const AssetCard = memo(
     isSelected,
     onSelect,
     variantCount,
+    staggerIndex,
   }: AssetCardProps) {
     const [imageSrc, setImageSrc] = useState<string | null>(null);
     const [imageError, setImageError] = useState(false);
@@ -244,6 +246,7 @@ const AssetCard = memo(
               packId={winnerPackId || undefined}
               alt={displayName}
               size={120}
+              staggerIndex={staggerIndex}
               onError={() => setImageError(true)}
             />
           ) : (
@@ -433,7 +436,7 @@ export default function AssetResults({
         </div>
       )}
       <div className={s.results}>
-        {visibleGroupedAssets.map((group) => (
+        {visibleGroupedAssets.map((group, index) => (
           <AssetCard
             key={group.id}
             asset={{ id: group.id, name: group.name }}
@@ -442,6 +445,7 @@ export default function AssetResults({
               group.allVariants.includes(selectedId || "")
             }
             onSelect={() => handleSelectAsset(group.id)}
+            staggerIndex={index}
             variantCount={group.variantCount}
           />
         ))}
