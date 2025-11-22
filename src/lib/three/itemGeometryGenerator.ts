@@ -223,11 +223,24 @@ export function generateItemGeometry(
 
       // LEFT edge - TEST: Use GREEN to see if green color works here
       if (!hasLeftNeighbor) {
-        addQuad(
+        const leftVerts: [number, number, number][] = [
           [pixelX1, pixelY1, halfThickness],
           [pixelX1, pixelY1, -halfThickness],
           [pixelX1, pixelY2, -halfThickness],
           [pixelX1, pixelY2, halfThickness],
+        ];
+
+        // Log first left edge for comparison
+        if (edgeCounts.left === 0) {
+          console.log('[COMPARE-LEFT] px=' + px + ', pixelX1=' + pixelX1 + ', pixelX2=' + pixelX2);
+          console.log('[COMPARE-LEFT] Vertices:', leftVerts);
+          console.log('[COMPARE-LEFT] Normal:', [-1, 0, 0]);
+          console.log('[COMPARE-LEFT] Color: GREEN', [0, 1, 0]);
+          console.log('[COMPARE-LEFT] Reverse winding: false');
+        }
+
+        addQuad(
+          leftVerts[0], leftVerts[1], leftVerts[2], leftVerts[3],
           [pixelU1, 1 - pixelV1],
           [pixelU1, 1 - pixelV1],
           [pixelU1, 1 - pixelV2],
@@ -240,12 +253,25 @@ export function generateItemGeometry(
 
       // RIGHT edge - TEST: Use RED to see if red color works here
       if (!hasRightNeighbor) {
-        console.log('[DEBUG-RIGHT] Creating right edge at px=' + px);
-        addQuad(
+        const rightVerts: [number, number, number][] = [
           [pixelX2, pixelY1, -halfThickness],
           [pixelX2, pixelY1, halfThickness],
           [pixelX2, pixelY2, halfThickness],
           [pixelX2, pixelY2, -halfThickness],
+        ];
+
+        // Log first right edge for comparison
+        if (edgeCounts.right === 0) {
+          console.log('[COMPARE-RIGHT] px=' + px + ', pixelX1=' + pixelX1 + ', pixelX2=' + pixelX2);
+          console.log('[COMPARE-RIGHT] Vertices:', rightVerts);
+          console.log('[COMPARE-RIGHT] Normal:', [1, 0, 0]);
+          console.log('[COMPARE-RIGHT] Color: RED', [1, 0, 0]);
+          console.log('[COMPARE-RIGHT] Reverse winding: true');
+          console.log('[COMPARE-RIGHT] Indices will be: [0,2,1] and [0,3,2] instead of [0,1,2] and [0,2,3]');
+        }
+
+        addQuad(
+          rightVerts[0], rightVerts[1], rightVerts[2], rightVerts[3],
           [pixelU2, 1 - pixelV1],
           [pixelU2, 1 - pixelV1],
           [pixelU2, 1 - pixelV2],
@@ -307,6 +333,19 @@ export function generateItemGeometry(
 
   console.log('[ItemGeometry] Edge face counts (perimeter only):', edgeCounts);
   console.log('[ItemGeometry] Total vertices:', vertices.length / 3);
+  console.log('[ItemGeometry] Total indices:', indices.length);
+  console.log('[ItemGeometry] Bounding box used for front/back (disabled):', { x1, x2, y1, y2, minX, maxX, minY, maxY });
+
+  // Diagnostic: Check if any vertices are NaN or Infinity
+  let invalidVertices = 0;
+  for (let i = 0; i < vertices.length; i++) {
+    if (!isFinite(vertices[i])) {
+      invalidVertices++;
+    }
+  }
+  if (invalidVertices > 0) {
+    console.error('[ItemGeometry] Found ' + invalidVertices + ' invalid vertices (NaN or Infinity)!');
+  }
 
   // Create BufferGeometry
   const geometry = new THREE.BufferGeometry();
