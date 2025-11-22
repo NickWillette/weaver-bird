@@ -243,6 +243,7 @@ export default function MainRoute() {
   // Item display state
   const [itemDisplayMode, setItemDisplayMode] = useState<ItemDisplayMode>("ground");
   const [itemRotate, setItemRotate] = useState(true);
+  const [itemHover, setItemHover] = useState(true);
 
   // React 18 transition for non-blocking colormap updates
   const [_isPending, startTransition] = useTransition();
@@ -325,6 +326,7 @@ export default function MainRoute() {
     // Reset item display mode when switching assets
     setItemDisplayMode("ground");
     setItemRotate(true);
+    setItemHover(true);
   }, [uiState.selectedAssetId]);
 
   // Cleanup debounce timer on unmount
@@ -915,6 +917,7 @@ export default function MainRoute() {
                   assetId={uiState.selectedAssetId}
                   displayMode={itemDisplayMode}
                   rotate={itemRotate}
+                  hover={itemHover}
                 />
               ) : (
                 <Preview3D
@@ -955,6 +958,8 @@ export default function MainRoute() {
                 onItemDisplayModeChange={setItemDisplayMode}
                 itemRotate={itemRotate}
                 onItemRotateChange={setItemRotate}
+                itemHover={itemHover}
+                onItemHoverChange={setItemHover}
               />
             </div>
           </ResizablePanel>

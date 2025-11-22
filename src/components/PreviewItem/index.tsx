@@ -16,12 +16,14 @@ interface Props {
   assetId?: string;
   displayMode?: ItemDisplayMode;
   rotate?: boolean;
+  hover?: boolean;
 }
 
 export default function PreviewItem({
   assetId,
   displayMode = "ground",
   rotate = true,
+  hover = true,
 }: Props) {
   const [activeTab, setActiveTab] = useState<"3d" | "2d">("3d");
 
@@ -50,6 +52,7 @@ export default function PreviewItem({
             assetId={assetId}
             displayMode={displayMode}
             rotate={rotate}
+            hover={hover}
           />
         </TabsContent>
 

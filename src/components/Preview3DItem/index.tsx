@@ -29,11 +29,13 @@ interface Props {
   assetId?: string;
   displayMode?: ItemDisplayMode;
   rotate?: boolean;
+  hover?: boolean;
 }
 
 interface ItemMeshProps {
   texturePath: string;
   rotate: boolean;
+  hover: boolean;
   displayMode: ItemDisplayMode;
 }
 
@@ -41,7 +43,7 @@ interface ItemMeshProps {
  * ItemMesh - Renders a 3D item with the texture applied
  * Emulates Minecraft's dropped item rendering with proper thickness effect
  */
-function ItemMesh({ texturePath, rotate, displayMode }: ItemMeshProps) {
+function ItemMesh({ texturePath, rotate, hover, displayMode }: ItemMeshProps) {
   const meshRef = useRef<THREE.Mesh>(null);
   const [texture, setTexture] = useState<THREE.Texture | null>(null);
   const [geometry, setGeometry] = useState<THREE.BufferGeometry | null>(null);
@@ -102,12 +104,17 @@ function ItemMesh({ texturePath, rotate, displayMode }: ItemMeshProps) {
         meshRef.current.rotation.y += delta * (Math.PI / 2);
       }
 
-      // Bobbing animation - items float up and down slightly
-      // Using a slow sine wave with small amplitude (0.05 units)
-      // Period of ~3 seconds matches Minecraft's gentle bobbing
-      const bobSpeed = 2; // Radians per second (full cycle in ~3.14 seconds)
-      const bobAmplitude = 0.05; // Small vertical movement
-      meshRef.current.position.y = Math.sin(state.clock.elapsedTime * bobSpeed) * bobAmplitude;
+      if (hover) {
+        // Bobbing animation - items float up and down slightly
+        // Using a slow sine wave with small amplitude (0.05 units)
+        // Period of ~3 seconds matches Minecraft's gentle bobbing
+        const bobSpeed = 2; // Radians per second (full cycle in ~3.14 seconds)
+        const bobAmplitude = 0.05; // Small vertical movement
+        meshRef.current.position.y = Math.sin(state.clock.elapsedTime * bobSpeed) * bobAmplitude;
+      } else {
+        // Reset position when hover is disabled
+        meshRef.current.position.y = 0;
+      }
     }
   });
 
@@ -164,6 +171,7 @@ export default function Preview3DItem({
   assetId,
   displayMode = "ground",
   rotate = true,
+  hover = true,
 }: Props) {
   const [texturePath, setTexturePath] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -286,6 +294,7 @@ export default function Preview3DItem({
         <ItemMesh
           texturePath={texturePath}
           rotate={rotate}
+          hover={hover}
           displayMode={displayMode}
         />
 
@@ -306,8 +315,12 @@ export default function Preview3DItem({
 
       <div className={s.info}>
         <span className={s.infoText}>
-          {rotate && displayMode === "ground"
+          {rotate && hover && displayMode === "ground"
+            ? "Rotating • Hovering • Drag to orbit • Scroll to zoom"
+            : rotate && displayMode === "ground"
             ? "Rotating • Drag to orbit • Scroll to zoom"
+            : hover && displayMode === "ground"
+            ? "Hovering • Drag to orbit • Scroll to zoom"
             : "Drag to orbit • Scroll to zoom"}
         </span>
       </div>

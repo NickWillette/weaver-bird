@@ -96,6 +96,8 @@ interface Props {
   onItemDisplayModeChange?: (mode: ItemDisplayMode) => void;
   itemRotate?: boolean;
   onItemRotateChange?: (rotate: boolean) => void;
+  itemHover?: boolean;
+  onItemHoverChange?: (hover: boolean) => void;
 }
 
 const FOLIAGE_PREVIEW_OPTIONS: ComboboxOption[] = [
@@ -126,6 +128,8 @@ export default function OptionsPanel({
   onItemDisplayModeChange,
   itemRotate = true,
   onItemRotateChange,
+  itemHover = true,
+  onItemHoverChange,
 }: Props) {
   const [blockProps, setBlockProps] = useState<Record<string, string>>({});
   const [seed, setSeed] = useState(0);
@@ -367,6 +371,37 @@ export default function OptionsPanel({
                   </span>
                 </label>
               )}
+
+              {/* Hover toggle */}
+              <label
+                style={{
+                  display: "flex",
+                  gap: "0.5rem",
+                  alignItems: "center",
+                  marginBottom: "1rem",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={itemHover}
+                  onChange={(e) =>
+                    onItemHoverChange?.(e.target.checked)
+                  }
+                  style={{
+                    cursor: "pointer",
+                    width: "18px",
+                    height: "18px",
+                  }}
+                />
+                <span
+                  style={{
+                    textTransform: "uppercase",
+                    fontWeight: "600",
+                  }}
+                >
+                  Hover Item
+                </span>
+              </label>
 
               {/* Display mode info */}
               <p style={{ fontSize: "0.85rem", marginTop: "1rem", color: "#666" }}>
