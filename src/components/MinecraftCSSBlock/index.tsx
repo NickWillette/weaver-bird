@@ -256,7 +256,7 @@ function getColormapType(textureId: string): "grass" | "foliage" | undefined {
  * Keeping this code for reference/fallback purposes.
  */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-function processElements(
+function _processElements(
   elements: ModelElement[],
   textures: Record<string, string>,
   textureUrls: Map<string, string>,
@@ -539,7 +539,13 @@ export default function MinecraftCSSBlock({
     null,
   );
   const [error, setError] = useState(false);
-  const [loading, setLoading] = useState(true);
+
+  // PERFORMANCE FIX: Use renderPhase instead of loading boolean
+  // This prevents loading shimmer from showing during 2D→3D transition
+  const [renderPhase, setRenderPhase] = useState<"initial" | "fallback" | "3d">(
+    "initial",
+  );
+
   const [tintedTextures, setTintedTextures] = useState<Map<string, string>>(
     new Map(),
   );
@@ -660,10 +666,11 @@ export default function MinecraftCSSBlock({
     };
   }, [assetId, staggerIndex]); // Reset when assetId or staggerIndex changes
 
+  // PERFORMANCE FIX: Split into two separate effects to prevent double-loading
+  // Effect 1: Load 2D fallback on mount (runs once per assetId change)
   useEffect(() => {
     let mounted = true;
 
-    // Helper to quickly load just the base texture (for fast initial render)
     const loadSimpleTexture = async (textureId: string): Promise<string> => {
       let texturePath: string;
       if (pack) {
@@ -682,28 +689,45 @@ export default function MinecraftCSSBlock({
       return convertFileSrc(texturePath);
     };
 
-    const loadBlockData = async () => {
+    const load2DFallback = async () => {
       try {
-        // Only show loading shimmer on initial load, not during 2D→3D transition
-        // The 2D fallback image already acts as a loading state for the 3D model
-        const hasExistingFallback = fallbackTextureUrl !== null;
-        if (!hasExistingFallback) {
-          setLoading(true);
-        }
-
         const normalizedAssetId = normalizeAssetId(assetId);
-
-        // OPTIMIZATION: If 3D model not yet requested, just load simple flat texture
-        if (!use3DModel) {
-          const textureUrl = await loadSimpleTexture(normalizedAssetId);
-          if (mounted) {
-            setFallbackTextureUrl(textureUrl);
-            setRenderedElements([]);
-            setError(false);
-            setLoading(false);
-          }
-          return;
+        const textureUrl = await loadSimpleTexture(normalizedAssetId);
+        if (mounted) {
+          setFallbackTextureUrl(textureUrl);
+          setRenderedElements([]);
+          setError(false);
+          setRenderPhase("fallback");
         }
+      } catch (err) {
+        console.warn(
+          `[MinecraftCSSBlock] Failed to load 2D fallback for ${assetId}:`,
+          err,
+        );
+        if (mounted) {
+          setError(true);
+          setRenderPhase("fallback");
+          onError?.();
+        }
+      }
+    };
+
+    load2DFallback();
+
+    return () => {
+      mounted = false;
+    };
+  }, [assetId, packId, pack, packsDir, onError]);
+
+  // Effect 2: Load 3D model only when use3DModel becomes true
+  useEffect(() => {
+    if (!use3DModel) return;
+
+    let mounted = true;
+
+    const load3DModel = async () => {
+      try {
+        const normalizedAssetId = normalizeAssetId(assetId);
 
         // Check if this block should use a 2D item icon instead of 3D model
         if (shouldUse2DItemIcon(normalizedAssetId)) {
@@ -729,7 +753,7 @@ export default function MinecraftCSSBlock({
             setFallbackTextureUrl(textureUrl);
             setRenderedElements([]);
             setError(false);
-            setLoading(false);
+            setRenderPhase("fallback");
           }
           return;
         }
@@ -830,7 +854,7 @@ export default function MinecraftCSSBlock({
                   setFallbackTextureUrl(fallbackTexture);
                   setRenderedElements([]);
                   setError(false);
-                  setLoading(false);
+                  setRenderPhase("fallback");
                 }
                 return;
               }
@@ -864,22 +888,22 @@ export default function MinecraftCSSBlock({
           setFallbackTextureUrl(null);
           setRenderedElements(rendered as any); // Types are compatible
           setError(false);
-          setLoading(false);
+          setRenderPhase("3d");
         }
       } catch (err) {
         console.warn(
-          `[MinecraftCSSBlock] Failed to load block for ${assetId}:`,
+          `[MinecraftCSSBlock] Failed to load 3D model for ${assetId}:`,
           err,
         );
         if (mounted) {
           setError(true);
-          setLoading(false);
+          setRenderPhase("fallback");
           onError?.();
         }
       }
     };
 
-    loadBlockData();
+    load3DModel();
 
     return () => {
       mounted = false;
@@ -995,7 +1019,9 @@ export default function MinecraftCSSBlock({
     return allFaces.sort((a, b) => a.zIndex - b.zIndex);
   }, [renderedElements]);
 
-  if (loading) {
+  // PERFORMANCE FIX: Only show loading shimmer on initial render
+  // Never show shimmer during 2D→3D transition (fallback already visible)
+  if (renderPhase === "initial") {
     return (
       <div className={s.blockContainer} style={{ width: size, height: size }}>
         <div className={s.loading} />

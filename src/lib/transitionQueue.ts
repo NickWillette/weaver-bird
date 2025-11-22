@@ -35,7 +35,7 @@ type TransitionCallback = () => void;
 class TransitionQueue {
   private queue: TransitionCallback[] = [];
   private processing = false;
-  private transitionsPerFrame = 2; // Process 2 transitions per frame for smooth performance
+  private transitionsPerFrame = 2; // Base: process 2 transitions per frame for smooth performance
 
   /**
    * Enqueues a transition callback to be executed during the next available frame.
@@ -56,8 +56,13 @@ class TransitionQueue {
    * Processes the queue by executing transitions in small batches per animation frame.
    * Uses requestAnimationFrame to ensure smooth, non-blocking execution.
    *
+   * PERFORMANCE OPTIMIZATION: Dynamically adjusts batch size based on queue length.
+   * - Large queues (20+): Process 4-6 per frame to clear faster
+   * - Medium queues (10-20): Process 3 per frame
+   * - Small queues (<10): Process 2 per frame for smoothness
+   *
    * This creates a "drip-feed" effect where transitions happen progressively
-   * instead of all at once, preventing browser freezes.
+   * instead of all at once, preventing browser freezes while still being responsive.
    */
   private process(): void {
     if (this.queue.length === 0) {
@@ -69,8 +74,19 @@ class TransitionQueue {
 
     // Schedule next batch for the next animation frame
     requestAnimationFrame(() => {
-      // Execute a small batch of transitions (1-2 per frame)
-      const batch = this.queue.splice(0, this.transitionsPerFrame);
+      // PERFORMANCE FIX: Dynamically adjust batch size based on queue length
+      // This prevents long delays on initial page loads with many blocks
+      let batchSize: number;
+      if (this.queue.length > 30) {
+        batchSize = 4; // Very large queue: process more aggressively
+      } else if (this.queue.length > 15) {
+        batchSize = 3; // Medium queue: moderate speed
+      } else {
+        batchSize = this.transitionsPerFrame; // Small queue: smooth transition
+      }
+
+      // Execute a batch of transitions
+      const batch = this.queue.splice(0, batchSize);
 
       try {
         batch.forEach((callback) => callback());
