@@ -199,7 +199,7 @@ export function generateItemGeometry(
 
       // Check left neighbor (x - 1)
       if (!isPixelOpaque(pixelData, px - 1, py)) {
-        // Left edge exposed - create a vertical face (CCW from outside)
+        // Left edge exposed - mirror right edge pattern (swap front/back)
         addQuad(
           [pixelX1, pixelY1, halfThickness],
           [pixelX1, pixelY1, -halfThickness],
@@ -215,7 +215,7 @@ export function generateItemGeometry(
 
       // Check right neighbor (x + 1)
       if (!isPixelOpaque(pixelData, px + 1, py)) {
-        // Right edge exposed - create a vertical face (CCW from outside)
+        // Right edge exposed - works correctly
         addQuad(
           [pixelX2, pixelY1, -halfThickness],
           [pixelX2, pixelY1, halfThickness],
@@ -231,23 +231,23 @@ export function generateItemGeometry(
 
       // Check top neighbor (y - 1)
       if (!isPixelOpaque(pixelData, px, py - 1)) {
-        // Top edge exposed - create a horizontal face (CCW from outside)
+        // Top edge exposed - mirror bottom edge pattern (reversed order)
         addQuad(
-          [pixelX1, pixelY1, -halfThickness],
           [pixelX2, pixelY1, -halfThickness],
-          [pixelX2, pixelY1, halfThickness],
+          [pixelX1, pixelY1, -halfThickness],
           [pixelX1, pixelY1, halfThickness],
+          [pixelX2, pixelY1, halfThickness],
+          [pixelU2, 1 - pixelV1],
+          [pixelU1, 1 - pixelV1],
           [pixelU1, 1 - pixelV1],
           [pixelU2, 1 - pixelV1],
-          [pixelU2, 1 - pixelV1],
-          [pixelU1, 1 - pixelV1],
           [0, 1, 0]
         );
       }
 
       // Check bottom neighbor (y + 1)
       if (!isPixelOpaque(pixelData, px, py + 1)) {
-        // Bottom edge exposed - create a horizontal face (CCW from outside)
+        // Bottom edge exposed - works correctly
         addQuad(
           [pixelX2, pixelY2, halfThickness],
           [pixelX1, pixelY2, halfThickness],
