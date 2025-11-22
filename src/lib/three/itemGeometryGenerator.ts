@@ -181,7 +181,9 @@ export function generateItemGeometry(
   );
 
   // Second pass: Create pixel-perfect edge faces
-  // DEBUG MODE: Create ALL edge faces for ALL opaque pixels to see which ones render
+  // ONLY at perimeter (where there's a transparent neighbor or texture edge)
+
+  let edgeCounts = { left: 0, right: 0, top: 0, bottom: 0 };
 
   for (let py = 0; py < height; py++) {
     for (let px = 0; px < width; px++) {
@@ -201,66 +203,84 @@ export function generateItemGeometry(
       const pixelV1 = py / height;
       const pixelV2 = (py + 1) / height;
 
-      // For edges, we want to sample from the edge of the pixel
-      // Use the same UV for all edge vertices of a given edge
+      // Check each neighbor and create edge face ONLY if neighbor is transparent
+      const hasLeftNeighbor = isPixelOpaque(pixelData, px - 1, py);
+      const hasRightNeighbor = isPixelOpaque(pixelData, px + 1, py);
+      const hasTopNeighbor = isPixelOpaque(pixelData, px, py - 1);
+      const hasBottomNeighbor = isPixelOpaque(pixelData, px, py + 1);
 
-      // LEFT edge - RED for debugging
-      addQuad(
-        [pixelX1, pixelY1, halfThickness],
-        [pixelX1, pixelY1, -halfThickness],
-        [pixelX1, pixelY2, -halfThickness],
-        [pixelX1, pixelY2, halfThickness],
-        [pixelU1, 1 - pixelV1],
-        [pixelU1, 1 - pixelV1],
-        [pixelU1, 1 - pixelV2],
-        [pixelU1, 1 - pixelV2],
-        [-1, 0, 0],
-        [1, 0, 0] // RED
-      );
+      // LEFT edge - RED for debugging (only if left neighbor is transparent)
+      if (!hasLeftNeighbor) {
+        addQuad(
+          [pixelX1, pixelY1, halfThickness],
+          [pixelX1, pixelY1, -halfThickness],
+          [pixelX1, pixelY2, -halfThickness],
+          [pixelX1, pixelY2, halfThickness],
+          [pixelU1, 1 - pixelV1],
+          [pixelU1, 1 - pixelV1],
+          [pixelU1, 1 - pixelV2],
+          [pixelU1, 1 - pixelV2],
+          [-1, 0, 0],
+          [1, 0, 0] // RED
+        );
+        edgeCounts.left++;
+      }
 
-      // RIGHT edge - GREEN for debugging
-      addQuad(
-        [pixelX2, pixelY1, -halfThickness],
-        [pixelX2, pixelY1, halfThickness],
-        [pixelX2, pixelY2, halfThickness],
-        [pixelX2, pixelY2, -halfThickness],
-        [pixelU2, 1 - pixelV1],
-        [pixelU2, 1 - pixelV1],
-        [pixelU2, 1 - pixelV2],
-        [pixelU2, 1 - pixelV2],
-        [1, 0, 0],
-        [0, 1, 0] // GREEN
-      );
+      // RIGHT edge - GREEN for debugging (only if right neighbor is transparent)
+      if (!hasRightNeighbor) {
+        addQuad(
+          [pixelX2, pixelY1, -halfThickness],
+          [pixelX2, pixelY1, halfThickness],
+          [pixelX2, pixelY2, halfThickness],
+          [pixelX2, pixelY2, -halfThickness],
+          [pixelU2, 1 - pixelV1],
+          [pixelU2, 1 - pixelV1],
+          [pixelU2, 1 - pixelV2],
+          [pixelU2, 1 - pixelV2],
+          [1, 0, 0],
+          [0, 1, 0] // GREEN
+        );
+        edgeCounts.right++;
+      }
 
-      // TOP edge - BLUE for debugging
-      addQuad(
-        [pixelX2, pixelY1, -halfThickness],
-        [pixelX1, pixelY1, -halfThickness],
-        [pixelX1, pixelY1, halfThickness],
-        [pixelX2, pixelY1, halfThickness],
-        [pixelU2, 1 - pixelV1],
-        [pixelU1, 1 - pixelV1],
-        [pixelU1, 1 - pixelV1],
-        [pixelU2, 1 - pixelV1],
-        [0, 1, 0],
-        [0, 0, 1] // BLUE
-      );
+      // TOP edge - BLUE for debugging (only if top neighbor is transparent)
+      if (!hasTopNeighbor) {
+        addQuad(
+          [pixelX2, pixelY1, -halfThickness],
+          [pixelX1, pixelY1, -halfThickness],
+          [pixelX1, pixelY1, halfThickness],
+          [pixelX2, pixelY1, halfThickness],
+          [pixelU2, 1 - pixelV1],
+          [pixelU1, 1 - pixelV1],
+          [pixelU1, 1 - pixelV1],
+          [pixelU2, 1 - pixelV1],
+          [0, 1, 0],
+          [0, 0, 1] // BLUE
+        );
+        edgeCounts.top++;
+      }
 
-      // BOTTOM edge - YELLOW for debugging
-      addQuad(
-        [pixelX2, pixelY2, halfThickness],
-        [pixelX1, pixelY2, halfThickness],
-        [pixelX1, pixelY2, -halfThickness],
-        [pixelX2, pixelY2, -halfThickness],
-        [pixelU2, 1 - pixelV2],
-        [pixelU1, 1 - pixelV2],
-        [pixelU1, 1 - pixelV2],
-        [pixelU2, 1 - pixelV2],
-        [0, -1, 0],
-        [1, 1, 0] // YELLOW
-      );
+      // BOTTOM edge - YELLOW for debugging (only if bottom neighbor is transparent)
+      if (!hasBottomNeighbor) {
+        addQuad(
+          [pixelX2, pixelY2, halfThickness],
+          [pixelX1, pixelY2, halfThickness],
+          [pixelX1, pixelY2, -halfThickness],
+          [pixelX2, pixelY2, -halfThickness],
+          [pixelU2, 1 - pixelV2],
+          [pixelU1, 1 - pixelV2],
+          [pixelU1, 1 - pixelV2],
+          [pixelU2, 1 - pixelV2],
+          [0, -1, 0],
+          [1, 1, 0] // YELLOW
+        );
+        edgeCounts.bottom++;
+      }
     }
   }
+
+  console.log('[ItemGeometry] Edge face counts (perimeter only):', edgeCounts);
+  console.log('[ItemGeometry] Total vertices:', vertices.length / 3);
 
   // Create BufferGeometry
   const geometry = new THREE.BufferGeometry();
