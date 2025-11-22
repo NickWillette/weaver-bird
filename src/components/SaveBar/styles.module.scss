@@ -120,4 +120,23 @@
 .infoValue {
   color: var(--color-text);
   white-space: nowrap;
+  cursor: default;
+
+  &:has(+ *), // When it's a tooltip trigger
+  button > & {
+    cursor: help;
+  }
+}
+
+.colormapPreview {
+  padding: var(--spacing-xs);
+}
+
+.colormapImage {
+  display: block;
+  width: 256px;
+  height: 256px;
+  image-rendering: pixelated;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
 }

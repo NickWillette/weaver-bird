@@ -1,8 +1,13 @@
 import { useCallback } from "react";
 import { buildWeaverNest, formatError } from "@lib/tauri";
-import type { OverrideWirePayload } from "@state";
+import type { OverrideWirePayload, PackMeta } from "@state";
 import Button from "@/ui/components/buttons/Button";
 import { BIOMES } from "@components/BiomeColorPicker/biomeData";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/ui/components/Tooltip/Tooltip";
 import s from "./styles.module.scss";
 
 interface Progress {
@@ -28,27 +33,27 @@ interface Props {
   statusType?: StatusType;
   onClearStatus?: () => void;
   grassColormapUrl?: string;
+  grassColormapPackId?: string;
   foliageColormapUrl?: string;
+  foliageColormapPackId?: string;
   selectedBiomeId?: string;
+  packs: PackMeta[];
 }
 
 /**
- * Extract pack name from colormap URL
- * URL format: "asset://PACK_ID/assets/minecraft/textures/colormap/..."
+ * Get pack display name from pack ID
  */
-function extractPackNameFromUrl(url?: string): string {
-  if (!url) return "None";
+function getPackName(packId: string | undefined, packs: PackMeta[]): string {
+  if (!packId) return "None";
 
-  // Extract pack ID from asset:// URL
-  const match = url.match(/^asset:\/\/([^/]+)\//);
-  if (match && match[1]) {
-    // Decode URI component and clean up the pack ID
-    const packId = decodeURIComponent(match[1]);
-    // If it looks like a pack name, return it cleaned up
-    return packId.replace(/_/g, " ");
+  // Handle vanilla pack specially
+  if (packId === "minecraft:vanilla") {
+    return "Vanilla";
   }
 
-  return "Unknown";
+  // Find pack in packs array
+  const pack = packs.find((p) => p.id === packId);
+  return pack ? pack.name : packId.replace(/_/g, " ");
 }
 
 /**
@@ -92,8 +97,11 @@ export default function SaveBar({
   statusType = "idle",
   onClearStatus,
   grassColormapUrl,
+  grassColormapPackId,
   foliageColormapUrl,
+  foliageColormapPackId,
   selectedBiomeId,
+  packs,
 }: Props) {
   const percent = progress
     ? Math.round((progress.completed / Math.max(progress.total, 1)) * 100)
@@ -166,15 +174,53 @@ export default function SaveBar({
       <div className={s.info}>
         <div className={s.infoItem}>
           <span className={s.infoLabel}>Foliage:</span>
-          <span className={s.infoValue}>
-            {extractPackNameFromUrl(foliageColormapUrl)}
-          </span>
+          {foliageColormapUrl ? (
+            <Tooltip delayDuration={100}>
+              <TooltipTrigger asChild>
+                <span className={s.infoValue}>
+                  {getPackName(foliageColormapPackId, packs)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center">
+                <div className={s.colormapPreview}>
+                  <img
+                    src={foliageColormapUrl}
+                    alt="Foliage colormap"
+                    className={s.colormapImage}
+                  />
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className={s.infoValue}>
+              {getPackName(foliageColormapPackId, packs)}
+            </span>
+          )}
         </div>
         <div className={s.infoItem}>
           <span className={s.infoLabel}>Grass:</span>
-          <span className={s.infoValue}>
-            {extractPackNameFromUrl(grassColormapUrl)}
-          </span>
+          {grassColormapUrl ? (
+            <Tooltip delayDuration={100}>
+              <TooltipTrigger asChild>
+                <span className={s.infoValue}>
+                  {getPackName(grassColormapPackId, packs)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" align="center">
+                <div className={s.colormapPreview}>
+                  <img
+                    src={grassColormapUrl}
+                    alt="Grass colormap"
+                    className={s.colormapImage}
+                  />
+                </div>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className={s.infoValue}>
+              {getPackName(grassColormapPackId, packs)}
+            </span>
+          )}
         </div>
         <div className={s.infoItem}>
           <span className={s.infoLabel}>Biome:</span>

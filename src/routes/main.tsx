@@ -401,9 +401,13 @@ export default function MainRoute() {
                 )
               : null;
 
-            // Update URLs in state
+            // Update URLs and pack IDs in state
             useStore.getState().setGrassColormapUrl(grassUrl || undefined);
+            useStore.getState().setGrassColormapPackId(grassWinner || undefined);
             useStore.getState().setFoliageColormapUrl(foliageUrl || undefined);
+            useStore
+              .getState()
+              .setFoliageColormapPackId(foliageWinner || undefined);
 
             // Step 3: Get current coordinates (or default to plains)
             const currentCoords = useStore.getState().colormapCoordinates;
@@ -458,7 +462,9 @@ export default function MainRoute() {
   // OPTIMIZATION: Deferred using requestIdleCallback for non-blocking updates
   const colormapCoordinates = useStore((state) => state.colormapCoordinates);
   const grassColormapUrl = useStore((state) => state.grassColormapUrl);
+  const grassColormapPackId = useStore((state) => state.grassColormapPackId);
   const foliageColormapUrl = useStore((state) => state.foliageColormapUrl);
+  const foliageColormapPackId = useStore((state) => state.foliageColormapPackId);
   const selectedBiomeId = useStore((state) => state.selectedBiomeId);
 
   useEffect(() => {
@@ -996,8 +1002,11 @@ export default function MainRoute() {
             setErrorMessage(error);
           }}
           grassColormapUrl={grassColormapUrl}
+          grassColormapPackId={grassColormapPackId}
           foliageColormapUrl={foliageColormapUrl}
+          foliageColormapPackId={foliageColormapPackId}
           selectedBiomeId={selectedBiomeId}
+          packs={packs}
         />
       </div>
 
