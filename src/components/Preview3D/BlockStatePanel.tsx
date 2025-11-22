@@ -30,6 +30,10 @@ const PROPERTY_DESCRIPTIONS: Record<string, string> = {
   open: "Whether this block is in an open state.",
   powered: "Whether this block is receiving redstone power.",
   snowy: "Whether the block has snow on top.",
+  candles: "Number of candles placed on this block (1-4).",
+  pickles: "Number of sea pickles in this block (1-4).",
+  eggs: "Number of turtle eggs in this nest (1-4).",
+  layers: "Number of snow layers (1-8).",
 };
 
 interface Props {
@@ -50,11 +54,18 @@ export default function BlockStatePanel({
   const [schema, setSchema] = useState<BlockStateSchema | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Local state for slider preview (updates during drag without triggering 3D re-render)
+  const [sliderPreviewValues, setSliderPreviewValues] = useState<Record<string, string>>({});
 
   const winnerPackId = useSelectWinner(assetId);
   const packsDir = useSelectPacksDir();
   const blockStateAssetId = getBlockStateIdFromAssetId(assetId);
   const isMinecraftNamespace = assetId.startsWith("minecraft:");
+
+  // Reset slider preview values when blockProps change externally
+  useEffect(() => {
+    setSliderPreviewValues({});
+  }, [blockProps]);
 
   // Load schema when asset changes
   useEffect(() => {
@@ -188,6 +199,9 @@ export default function BlockStatePanel({
         const useSlider = range <= 15 && range > 0; // Use slider for small ranges
         const description = PROPERTY_DESCRIPTIONS[prop.name];
 
+        // Use preview value during drag, actual value otherwise
+        const displayValue = sliderPreviewValues[prop.name] ?? currentValue;
+
         return (
           <div key={prop.name} className={s.propertyWithDescription}>
             {description && (
@@ -201,11 +215,26 @@ export default function BlockStatePanel({
                     min={min}
                     max={max}
                     step={1}
-                    value={[parseInt(currentValue) || min]}
-                    onValueChange={(values) => handleChange(String(values[0]))}
+                    value={[parseInt(displayValue) || min]}
+                    onValueChange={(values) => {
+                      // Update preview value during drag (visual feedback only)
+                      setSliderPreviewValues({
+                        ...sliderPreviewValues,
+                        [prop.name]: String(values[0]),
+                      });
+                    }}
+                    onValueCommit={(values) => {
+                      // Update actual block props when drag ends (triggers 3D update)
+                      const newValue = String(values[0]);
+                      setSliderPreviewValues({
+                        ...sliderPreviewValues,
+                        [prop.name]: undefined as any,
+                      });
+                      handleChange(newValue);
+                    }}
                     className={s.slider}
                   />
-                  <span className={s.sliderValue}>{currentValue}</span>
+                  <span className={s.sliderValue}>{displayValue}</span>
                 </div>
               ) : (
                 <NumberInput
