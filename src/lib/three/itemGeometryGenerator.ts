@@ -197,9 +197,13 @@ export function generateItemGeometry(
 
   let edgeCounts = { left: 0, right: 0, top: 0, bottom: 0 };
 
+  // Track which pixels create edges for debugging
+  const edgeMap: string[][] = Array(height).fill(null).map(() => Array(width).fill('.'));
+
   for (let py = 0; py < height; py++) {
     for (let px = 0; px < width; px++) {
       if (!isPixelOpaque(pixelData, px, py)) {
+        edgeMap[py][px] = 'O'; // Air
         continue;
       }
 
@@ -220,6 +224,10 @@ export function generateItemGeometry(
       const hasRightNeighbor = isPixelOpaque(pixelData, px + 1, py);
       const hasTopNeighbor = isPixelOpaque(pixelData, px, py - 1);
       const hasBottomNeighbor = isPixelOpaque(pixelData, px, py + 1);
+
+      // Determine if this pixel has any edges (E) or is internal (X)
+      const hasAnyEdge = !hasLeftNeighbor || !hasRightNeighbor || !hasTopNeighbor || !hasBottomNeighbor;
+      edgeMap[py][px] = hasAnyEdge ? 'E' : 'X';
 
       // LEFT edge - TEST: Use GREEN to see if green color works here
       if (!hasLeftNeighbor) {
@@ -317,6 +325,13 @@ export function generateItemGeometry(
       }
     }
   }
+
+  // Print edge map for verification
+  console.log('[ItemGeometry] Edge map (O=air, E=edge pixel, X=internal):');
+  console.log('   ', Array.from({length: width}, (_, i) => i.toString().padStart(2)).join(' '));
+  edgeMap.forEach((row, y) => {
+    console.log(y.toString().padStart(2), ' ', row.map(c => c + ' ').join(' '));
+  });
 
   console.log('[ItemGeometry] Edge face counts (perimeter only):', edgeCounts);
   console.log('[ItemGeometry] Total vertices:', vertices.length / 3);
