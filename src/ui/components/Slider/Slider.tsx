@@ -8,6 +8,7 @@ export interface SliderProps extends Omit<HTMLAttributes<HTMLDivElement>, "onCha
   value?: number[];
   defaultValue?: number[];
   onValueChange?: (value: number[]) => void;
+  onValueCommit?: (value: number[]) => void;
   disabled?: boolean;
   orientation?: "horizontal" | "vertical";
 }
@@ -22,6 +23,7 @@ export const Slider = forwardRef<HTMLDivElement, SliderProps>(
       value: controlledValue,
       defaultValue = [50],
       onValueChange,
+      onValueCommit,
       disabled = false,
       orientation = "horizontal",
       ...props
@@ -80,7 +82,9 @@ export const Slider = forwardRef<HTMLDivElement, SliderProps>(
       if (draggingIndex === null) return;
       (e.target as HTMLElement).releasePointerCapture(e.pointerId);
       setDraggingIndex(null);
-    }, [draggingIndex]);
+      // Call onValueCommit when drag ends
+      onValueCommit?.(value);
+    }, [draggingIndex, onValueCommit, value]);
 
     React.useEffect(() => {
       if (draggingIndex === null) return;
