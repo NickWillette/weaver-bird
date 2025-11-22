@@ -230,14 +230,8 @@ export function generateItemGeometry(
           [pixelX1, pixelY2, halfThickness],
         ];
 
-        // Log first left edge for comparison
-        if (edgeCounts.left === 0) {
-          console.log('[COMPARE-LEFT] px=' + px + ', pixelX1=' + pixelX1 + ', pixelX2=' + pixelX2);
-          console.log('[COMPARE-LEFT] Vertices:', leftVerts);
-          console.log('[COMPARE-LEFT] Normal:', [-1, 0, 0]);
-          console.log('[COMPARE-LEFT] Color: GREEN', [0, 1, 0]);
-          console.log('[COMPARE-LEFT] Reverse winding: false');
-        }
+        // Log every left edge
+        console.log(`[LEFT-${edgeCounts.left}] px=${px}, X=${pixelX1.toFixed(4)}, verts: [${leftVerts[0][0].toFixed(3)},${leftVerts[0][1].toFixed(3)},${leftVerts[0][2].toFixed(3)}]...`);
 
         addQuad(
           leftVerts[0], leftVerts[1], leftVerts[2], leftVerts[3],
@@ -251,24 +245,17 @@ export function generateItemGeometry(
         edgeCounts.left++;
       }
 
-      // RIGHT edge - TEST: Use RED to see if red color works here
+      // RIGHT edge - RADICAL TEST: Copy LEFT pattern exactly (same vertex order, no reverse)
       if (!hasRightNeighbor) {
         const rightVerts: [number, number, number][] = [
-          [pixelX2, pixelY1, -halfThickness],
-          [pixelX2, pixelY1, halfThickness],
-          [pixelX2, pixelY2, halfThickness],
-          [pixelX2, pixelY2, -halfThickness],
+          [pixelX2, pixelY1, halfThickness],    // Match LEFT: top-front first
+          [pixelX2, pixelY1, -halfThickness],   // Match LEFT: top-back second
+          [pixelX2, pixelY2, -halfThickness],   // Match LEFT: bottom-back third
+          [pixelX2, pixelY2, halfThickness],    // Match LEFT: bottom-front fourth
         ];
 
-        // Log first right edge for comparison
-        if (edgeCounts.right === 0) {
-          console.log('[COMPARE-RIGHT] px=' + px + ', pixelX1=' + pixelX1 + ', pixelX2=' + pixelX2);
-          console.log('[COMPARE-RIGHT] Vertices:', rightVerts);
-          console.log('[COMPARE-RIGHT] Normal:', [1, 0, 0]);
-          console.log('[COMPARE-RIGHT] Color: RED', [1, 0, 0]);
-          console.log('[COMPARE-RIGHT] Reverse winding: true');
-          console.log('[COMPARE-RIGHT] Indices will be: [0,2,1] and [0,3,2] instead of [0,1,2] and [0,2,3]');
-        }
+        // Log every right edge
+        console.log(`[RIGHT-${edgeCounts.right}] px=${px}, X=${pixelX2.toFixed(4)}, verts: [${rightVerts[0][0].toFixed(3)},${rightVerts[0][1].toFixed(3)},${rightVerts[0][2].toFixed(3)}]...`);
 
         addQuad(
           rightVerts[0], rightVerts[1], rightVerts[2], rightVerts[3],
@@ -277,8 +264,8 @@ export function generateItemGeometry(
           [pixelU2, 1 - pixelV2],
           [pixelU2, 1 - pixelV2],
           [1, 0, 0],
-          [1, 0, 0], // RED (swapped from GREEN)
-          true // REVERSE WINDING
+          [1, 0, 0], // RED
+          false // NO REVERSE - exact copy of LEFT
         );
         edgeCounts.right++;
       }
@@ -336,15 +323,45 @@ export function generateItemGeometry(
   console.log('[ItemGeometry] Total indices:', indices.length);
   console.log('[ItemGeometry] Bounding box used for front/back (disabled):', { x1, x2, y1, y2, minX, maxX, minY, maxY });
 
-  // Diagnostic: Check if any vertices are NaN or Infinity
+  // Calculate actual vertex bounds to check for clipping
+  let minVertX = Infinity, maxVertX = -Infinity;
+  let minVertY = Infinity, maxVertY = -Infinity;
+  let minVertZ = Infinity, maxVertZ = -Infinity;
   let invalidVertices = 0;
-  for (let i = 0; i < vertices.length; i++) {
-    if (!isFinite(vertices[i])) {
+
+  for (let i = 0; i < vertices.length; i += 3) {
+    const x = vertices[i];
+    const y = vertices[i + 1];
+    const z = vertices[i + 2];
+
+    if (!isFinite(x) || !isFinite(y) || !isFinite(z)) {
       invalidVertices++;
+      continue;
     }
+
+    minVertX = Math.min(minVertX, x);
+    maxVertX = Math.max(maxVertX, x);
+    minVertY = Math.min(minVertY, y);
+    maxVertY = Math.max(maxVertY, y);
+    minVertZ = Math.min(minVertZ, z);
+    maxVertZ = Math.max(maxVertZ, z);
   }
+
+  console.log('[ItemGeometry] ACTUAL vertex bounds:', {
+    x: [minVertX, maxVertX],
+    y: [minVertY, maxVertY],
+    z: [minVertZ, maxVertZ]
+  });
+
   if (invalidVertices > 0) {
     console.error('[ItemGeometry] Found ' + invalidVertices + ' invalid vertices (NaN or Infinity)!');
+  }
+
+  // Log sample vertices from each edge type for inspection
+  console.log('[ItemGeometry] Sample vertices by type (first 12 vertices):');
+  for (let i = 0; i < Math.min(12, vertices.length / 3); i++) {
+    const vIdx = i * 3;
+    console.log(`  Vertex ${i}: [${vertices[vIdx].toFixed(4)}, ${vertices[vIdx + 1].toFixed(4)}, ${vertices[vIdx + 2].toFixed(4)}]`);
   }
 
   // Create BufferGeometry
