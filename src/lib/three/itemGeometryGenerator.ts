@@ -221,7 +221,7 @@ export function generateItemGeometry(
       const hasTopNeighbor = isPixelOpaque(pixelData, px, py - 1);
       const hasBottomNeighbor = isPixelOpaque(pixelData, px, py + 1);
 
-      // LEFT edge - RED for debugging (only if left neighbor is transparent)
+      // LEFT edge - TEST: Use GREEN to see if green color works here
       if (!hasLeftNeighbor) {
         addQuad(
           [pixelX1, pixelY1, halfThickness],
@@ -233,14 +233,14 @@ export function generateItemGeometry(
           [pixelU1, 1 - pixelV2],
           [pixelU1, 1 - pixelV2],
           [-1, 0, 0],
-          [1, 0, 0] // RED
+          [0, 1, 0] // GREEN (swapped from RED)
         );
         edgeCounts.left++;
       }
 
-      // RIGHT edge - GREEN for debugging (only if right neighbor is transparent)
+      // RIGHT edge - TEST: Use RED to see if red color works here
       if (!hasRightNeighbor) {
-        console.log('[DEBUG-RIGHT] Creating right edge at px=' + px + ', vertices will be logged...');
+        console.log('[DEBUG-RIGHT] Creating right edge at px=' + px);
         addQuad(
           [pixelX2, pixelY1, -halfThickness],
           [pixelX2, pixelY1, halfThickness],
@@ -251,13 +251,13 @@ export function generateItemGeometry(
           [pixelU2, 1 - pixelV2],
           [pixelU2, 1 - pixelV2],
           [1, 0, 0],
-          [0, 1, 0], // GREEN
+          [1, 0, 0], // RED (swapped from GREEN)
           true // REVERSE WINDING
         );
         edgeCounts.right++;
       }
 
-      // TOP edge - BLUE for debugging (only if top neighbor is transparent)
+      // TOP edge - TEST: Use YELLOW to see if yellow color works here
       if (!hasTopNeighbor) {
         const topVerts = [
           [pixelX2, pixelY1, halfThickness],
@@ -280,13 +280,13 @@ export function generateItemGeometry(
           [pixelU1, 1 - pixelV1],
           [pixelU2, 1 - pixelV1],
           [0, 1, 0],
-          [0, 0, 1], // BLUE
+          [1, 1, 0], // YELLOW (swapped from BLUE)
           true // REVERSE WINDING
         );
         edgeCounts.top++;
       }
 
-      // BOTTOM edge - YELLOW for debugging (only if bottom neighbor is transparent)
+      // BOTTOM edge - TEST: Use BLUE to see if blue color works here
       if (!hasBottomNeighbor) {
         addQuad(
           [pixelX2, pixelY2, halfThickness],
@@ -298,7 +298,7 @@ export function generateItemGeometry(
           [pixelU1, 1 - pixelV2],
           [pixelU2, 1 - pixelV2],
           [0, -1, 0],
-          [1, 1, 0] // YELLOW
+          [0, 0, 1] // BLUE (swapped from YELLOW)
         );
         edgeCounts.bottom++;
       }
