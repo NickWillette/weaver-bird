@@ -96,7 +96,9 @@ export interface UIState {
   // Colormap State - Centralized colormap management
   colormapCoordinates?: { x: number; y: number }; // Current position on colormap (0-255, 0-255)
   grassColormapUrl?: string; // Resolved URL of active grass colormap
+  grassColormapPackId?: string; // Pack ID that provides the grass colormap
   foliageColormapUrl?: string; // Resolved URL of active foliage colormap
+  foliageColormapPackId?: string; // Pack ID that provides the foliage colormap
   selectedGrassColor?: { r: number; g: number; b: number }; // Sampled grass color at coordinates
   selectedFoliageColor?: { r: number; g: number; b: number }; // Sampled foliage color at coordinates
   selectedBiomeId?: string; // Biome ID if coordinates match a biome, null otherwise

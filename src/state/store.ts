@@ -54,7 +54,9 @@ interface StoreActions {
     coords: { x: number; y: number } | undefined,
   ) => void;
   setGrassColormapUrl: (url: string | undefined) => void;
+  setGrassColormapPackId: (packId: string | undefined) => void;
   setFoliageColormapUrl: (url: string | undefined) => void;
+  setFoliageColormapPackId: (packId: string | undefined) => void;
   setSelectedGrassColor: (
     color: { r: number; g: number; b: number } | undefined,
   ) => void;
@@ -310,9 +312,21 @@ export const useStore = create<WeaverbirdStore>()(
       });
     },
 
+    setGrassColormapPackId: (packId: string | undefined) => {
+      set((state) => {
+        state.grassColormapPackId = packId;
+      });
+    },
+
     setFoliageColormapUrl: (url: string | undefined) => {
       set((state) => {
         state.foliageColormapUrl = url;
+      });
+    },
+
+    setFoliageColormapPackId: (packId: string | undefined) => {
+      set((state) => {
+        state.foliageColormapPackId = packId;
       });
     },
 
