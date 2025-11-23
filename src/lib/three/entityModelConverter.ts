@@ -252,6 +252,11 @@ function applyJEMUVs(
     let uvU2 = u2 / texWidth;
     const uvV2 = 1 - v2 / texHeight; // Bottom of face
 
+    if (config.name === "north" || config.name === "south") {
+      console.log(`    [UV ${config.name}] JEM pixels: [${u1}, ${v1}] to [${u2}, ${v2}]`);
+      console.log(`    [UV ${config.name}] Three.js UVs: [${uvU1.toFixed(3)}, ${uvV1.toFixed(3)}] to [${uvU2.toFixed(3)}, ${uvV2.toFixed(3)}]`);
+    }
+
     // Handle mirroring
     if (mirror) {
       [uvU1, uvU2] = [uvU2, uvU1];
