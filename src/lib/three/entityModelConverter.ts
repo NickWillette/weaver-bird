@@ -77,15 +77,10 @@ function convertPart(
     return partGroup; // Return empty group
   }
 
-  // Determine which axes to invert based on invertAxis property
-  const invertX = part.invertAxis.includes('x');
-  const invertY = part.invertAxis.includes('y');
-  const invertZ = part.invertAxis.includes('z');
-
   // Convert each box in this part
   for (let i = 0; i < part.boxes.length; i++) {
     const box = part.boxes[i];
-    const mesh = createBoxMesh(box, textureSize, texture, invertX, invertY, invertZ);
+    const mesh = createBoxMesh(box, textureSize, texture);
     if (mesh) {
       partGroup.add(mesh);
     }
@@ -101,34 +96,27 @@ function convertPart(
   const [tx, ty, tz] = part.translate;
 
   // Apply translation (convert from pixels to block units)
-  // Apply inversions based on invertAxis property
-  const finalX = (invertX ? -tx : tx) / MINECRAFT_UNIT;
-  const finalY = (invertY ? -ty : ty) / MINECRAFT_UNIT;
-  const finalZ = (invertZ ? -tz : tz) / MINECRAFT_UNIT;
+  // IMPORTANT: JEM translate is ALWAYS negated (Blockbench always does V3_multiply(-1))
+  // The invertAxis property is just a marker/convention, not a conditional
+  const finalX = -tx / MINECRAFT_UNIT;
+  const finalY = -ty / MINECRAFT_UNIT;
+  const finalZ = -tz / MINECRAFT_UNIT;
 
   partGroup.position.set(finalX, finalY, finalZ);
 
   console.log(`[entityModelConverter] ${part.name} POSITION:`);
   console.log(`  - JEM translate: [${tx}, ${ty}, ${tz}]`);
-  console.log(`  - After inversion: [${invertX ? -tx : tx}, ${invertY ? -ty : ty}, ${invertZ ? -tz : tz}]`);
+  console.log(`  - After negation: [${-tx}, ${-ty}, ${-tz}]`);
   console.log(`  - Three.js position: [${finalX.toFixed(3)}, ${finalY.toFixed(3)}, ${finalZ.toFixed(3)}]`);
 
   // Apply rotation (degrees to radians)
-  // When axes are inverted, rotations around OTHER axes need to be negated
-  // For example, if Y is inverted, rotations around X and Z need to be negated
+  // Rotations in JEM are used as-is (Blockbench doesn't negate them)
   const [rx, ry, rz] = part.rotate;
 
-  // Determine which rotations to negate based on axis inversions
-  // If both X and Y are inverted, rotation around Z stays the same
-  // If only one axis of a plane is inverted, rotations in that plane are negated
-  const negateRx = invertY !== invertZ; // Negate X rotation if Y or Z (but not both) are inverted
-  const negateRy = invertX !== invertZ; // Negate Y rotation if X or Z (but not both) are inverted
-  const negateRz = invertX !== invertY; // Negate Z rotation if X or Y (but not both) are inverted
-
   partGroup.rotation.set(
-    THREE.MathUtils.degToRad(negateRx ? -rx : rx),
-    THREE.MathUtils.degToRad(negateRy ? -ry : ry),
-    THREE.MathUtils.degToRad(negateRz ? -rz : rz),
+    THREE.MathUtils.degToRad(rx),
+    THREE.MathUtils.degToRad(ry),
+    THREE.MathUtils.degToRad(rz),
   );
 
   // Apply scale (no axis flipping via scale - we handle it via coordinate transformation)
@@ -146,9 +134,6 @@ function createBoxMesh(
   box: ParsedBox,
   textureSize: [number, number],
   texture: THREE.Texture | null,
-  invertX: boolean,
-  invertY: boolean,
-  invertZ: boolean,
 ): THREE.Mesh | null {
   const [x, y, z] = box.position;
   const [width, height, depth] = box.size;
@@ -167,7 +152,7 @@ function createBoxMesh(
   console.log(`  - Box size in Three.js units: [${w.toFixed(3)}, ${h.toFixed(3)}, ${d.toFixed(3)}]`);
 
   // Apply UV coordinates
-  applyJEMUVs(geometry, box.uv, textureSize, box.mirror, invertX, invertY, invertZ);
+  applyJEMUVs(geometry, box.uv, textureSize, box.mirror);
 
   // Create material
   let material: THREE.Material;
@@ -219,9 +204,6 @@ function applyJEMUVs(
   uv: ParsedBox['uv'],
   textureSize: [number, number],
   mirror: boolean,
-  invertX: boolean,
-  invertY: boolean,
-  invertZ: boolean,
 ): void {
   const [texWidth, texHeight] = textureSize;
 
