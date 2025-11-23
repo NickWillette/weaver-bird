@@ -24,7 +24,7 @@ import TextureVariantSelector from "@components/TextureVariantSelector";
 import PaintingSelector from "@components/PaintingSelector";
 import PotteryShardSelector from "@components/PotteryShardSelector";
 import DecoratedPotConfigurator from "@components/DecoratedPotConfigurator";
-import DecoratedPotBlockView from "@components/DecoratedPotBlockView";
+import Preview3D from "@components/Preview3D";
 import { groupAssetsByVariant, isNumberedVariant } from "@lib/assetUtils";
 import {
   Combobox,
@@ -379,7 +379,16 @@ export default function OptionsPanel({
                   <Separator style={{ margin: "1rem 0" }} />
                 </>
               )}
-              <DecoratedPotBlockView singleShard={assetId} />
+              {/* Convert pottery shard item to entity texture for preview */}
+              <Preview3D
+                assetId={assetId?.replace('item/', 'entity/decorated_pot/').replace('_pottery_shard', '_pottery_pattern') || assetId}
+                showPot={false}
+                onShowPotChange={() => {}}
+                blockProps={{}}
+                seed={0}
+                foliagePreviewBlock="minecraft:block/oak_leaves"
+                allAssetIds={[]}
+              />
             </div>
           </TabsContent>
         )}
