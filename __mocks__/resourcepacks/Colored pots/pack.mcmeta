@@ -1,0 +1,10 @@
+{
+  "pack": {
+        "pack_format": 18,	
+		"supported_formats": {
+			"min_inclusive": 18,
+			"max_inclusive": 60
+		},
+    "description": ["",{"text":"Changes the "},{"text":"patterns","color":"dark_red"},{"text":" on the"},{"text":" pots","color":"green"},{"text":" to"},{"text":" c","color":"dark_red"},{"text":"o","color":"gold"},{"text":"l","color":"yellow"},{"text":"o","color":"green"},{"text":"r","color":"aqua"},{"text":"e","color":"dark_blue"},{"text":"d","color":"dark_purple"},{"text":" ones!"}]
+  }
+}
