@@ -102,11 +102,16 @@ function convertPart(
 
   // Apply translation (convert from pixels to block units)
   // Apply inversions based on invertAxis property
-  partGroup.position.set(
-    (invertX ? -tx : tx) / MINECRAFT_UNIT,
-    (invertY ? -ty : ty) / MINECRAFT_UNIT,
-    (invertZ ? -tz : tz) / MINECRAFT_UNIT,
-  );
+  const finalX = (invertX ? -tx : tx) / MINECRAFT_UNIT;
+  const finalY = (invertY ? -ty : ty) / MINECRAFT_UNIT;
+  const finalZ = (invertZ ? -tz : tz) / MINECRAFT_UNIT;
+
+  partGroup.position.set(finalX, finalY, finalZ);
+
+  console.log(`[entityModelConverter] ${part.name} POSITION:`);
+  console.log(`  - JEM translate: [${tx}, ${ty}, ${tz}]`);
+  console.log(`  - After inversion: [${invertX ? -tx : tx}, ${invertY ? -ty : ty}, ${invertZ ? -tz : tz}]`);
+  console.log(`  - Three.js position: [${finalX.toFixed(3)}, ${finalY.toFixed(3)}, ${finalZ.toFixed(3)}]`);
 
   // Apply rotation (degrees to radians)
   // When axes are inverted, rotations around OTHER axes need to be negated
@@ -158,6 +163,9 @@ function createBoxMesh(
   // Create box geometry
   const geometry = new THREE.BoxGeometry(w, h, d);
 
+  // Log box details for debugging
+  console.log(`  - Box size in Three.js units: [${w.toFixed(3)}, ${h.toFixed(3)}, ${d.toFixed(3)}]`);
+
   // Apply UV coordinates
   applyJEMUVs(geometry, box.uv, textureSize, box.mirror, invertX, invertY, invertZ);
 
@@ -189,11 +197,14 @@ function createBoxMesh(
   const centerY = (y + height / 2) / MINECRAFT_UNIT;
   const centerZ = (z + depth / 2) / MINECRAFT_UNIT;
 
-  mesh.position.set(
-    invertX ? -centerX : centerX,
-    invertY ? -centerY : centerY,
-    invertZ ? -centerZ : centerZ,
-  );
+  const finalBoxX = invertX ? -centerX : centerX;
+  const finalBoxY = invertY ? -centerY : centerY;
+  const finalBoxZ = invertZ ? -centerZ : centerZ;
+
+  mesh.position.set(finalBoxX, finalBoxY, finalBoxZ);
+
+  console.log(`  - Box center (before inversion): [${centerX.toFixed(3)}, ${centerY.toFixed(3)}, ${centerZ.toFixed(3)}]`);
+  console.log(`  - Box center (after inversion): [${finalBoxX.toFixed(3)}, ${finalBoxY.toFixed(3)}, ${finalBoxZ.toFixed(3)}]`);
 
   // Enable shadows
   mesh.castShadow = true;
