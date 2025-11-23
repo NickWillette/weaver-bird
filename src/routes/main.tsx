@@ -55,6 +55,7 @@ import OutputSettings from "@components/OutputSettings";
 import Settings from "@components/Settings";
 import MinecraftLocations from "@components/Settings/MinecraftLocations";
 import ColormapSettings from "@components/Settings/ColormapSettings";
+import WindowControls from "@components/WindowControls";
 import Button from "@/ui/components/buttons/Button";
 import {
   Pagination,
@@ -782,11 +783,14 @@ export default function MainRoute() {
   return (
     <div className={s.container}>
       {/* Header */}
-      <div className={s.header}>
+      <div className={s.header} data-tauri-drag-region>
         <div className={s.headerContent}>
-          <div>
-            <h1>Weaverbird</h1>
-            <p>Minecraft Resource Pack Manager</p>
+          <div className={s.headerLeft}>
+            <WindowControls />
+            <div className={s.headerTitle}>
+              <h1>Weaverbird</h1>
+              <p>Minecraft Resource Pack Manager</p>
+            </div>
           </div>
           <div className={s.headerRight}>
             <BiomeSelector />
