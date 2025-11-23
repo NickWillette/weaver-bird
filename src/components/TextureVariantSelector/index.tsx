@@ -5,6 +5,7 @@ import {
   isPottedPlant,
   categorizeVariants,
   isInventoryVariant,
+  isNumberedVariant,
 } from "@lib/assetUtils";
 import s from "./styles.module.scss";
 
@@ -46,8 +47,12 @@ export default function TextureVariantSelector({
       return { worldVariants: [], inventoryVariants: [] };
     }
 
+    // Filter to only numbered texture variants (e.g., acacia_planks1, acacia_planks2)
+    // Block states (_on, _off) and faces (_top, _side) should NOT appear in variant selector
+    const numberedVariants = group.variantIds.filter(isNumberedVariant);
+
     // Filter out potted variants - they're controlled by "Show Pot" toggle, not texture selector
-    const nonPottedVariants = group.variantIds.filter(
+    const nonPottedVariants = numberedVariants.filter(
       (id) => !isPottedPlant(id),
     );
 

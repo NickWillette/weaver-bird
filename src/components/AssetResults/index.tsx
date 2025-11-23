@@ -37,6 +37,7 @@ import {
   isInventoryVariant,
   is2DOnlyTexture,
   isMinecraftItem,
+  isNumberedVariant,
 } from "@lib/assetUtils";
 import { assetGroupingWorker } from "@lib/assetGroupingWorker";
 import {
@@ -466,10 +467,15 @@ export default function AssetResults({
         const canonicalId = primaryId.includes(":colormap/")
           ? primaryId
           : getBlockStateIdFromAssetId(primaryId);
+
+        // Count only numbered texture variants (e.g., acacia_planks1, acacia_planks2)
+        // Block states (_on, _off) and faces (_top, _side) should NOT be counted as variants
+        const numberedVariants = group.variantIds.filter(isNumberedVariant);
+
         return {
           id: primaryId,
           name: beautifyAssetName(canonicalId),
-          variantCount: group.variantIds.length,
+          variantCount: numberedVariants.length,
           allVariants: group.variantIds,
         };
       });
