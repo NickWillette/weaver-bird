@@ -2,13 +2,13 @@
  * PreviewDecoratedPotEntity Component - Wrapper for entity decorated pot previews with 2D/3D view tabs
  *
  * Allows users to switch between:
- * - 3D decorated pot block view (default)
+ * - 3D entity preview using Preview3D (default) - automatically detects entities
  * - 2D flat texture view
  */
 import { useState } from "react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/ui/components/tabs";
 import Preview2D from "@components/Preview2D";
-import DecoratedPotBlockView from "@components/DecoratedPotBlockView";
+import Preview3D from "@components/Preview3D";
 import s from "./styles.module.scss";
 
 interface Props {
@@ -17,6 +17,7 @@ interface Props {
 
 export default function PreviewDecoratedPotEntity({ assetId }: Props) {
   const [activeTab, setActiveTab] = useState<"3d" | "2d">("3d");
+  const [showPot, setShowPot] = useState(false);
 
   if (!assetId) {
     return (
@@ -39,7 +40,15 @@ export default function PreviewDecoratedPotEntity({ assetId }: Props) {
         </TabsList>
 
         <TabsContent value="3d" className={s.tabContent}>
-          <DecoratedPotBlockView entityTexture={assetId} />
+          <Preview3D
+            assetId={assetId}
+            showPot={showPot}
+            onShowPotChange={setShowPot}
+            blockProps={{}}
+            seed={0}
+            foliagePreviewBlock="minecraft:block/oak_leaves"
+            allAssetIds={[]}
+          />
         </TabsContent>
 
         <TabsContent value="2d" className={s.tabContent}>
