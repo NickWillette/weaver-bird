@@ -102,11 +102,16 @@ function convertPart(
 
   // Apply translation (convert from pixels to block units)
   // Apply inversions based on invertAxis property
-  partGroup.position.set(
-    (invertX ? -tx : tx) / MINECRAFT_UNIT,
-    (invertY ? -ty : ty) / MINECRAFT_UNIT,
-    (invertZ ? -tz : tz) / MINECRAFT_UNIT,
-  );
+  const finalX = (invertX ? -tx : tx) / MINECRAFT_UNIT;
+  const finalY = (invertY ? -ty : ty) / MINECRAFT_UNIT;
+  const finalZ = (invertZ ? -tz : tz) / MINECRAFT_UNIT;
+
+  partGroup.position.set(finalX, finalY, finalZ);
+
+  console.log(`[entityModelConverter] ${part.name} POSITION:`);
+  console.log(`  - JEM translate: [${tx}, ${ty}, ${tz}]`);
+  console.log(`  - After inversion: [${invertX ? -tx : tx}, ${invertY ? -ty : ty}, ${invertZ ? -tz : tz}]`);
+  console.log(`  - Three.js position: [${finalX.toFixed(3)}, ${finalY.toFixed(3)}, ${finalZ.toFixed(3)}]`);
 
   // Apply rotation (degrees to radians)
   // When axes are inverted, rotations around OTHER axes need to be negated
@@ -158,6 +163,9 @@ function createBoxMesh(
   // Create box geometry
   const geometry = new THREE.BoxGeometry(w, h, d);
 
+  // Log box details for debugging
+  console.log(`  - Box size in Three.js units: [${w.toFixed(3)}, ${h.toFixed(3)}, ${d.toFixed(3)}]`);
+
   // Apply UV coordinates
   applyJEMUVs(geometry, box.uv, textureSize, box.mirror, invertX, invertY, invertZ);
 
@@ -183,17 +191,16 @@ function createBoxMesh(
   const mesh = new THREE.Mesh(geometry, material);
 
   // Position the mesh
-  // JEM coordinates are the corner of the box, need to offset to center
-  // Apply axis inversions to box positions
+  // JEM box coordinates are RELATIVE to the part's pivot point
+  // They should NOT be negated based on invertAxis - only the part pivot is negated
+  // Calculate center of box from corner position
   const centerX = (x + width / 2) / MINECRAFT_UNIT;
   const centerY = (y + height / 2) / MINECRAFT_UNIT;
   const centerZ = (z + depth / 2) / MINECRAFT_UNIT;
 
-  mesh.position.set(
-    invertX ? -centerX : centerX,
-    invertY ? -centerY : centerY,
-    invertZ ? -centerZ : centerZ,
-  );
+  mesh.position.set(centerX, centerY, centerZ);
+
+  console.log(`  - Box center (relative to part): [${centerX.toFixed(3)}, ${centerY.toFixed(3)}, ${centerZ.toFixed(3)}]`);
 
   // Enable shadows
   mesh.castShadow = true;
@@ -244,6 +251,11 @@ function applyJEMUVs(
     const uvV1 = 1 - v1 / texHeight; // Top of face
     let uvU2 = u2 / texWidth;
     const uvV2 = 1 - v2 / texHeight; // Bottom of face
+
+    if (config.name === "north" || config.name === "south") {
+      console.log(`    [UV ${config.name}] JEM pixels: [${u1}, ${v1}] to [${u2}, ${v2}]`);
+      console.log(`    [UV ${config.name}] Three.js UVs: [${uvU1.toFixed(3)}, ${uvV1.toFixed(3)}] to [${uvU2.toFixed(3)}, ${uvV2.toFixed(3)}]`);
+    }
 
     // Handle mirroring
     if (mirror) {
