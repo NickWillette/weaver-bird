@@ -25,7 +25,7 @@ import PaintingSelector from "@components/PaintingSelector";
 import PotteryShardSelector from "@components/PotteryShardSelector";
 import DecoratedPotConfigurator from "@components/DecoratedPotConfigurator";
 import DecoratedPotBlockView from "@components/DecoratedPotBlockView";
-import { groupAssetsByVariant } from "@lib/assetUtils";
+import { groupAssetsByVariant, isNumberedVariant } from "@lib/assetUtils";
 import {
   Combobox,
   type ComboboxOption,
@@ -138,6 +138,8 @@ export default function OptionsPanel({
   const [seed, setSeed] = useState(0);
 
   // Check if texture variants are available for the selected asset
+  // Only numbered variants (e.g., acacia_planks1, acacia_planks2) count as texture variants
+  // Block states (_on, _off) and faces (_top, _side) should NOT show the variant selector
   const hasTextureVariants = useMemo(() => {
     if (!assetId || allAssets.length === 0) return false;
 
@@ -147,7 +149,12 @@ export default function OptionsPanel({
     // Find the group that contains the selected asset
     const group = groups.find((g) => g.variantIds.includes(assetId));
 
-    return group && group.variantIds.length > 1;
+    if (!group) return false;
+
+    // Count only numbered texture variants
+    const numberedVariants = group.variantIds.filter(isNumberedVariant);
+
+    return numberedVariants.length > 1;
   }, [assetId, allAssets]);
 
   // Forward block props and seed changes to parent
