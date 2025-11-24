@@ -9,20 +9,32 @@
 
     // Halftone overlay for punk aesthetic
     @include tokens.pattern-halftone-lg;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 200ms ease;
 
-    animation: fadeIn 200ms ease-out;
+    &[data-state="open"] {
+        opacity: 1;
+        pointer-events: auto;
+    }
 }
 
 // Content - drawer panel (base styles)
 .content {
-    @include tokens.border-standard;
-    @include tokens.shadow-xl;
-
     position: fixed;
-    z-index: 101;
-
+    background: var(--color-bg-surface);
+    @include tokens.border-standard;
+    @include tokens.shadow-lg;
+    z-index: 50;
     display: flex;
     flex-direction: column;
+    outline: none;
+    overflow: clip;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 160ms ease;
+    --drawer-inline-size: 22rem; // cap for horizontal drawers (overridable)
+    --drawer-block-size: 24rem; // cap for vertical drawers (overridable)
 
     @include tokens.gradient-surface-vertical;
 
@@ -33,6 +45,17 @@
     &:focus-visible {
         outline: none;
     }
+
+    &[data-phase="opening"],
+    &[data-phase="open"] {
+        pointer-events: auto;
+        opacity: 1;
+    }
+
+    &[data-phase="closing"],
+    &[data-phase="switching-close"] {
+        opacity: 1;
+    }
 }
 
 // Position: bottom (default sheet from bottom)
@@ -40,17 +63,23 @@
     bottom: 0;
     left: 0;
     right: 0;
-    max-height: 90vh;
     border-radius: 1.6rem 1.6rem 0 0;
     border-bottom: none;
+    max-height: 0; // Start at 0 for opening animation
+    --drawer-block-size: 100vh;
 
-    // Extend background beyond screen during animation
+    // Only transition max-height for top/bottom
+    transition: max-height 300ms ease;
+
+    &[data-fast-close="true"] {
+        transition: max-height 150ms ease;
+    }
+
+    // Extend background beyond screen during animation (full-screen mode only)
     padding-bottom: 10vh;
     margin-bottom: -10vh;
 
-    animation: slideInFromBottom 300ms var(--spring-bezier);
-
-    // Centered on desktop
+    // Centered on desktop OR when position is absolute (portal mode)
     @media (min-width: 640px) {
         left: 50%;
         right: auto;
@@ -58,8 +87,26 @@
         width: 100%;
         border-radius: 2rem 2rem 0 0;
         transform: translateX(-50%);
+    }
 
-        animation: slideInFromBottomCentered 300ms var(--spring-bezier);
+    // Always center when in portal mode (position absolute)
+    &[style*="position: absolute"] {
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%);
+        padding-bottom: 0; // Remove extended padding
+        margin-bottom: 0;
+    }
+
+    &[data-phase="opening"],
+    &[data-phase="open"] {
+        max-height: var(--drawer-block-size);
+    }
+
+    &[data-phase="closing"],
+    &[data-phase="switching-close"],
+    &[data-phase="closed"] {
+        max-height: 0 !important;
     }
 }
 
@@ -68,15 +115,21 @@
     top: 0;
     left: 0;
     right: 0;
-    max-height: 90vh;
     border-radius: 0 0 1.6rem 1.6rem;
     border-top: none;
+    max-height: 0; // Start at 0 for opening animation
+    --drawer-block-size: 350px;
 
-    // Extend background beyond screen during animation
+    // Only transition max-height for top/bottom
+    transition: max-height 300ms ease;
+
+    &[data-fast-close="true"] {
+        transition: max-height 150ms ease;
+    }
+
+    // Extend background beyond screen during animation (full-screen mode only)
     padding-top: 10vh;
     margin-top: -10vh;
-
-    animation: slideInFromTop 300ms var(--spring-bezier);
 
     // Centered on desktop
     @media (min-width: 640px) {
@@ -86,12 +139,82 @@
         width: 100%;
         border-radius: 0 0 2rem 2rem;
         transform: translateX(-50%);
+    }
 
-        animation: slideInFromTopCentered 300ms var(--spring-bezier);
+    // Always center when in portal mode (position absolute)
+    &[style*="position: absolute"] {
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%);
+        padding-top: 0; // Remove extended padding
+        margin-top: 0;
     }
 
     .handle {
         margin: 0.5rem auto 0.75rem;
+    }
+
+    &[data-phase="opening"],
+    &[data-phase="open"] {
+        max-height: var(--drawer-block-size);
+    }
+
+    &[data-phase="closing"],
+    &[data-phase="switching-close"],
+    &[data-phase="closed"] {
+        max-height: 0 !important;
+    }
+}
+
+@keyframes slideOutBottom {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+
+    to {
+        transform: translate3d(0, 100%, 0);
+    }
+}
+
+@keyframes slideOutTop {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+
+    to {
+        transform: translate3d(0, -100%, 0);
+    }
+}
+
+@keyframes slideOutLeft {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+
+    to {
+        transform: translate3d(-100%, 0, 0);
+    }
+}
+
+@keyframes slideOutRight {
+    from {
+        transform: translate3d(0, 0, 0);
+    }
+
+    to {
+        transform: translate3d(100%, 0, 0);
+    }
+}
+
+@keyframes scaleOut {
+    from {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(0.9);
     }
 }
 
@@ -100,20 +223,52 @@
     top: 0;
     bottom: 0;
     left: 0;
-    max-width: 90vw;
-    width: 100%;
+    max-width: 0; // Default closed state
+    width: min(var(--drawer-inline-size), 100%);
     border-radius: 0 1.6rem 1.6rem 0;
     border-left: none;
+    --drawer-inline-size: 350px;
 
-    // Extend background beyond screen during animation
+    // Extend background beyond screen during animation (full-screen mode only)
     padding-left: 10vw;
     margin-left: -10vw;
 
-    animation: slideInFromLeft 300ms var(--spring-bezier);
-
     @media (min-width: 640px) {
-        max-width: 28rem;
         border-radius: 0 2rem 2rem 0;
+    }
+
+    // Remove extended padding in portal mode
+    &[style*="position: absolute"] {
+        padding-left: 0;
+        margin-left: 0;
+    }
+
+    // Default state when closed
+    &[data-phase="closed"] {
+        max-width: 0 !important;
+    }
+
+    // Animate from 0 to full size when opening
+    &[data-phase="opening"] {
+        @starting-style {
+            max-width: 0;
+        }
+        max-width: var(--drawer-inline-size);
+        transition: max-width 300ms ease;
+    }
+
+    &[data-phase="open"] {
+        max-width: var(--drawer-inline-size);
+    }
+
+    &[data-phase="closing"],
+    &[data-phase="switching-close"] {
+        max-width: 0 !important;
+        transition: max-width 300ms ease;
+
+        &[data-fast-close="true"] {
+            transition: max-width 150ms ease;
+        }
     }
 }
 
@@ -122,20 +277,64 @@
     top: 0;
     bottom: 0;
     right: 0;
-    max-width: 90vw;
-    width: 100%;
+    max-width: 0; // Default closed state
+    width: min(var(--drawer-inline-size), 100%);
     border-radius: 1.6rem 0 0 1.6rem;
     border-right: none;
+    --drawer-inline-size: 350px;
 
-    // Extend background beyond screen during animation
+    // Extend background beyond screen during animation (full-screen mode only)
     padding-right: 10vw;
     margin-right: -10vw;
 
-    animation: slideInFromRight 300ms var(--spring-bezier);
-
     @media (min-width: 640px) {
-        max-width: 28rem;
         border-radius: 2rem 0 0 2rem;
+    }
+
+    // Remove extended padding in portal mode
+    &[style*="position: absolute"] {
+        padding-right: 0;
+        margin-right: 0;
+    }
+
+    // Default state when closed
+    &[data-phase="closed"] {
+        max-width: 0 !important;
+    }
+
+    // Animate from 0 to full size when opening
+    &[data-phase="opening"] {
+        @starting-style {
+            max-width: 0;
+        }
+        max-width: var(--drawer-inline-size);
+        transition: max-width 300ms ease;
+    }
+
+    &[data-phase="open"] {
+        max-width: var(--drawer-inline-size);
+    }
+
+    &[data-phase="closing"],
+    &[data-phase="switching-close"] {
+        max-width: 0 !important;
+        transition: max-width 300ms ease;
+
+        &[data-fast-close="true"] {
+            transition: max-width 150ms ease;
+        }
+    }
+}
+
+@keyframes growWidth {
+    to {
+        max-width: 100vw;
+    }
+}
+
+@keyframes growHeight {
+    to {
+        max-height: 100vh;
     }
 }
 
@@ -251,15 +450,16 @@
     line-height: 1.4;
 }
 
-// Reduced motion support
 @media (prefers-reduced-motion: reduce) {
     .overlay,
+    .content,
     .bottom,
     .top,
     .left,
     .right,
     .center {
-        animation: none;
+        transition: none !important;
+        animation: none !important;
     }
 
     .handle {

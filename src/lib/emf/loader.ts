@@ -9,74 +9,74 @@
  * Future: Direct extraction from Minecraft JAR without EMF/ETF dependency
  */
 
-import { invoke } from '@tauri-apps/api/core';
-import type { JEMFile, ParsedEntityModel } from './types';
-import { parseJEM } from './parser';
+import { invoke } from "@tauri-apps/api/core";
+import type { JEMFile, ParsedEntityModel } from "./types";
+import { parseJEM } from "./parser";
 
 // Import vanilla models
-import chestModel from './vanilla/chest.jem.json';
-import cowModel from './vanilla/cow.jem.json';
-import chickenModel from './vanilla/chicken.jem.json';
-import shulkerModel from './vanilla/shulker.jem.json';
-import pigModel from './vanilla/pig.jem.json';
-import sheepModel from './vanilla/sheep.jem.json';
-import zombieModel from './vanilla/zombie.jem.json';
-import skeletonModel from './vanilla/skeleton.jem.json';
-import creeperModel from './vanilla/creeper.jem.json';
-import spiderModel from './vanilla/spider.jem.json';
-import villagerModel from './vanilla/villager.jem.json';
-import endermanModel from './vanilla/enderman.jem.json';
-import wolfModel from './vanilla/wolf.jem.json';
-import catModel from './vanilla/cat.jem.json';
-import ironGolemModel from './vanilla/iron_golem.jem.json';
-import slimeModel from './vanilla/slime.jem.json';
-import playerModel from './vanilla/player.jem.json';
-import bedModel from './vanilla/bed.jem.json';
-import ghastModel from './vanilla/ghast.jem.json';
+import chestModel from "./vanilla/chest.jem.json";
+import cowModel from "./vanilla/cow.jem.json";
+import chickenModel from "./vanilla/chicken.jem.json";
+import shulkerModel from "./vanilla/shulker.jem.json";
+import pigModel from "./vanilla/pig.jem.json";
+import sheepModel from "./vanilla/sheep.jem.json";
+import zombieModel from "./vanilla/zombie.jem.json";
+import skeletonModel from "./vanilla/skeleton.jem.json";
+import creeperModel from "./vanilla/creeper.jem.json";
+import spiderModel from "./vanilla/spider.jem.json";
+import villagerModel from "./vanilla/villager.jem.json";
+import endermanModel from "./vanilla/enderman.jem.json";
+import wolfModel from "./vanilla/wolf.jem.json";
+import catModel from "./vanilla/cat.jem.json";
+import ironGolemModel from "./vanilla/iron_golem.jem.json";
+import slimeModel from "./vanilla/slime.jem.json";
+import playerModel from "./vanilla/player.jem.json";
+import bedModel from "./vanilla/bed.jem.json";
+import ghastModel from "./vanilla/ghast.jem.json";
 
 /**
  * Registry of embedded vanilla entity models
  */
 const VANILLA_MODELS: Record<string, JEMFile> = {
   // Entity blocks
-  'chest': chestModel as JEMFile,
-  'trapped_chest': chestModel as JEMFile,
-  'ender_chest': chestModel as JEMFile,
-  'shulker': shulkerModel as JEMFile,
-  'shulker_box': shulkerModel as JEMFile,
-  'bed': bedModel as JEMFile,
+  chest: chestModel as JEMFile,
+  trapped_chest: chestModel as JEMFile,
+  ender_chest: chestModel as JEMFile,
+  shulker: shulkerModel as JEMFile,
+  shulker_box: shulkerModel as JEMFile,
+  bed: bedModel as JEMFile,
 
   // Passive mobs
-  'cow': cowModel as JEMFile,
-  'chicken': chickenModel as JEMFile,
-  'pig': pigModel as JEMFile,
-  'sheep': sheepModel as JEMFile,
-  'wolf': wolfModel as JEMFile,
-  'cat': catModel as JEMFile,
-  'ocelot': catModel as JEMFile,
-  'villager': villagerModel as JEMFile,
-  'iron_golem': ironGolemModel as JEMFile,
+  cow: cowModel as JEMFile,
+  chicken: chickenModel as JEMFile,
+  pig: pigModel as JEMFile,
+  sheep: sheepModel as JEMFile,
+  wolf: wolfModel as JEMFile,
+  cat: catModel as JEMFile,
+  ocelot: catModel as JEMFile,
+  villager: villagerModel as JEMFile,
+  iron_golem: ironGolemModel as JEMFile,
 
   // Hostile mobs
-  'zombie': zombieModel as JEMFile,
-  'skeleton': skeletonModel as JEMFile,
-  'creeper': creeperModel as JEMFile,
-  'spider': spiderModel as JEMFile,
-  'enderman': endermanModel as JEMFile,
-  'slime': slimeModel as JEMFile,
-  'ghast': ghastModel as JEMFile,
+  zombie: zombieModel as JEMFile,
+  skeleton: skeletonModel as JEMFile,
+  creeper: creeperModel as JEMFile,
+  spider: spiderModel as JEMFile,
+  enderman: endermanModel as JEMFile,
+  slime: slimeModel as JEMFile,
+  ghast: ghastModel as JEMFile,
 
   // Player
-  'player': playerModel as JEMFile,
+  player: playerModel as JEMFile,
 
   // Variants that use same model
-  'husk': zombieModel as JEMFile,
-  'drowned': zombieModel as JEMFile,
-  'stray': skeletonModel as JEMFile,
-  'wither_skeleton': skeletonModel as JEMFile,
-  'cave_spider': spiderModel as JEMFile,
-  'magma_cube': slimeModel as JEMFile,
-  'zombie_villager': zombieModel as JEMFile,
+  husk: zombieModel as JEMFile,
+  drowned: zombieModel as JEMFile,
+  stray: skeletonModel as JEMFile,
+  wither_skeleton: skeletonModel as JEMFile,
+  cave_spider: spiderModel as JEMFile,
+  magma_cube: slimeModel as JEMFile,
+  zombie_villager: zombieModel as JEMFile,
 };
 
 /**
@@ -84,128 +84,165 @@ const VANILLA_MODELS: Record<string, JEMFile> = {
  */
 const TEXTURE_TO_ENTITY: Record<string, string> = {
   // Chests
-  'entity/chest/normal': 'chest',
-  'entity/chest/trapped': 'trapped_chest',
-  'entity/chest/ender': 'ender_chest',
-  'entity/chest/christmas': 'chest',
+  "entity/chest/normal": "chest",
+  "entity/chest/trapped": "trapped_chest",
+  "entity/chest/ender": "ender_chest",
+  "entity/chest/christmas": "chest",
 
   // Passive mobs
-  'entity/cow/cow': 'cow',
-  'entity/cow/red_mooshroom': 'cow',
-  'entity/cow/brown_mooshroom': 'cow',
-  'entity/chicken': 'chicken',
-  'entity/pig/pig': 'pig',
-  'entity/pig/pig_saddle': 'pig',
-  'entity/sheep/sheep': 'sheep',
-  'entity/wolf/wolf': 'wolf',
-  'entity/wolf/wolf_tame': 'wolf',
-  'entity/wolf/wolf_angry': 'wolf',
-  'entity/cat/black': 'cat',
-  'entity/cat/british_shorthair': 'cat',
-  'entity/cat/calico': 'cat',
-  'entity/cat/jellie': 'cat',
-  'entity/cat/ocelot': 'ocelot',
-  'entity/cat/persian': 'cat',
-  'entity/cat/ragdoll': 'cat',
-  'entity/cat/red': 'cat',
-  'entity/cat/siamese': 'cat',
-  'entity/cat/tabby': 'cat',
-  'entity/cat/white': 'cat',
-  'entity/villager/villager': 'villager',
-  'entity/iron_golem/iron_golem': 'iron_golem',
+  "entity/cow/cow": "cow",
+  "entity/cow/red_mooshroom": "cow",
+  "entity/cow/brown_mooshroom": "cow",
+  "entity/chicken": "chicken",
+  "entity/pig/pig": "pig",
+  "entity/pig/pig_saddle": "pig",
+  "entity/sheep/sheep": "sheep",
+  "entity/wolf/wolf": "wolf",
+  "entity/wolf/wolf_tame": "wolf",
+  "entity/wolf/wolf_angry": "wolf",
+  "entity/cat/black": "cat",
+  "entity/cat/british_shorthair": "cat",
+  "entity/cat/calico": "cat",
+  "entity/cat/jellie": "cat",
+  "entity/cat/ocelot": "ocelot",
+  "entity/cat/persian": "cat",
+  "entity/cat/ragdoll": "cat",
+  "entity/cat/red": "cat",
+  "entity/cat/siamese": "cat",
+  "entity/cat/tabby": "cat",
+  "entity/cat/white": "cat",
+  "entity/villager/villager": "villager",
+  "entity/iron_golem/iron_golem": "iron_golem",
 
   // Hostile mobs
-  'entity/zombie/zombie': 'zombie',
-  'entity/zombie/husk': 'husk',
-  'entity/zombie/drowned': 'drowned',
-  'entity/skeleton/skeleton': 'skeleton',
-  'entity/skeleton/stray': 'stray',
-  'entity/skeleton/wither_skeleton': 'wither_skeleton',
-  'entity/creeper/creeper': 'creeper',
-  'entity/spider/spider': 'spider',
-  'entity/spider/cave_spider': 'cave_spider',
-  'entity/enderman/enderman': 'enderman',
-  'entity/slime/slime': 'slime',
-  'entity/slime/magmacube': 'magma_cube',
-  'entity/ghast/ghast': 'ghast',
-  'entity/ghast/ghast_shooting': 'ghast',
+  "entity/zombie/zombie": "zombie",
+  "entity/zombie/husk": "husk",
+  "entity/zombie/drowned": "drowned",
+  "entity/skeleton/skeleton": "skeleton",
+  "entity/skeleton/stray": "stray",
+  "entity/skeleton/wither_skeleton": "wither_skeleton",
+  "entity/creeper/creeper": "creeper",
+  "entity/spider/spider": "spider",
+  "entity/spider/cave_spider": "cave_spider",
+  "entity/enderman/enderman": "enderman",
+  "entity/slime/slime": "slime",
+  "entity/slime/magmacube": "magma_cube",
+  "entity/ghast/ghast": "ghast",
+  "entity/ghast/ghast_shooting": "ghast",
 
   // Player
-  'entity/player/wide/steve': 'player',
-  'entity/player/wide/alex': 'player',
-  'entity/player/slim/steve': 'player',
-  'entity/player/slim/alex': 'player',
+  "entity/player/wide/steve": "player",
+  "entity/player/wide/alex": "player",
+  "entity/player/slim/steve": "player",
+  "entity/player/slim/alex": "player",
 
   // Shulker
-  'entity/shulker/shulker': 'shulker_box',
+  "entity/shulker/shulker": "shulker_box",
 
   // Decorated pots (block entities with entity-style rendering)
   // All pottery patterns use the combined model (base + sides) for complete pot rendering
-  'entity/decorated_pot/decorated_pot_base': 'decorated_pot_combined',
-  'entity/decorated_pot/decorated_pot_side': 'decorated_pot_combined',
-  'entity/decorated_pot/angler_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/archer_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/arms_up_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/blade_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/brewer_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/burn_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/danger_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/explorer_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/flow_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/friend_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/guster_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/heart_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/heartbreak_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/howl_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/miner_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/mourner_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/plenty_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/prize_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/scrape_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/sheaf_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/shelter_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/skull_pottery_pattern': 'decorated_pot_combined',
-  'entity/decorated_pot/snort_pottery_pattern': 'decorated_pot_combined',
+  "entity/decorated_pot/decorated_pot_base": "decorated_pot_combined",
+  "entity/decorated_pot/decorated_pot_side": "decorated_pot_combined",
+  "entity/decorated_pot/angler_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/archer_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/arms_up_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/blade_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/brewer_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/burn_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/danger_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/explorer_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/flow_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/friend_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/guster_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/heart_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/heartbreak_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/howl_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/miner_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/mourner_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/plenty_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/prize_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/scrape_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/sheaf_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/shelter_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/skull_pottery_pattern": "decorated_pot_combined",
+  "entity/decorated_pot/snort_pottery_pattern": "decorated_pot_combined",
 };
 
 // Add shulker color variants
 const SHULKER_COLORS = [
-  'white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime',
-  'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue',
-  'brown', 'green', 'red', 'black'
+  "white",
+  "orange",
+  "magenta",
+  "light_blue",
+  "yellow",
+  "lime",
+  "pink",
+  "gray",
+  "light_gray",
+  "cyan",
+  "purple",
+  "blue",
+  "brown",
+  "green",
+  "red",
+  "black",
 ];
 
 for (const color of SHULKER_COLORS) {
-  TEXTURE_TO_ENTITY[`entity/shulker/shulker_${color}`] = 'shulker_box';
+  TEXTURE_TO_ENTITY[`entity/shulker/shulker_${color}`] = "shulker_box";
 }
 
 // Add bed color variants
 const BED_COLORS = [
-  'white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime',
-  'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue',
-  'brown', 'green', 'red', 'black'
+  "white",
+  "orange",
+  "magenta",
+  "light_blue",
+  "yellow",
+  "lime",
+  "pink",
+  "gray",
+  "light_gray",
+  "cyan",
+  "purple",
+  "blue",
+  "brown",
+  "green",
+  "red",
+  "black",
 ];
 
 for (const color of BED_COLORS) {
-  TEXTURE_TO_ENTITY[`entity/bed/${color}`] = 'bed';
+  TEXTURE_TO_ENTITY[`entity/bed/${color}`] = "bed";
 }
 
 // Add villager profession variants
 const VILLAGER_PROFESSIONS = [
-  'armorer', 'butcher', 'cartographer', 'cleric', 'farmer',
-  'fisherman', 'fletcher', 'leatherworker', 'librarian', 'mason',
-  'nitwit', 'shepherd', 'toolsmith', 'weaponsmith'
+  "armorer",
+  "butcher",
+  "cartographer",
+  "cleric",
+  "farmer",
+  "fisherman",
+  "fletcher",
+  "leatherworker",
+  "librarian",
+  "mason",
+  "nitwit",
+  "shepherd",
+  "toolsmith",
+  "weaponsmith",
 ];
 
 for (const profession of VILLAGER_PROFESSIONS) {
-  TEXTURE_TO_ENTITY[`entity/villager/profession/${profession}`] = 'villager';
+  TEXTURE_TO_ENTITY[`entity/villager/profession/${profession}`] = "villager";
 }
 
 /**
  * Get entity type from asset ID
  */
 export function getEntityTypeFromAssetId(assetId: string): string | null {
-  const texturePath = assetId.replace(/^minecraft:/, '');
+  const texturePath = assetId.replace(/^minecraft:/, "");
   return TEXTURE_TO_ENTITY[texturePath] || null;
 }
 
@@ -221,8 +258,8 @@ export function isSupportedEntity(assetId: string): boolean {
  * This prevents entity textures from being sent to BlockModel
  */
 export function isEntityTexture(assetId: string): boolean {
-  const texturePath = assetId.replace(/^minecraft:/, '');
-  return texturePath.startsWith('entity/');
+  const texturePath = assetId.replace(/^minecraft:/, "");
+  return texturePath.startsWith("entity/");
 }
 
 /**
@@ -230,8 +267,11 @@ export function isEntityTexture(assetId: string): boolean {
  *
  * Priority order:
  * 1. Resource pack (if provided)
- * 2. __mocks__/cem/ (vanilla models from EMF export - 480+ models)
- * 3. Embedded models (legacy fallback - 17 models)
+ * 2. Embedded vanilla models (complete JEM with coordinates - 19 models)
+ * 3. __mocks__/cem/ (EMF exports, often missing coordinates - 421 models)
+ *
+ * Note: EMF exports often omit the "coordinates" field from boxes, making them
+ * incomplete. We prioritize the embedded vanilla models which have full data.
  *
  * @param entityType - Entity type (e.g., "chest", "cow", "decorated_pot")
  * @param packPath - Path to resource pack
@@ -248,7 +288,11 @@ export async function loadEntityModel(
   // 1. Try loading from resource pack first
   if (packPath) {
     try {
-      const packModel = await loadJEMFromPack(entityType, packPath, isZip || false);
+      const packModel = await loadJEMFromPack(
+        entityType,
+        packPath,
+        isZip || false,
+      );
       if (packModel) {
         console.log(`[EMF Loader] ✓ Loaded ${entityType} from pack`);
         return parseJEM(packModel, entityType);
@@ -258,22 +302,26 @@ export async function loadEntityModel(
     }
   }
 
-  // 2. Try loading from __mocks__/cem/ (vanilla models from EMF export)
+  // 2. Try embedded vanilla model first (complete with coordinates)
+  const embeddedModel = VANILLA_MODELS[entityType];
+  if (embeddedModel) {
+    console.log(
+      `[EMF Loader] ✓ Using embedded vanilla model for ${entityType}`,
+    );
+    return parseJEM(embeddedModel, entityType);
+  }
+
+  // 3. Fall back to __mocks__/cem/ (EMF exports - may lack coordinates)
   try {
     const mocksModel = await loadJEMFromMocks(entityType);
     if (mocksModel) {
-      console.log(`[EMF Loader] ✓ Loaded ${entityType} from vanilla mocks`);
+      console.log(
+        `[EMF Loader] ✓ Loaded ${entityType} from EMF export (may lack coordinates)`,
+      );
       return parseJEM(mocksModel, entityType);
     }
   } catch (err) {
     console.log(`[EMF Loader] Mocks model not found: ${err}`);
-  }
-
-  // 3. Fall back to embedded vanilla model (legacy)
-  const embeddedModel = VANILLA_MODELS[entityType];
-  if (embeddedModel) {
-    console.log(`[EMF Loader] ✓ Using embedded vanilla model for ${entityType}`);
-    return parseJEM(embeddedModel, entityType);
   }
 
   console.warn(`[EMF Loader] ✗ No model found for entity: ${entityType}`);
@@ -292,7 +340,7 @@ async function loadJEMFromPack(
   // Try OptiFine directory first (most common)
   try {
     const optifinePath = `assets/minecraft/optifine/cem/${entityType}.jem`;
-    const content = await invoke<string>('read_pack_file', {
+    const content = await invoke<string>("read_pack_file", {
       packPath,
       filePath: optifinePath,
       isZip,
@@ -308,7 +356,7 @@ async function loadJEMFromPack(
   // Try EMF directory (EMF-specific overrides)
   try {
     const emfPath = `assets/minecraft/emf/cem/${entityType}.jem`;
-    const content = await invoke<string>('read_pack_file', {
+    const content = await invoke<string>("read_pack_file", {
       packPath,
       filePath: emfPath,
       isZip,
@@ -334,8 +382,8 @@ async function loadJEMFromMocks(entityType: string): Promise<JEMFile | null> {
     // This works because __mocks__ is part of the project directory
     const mocksPath = `__mocks__/cem/${entityType}.jem`;
 
-    const content = await invoke<string>('read_pack_file', {
-      packPath: '.', // Current directory (project root)
+    const content = await invoke<string>("read_pack_file", {
+      packPath: ".", // Current directory (project root)
       filePath: mocksPath,
       isZip: false,
     });
@@ -363,5 +411,5 @@ export function getSupportedEntityTypes(): string[] {
 export function getEntityTexturePath(assetId: string): string {
   // Extract texture path from asset ID
   // e.g., "minecraft:entity/chest/normal" -> "entity/chest/normal"
-  return assetId.replace(/^minecraft:/, '');
+  return assetId.replace(/^minecraft:/, "");
 }

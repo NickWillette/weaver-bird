@@ -2,6 +2,7 @@ import React, {
   forwardRef,
   useState,
   useEffect,
+  useRef,
   createContext,
   useContext,
   type ReactNode,
@@ -14,6 +15,8 @@ interface DrawerContextValue {
   open: boolean;
   setOpen: (open: boolean) => void;
   position: "bottom" | "top" | "left" | "right" | "center";
+  portalContainer?: HTMLElement | null;
+  modal: boolean;
 }
 
 const DrawerContext = createContext<DrawerContextValue | null>(null);
@@ -32,6 +35,8 @@ export interface DrawerProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   position?: "bottom" | "top" | "left" | "right" | "center";
+  portalContainer?: HTMLElement | null;
+  modal?: boolean;
 }
 
 export function Drawer({
@@ -39,6 +44,8 @@ export function Drawer({
   open: controlledOpen,
   onOpenChange,
   position = "bottom",
+  portalContainer,
+  modal = true,
 }: DrawerProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -53,13 +60,21 @@ export function Drawer({
 
   return (
     <DrawerContext.Provider
-      value={{ open, setOpen: handleOpenChange, position }}
+      value={{
+        open,
+        setOpen: handleOpenChange,
+        position,
+        portalContainer,
+        modal,
+      }}
     >
       {children}
     </DrawerContext.Provider>
   );
 }
 Drawer.displayName = "Drawer";
+
+// ... (Trigger code remains same)
 
 // Trigger - button that opens the drawer
 export interface DrawerTriggerProps
@@ -93,8 +108,9 @@ DrawerTrigger.displayName = "DrawerTrigger";
 
 // Portal - renders drawer outside DOM hierarchy
 export const DrawerPortal = ({ children }: { children: ReactNode }) => {
-  // In Storybook iframes, portal to the iframe's body
-  const portalTarget = document.body;
+  const { portalContainer } = useDrawerContext();
+  // In Storybook iframes, portal to the iframe's body or custom container
+  const portalTarget = portalContainer || document.body;
   return createPortal(children, portalTarget);
 };
 
@@ -128,13 +144,20 @@ DrawerClose.displayName = "DrawerClose";
 export const DrawerOverlay = forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => {
-  const { setOpen } = useDrawerContext();
+>(({ className, style, ...props }, ref) => {
+  const { open, setOpen, portalContainer, modal } = useDrawerContext();
+
+  if (!modal) return null;
 
   return (
     <div
       ref={ref}
       className={[s.overlay, className].filter(Boolean).join(" ")}
+      style={{
+        ...style,
+        ...(portalContainer ? { position: "absolute" } : {}),
+      }}
+      data-state={open ? "open" : "closed"}
       onClick={() => setOpen(false)}
       {...props}
     />
@@ -146,10 +169,108 @@ DrawerOverlay.displayName = "DrawerOverlay";
 export const DrawerContent = forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
->(({ className, children, ...props }, ref) => {
-  const { open, setOpen, position } = useDrawerContext();
+>(({ className, children, style, ...props }, forwardedRef) => {
+  const { open, setOpen, position, portalContainer, modal } =
+    useDrawerContext();
 
-  // Close on ESC key
+  type DrawerPosition = "left" | "right" | "top" | "bottom" | "center";
+
+  const [displayPosition, setDisplayPosition] =
+    useState<DrawerPosition>(position);
+  const [phase, setPhase] = useState<
+    "closed" | "opening" | "open" | "closing" | "switching-close"
+  >(open ? "open" : "closed");
+  const [queuedPosition, setQueuedPosition] = useState<DrawerPosition | null>(
+    null,
+  );
+  const [isFastClose, setIsFastClose] = useState(false);
+  const localRef = useRef<HTMLDivElement | null>(null);
+
+  const isBrowser = typeof document !== "undefined";
+  const shouldRenderPortal = isBrowser;
+
+  useEffect(() => {
+    if (!open && phase === "closed" && displayPosition !== position) {
+      setDisplayPosition(position);
+    }
+  }, [open, phase, position, displayPosition]);
+
+  useEffect(() => {
+    if (open) {
+      if (phase === "closed") {
+        if (displayPosition !== position) {
+          setDisplayPosition(position);
+          return undefined;
+        }
+        setPhase("opening");
+      } else if (phase === "closing") {
+        if (position !== displayPosition) {
+          setQueuedPosition(position);
+          setPhase("switching-close");
+        } else {
+          setPhase("opening");
+        }
+      } else if (phase === "open" && position !== displayPosition) {
+        setQueuedPosition(position);
+        setIsFastClose(true);
+        setPhase("switching-close");
+      }
+    } else {
+      if (phase === "open" || phase === "opening") {
+        setPhase("closing");
+      } else if (phase === "switching-close") {
+        setQueuedPosition(null);
+        setPhase("closing");
+      }
+    }
+  }, [open, position, phase, displayPosition]);
+
+  useEffect(() => {
+    const node = localRef.current;
+    if (!node) return;
+
+    const handleTransitionEnd = (event: TransitionEvent) => {
+      if (event.target !== node) return;
+      const isSizeTransition =
+        event.propertyName === "max-height" ||
+        event.propertyName === "max-width";
+      const isCenterOpacity =
+        displayPosition === "center" && event.propertyName === "opacity";
+
+      if (!isSizeTransition && !isCenterOpacity) {
+        return;
+      }
+
+      if (phase === "opening") {
+        setPhase("open");
+        return;
+      }
+
+      if (phase === "closing") {
+        setPhase("closed");
+        return;
+      }
+
+      if (phase === "switching-close") {
+        const nextPosition = queuedPosition ?? position;
+        setDisplayPosition(nextPosition);
+        setQueuedPosition(null);
+
+        requestAnimationFrame(() => {
+          if (open) {
+            setIsFastClose(false);
+            setPhase("opening");
+          } else {
+            setPhase("closed");
+          }
+        });
+      }
+    };
+
+    node.addEventListener("transitionend", handleTransitionEnd);
+    return () => node.removeEventListener("transitionend", handleTransitionEnd);
+  }, [phase, queuedPosition, open, position, displayPosition]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -163,35 +284,73 @@ export const DrawerContent = forwardRef<
     return () => document.removeEventListener("keydown", handleEscape);
   }, [open, setOpen]);
 
-  // Prevent body scroll when drawer is open
   useEffect(() => {
     if (!open) return;
 
-    document.body.style.overflow = "hidden";
+    if (!portalContainer) {
+      const previousOverflow = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = previousOverflow;
+      };
+    }
+    return undefined;
+  }, [open, portalContainer]);
+
+  const positionClass = s[displayPosition];
+  const showHandle = displayPosition === "top" || displayPosition === "bottom";
+
+  useEffect(() => {
+    if (displayPosition !== "center") {
+      return undefined;
+    }
+
+    let frame: number | null = null;
+
+    if (phase === "opening") {
+      frame = requestAnimationFrame(() => setPhase("open"));
+    } else if (phase === "closing") {
+      frame = requestAnimationFrame(() => setPhase("closed"));
+    }
+
     return () => {
-      document.body.style.overflow = "";
+      if (frame) {
+        cancelAnimationFrame(frame);
+      }
     };
-  }, [open]);
+  }, [displayPosition, phase]);
 
-  if (!open) return null;
+  const setRefs = (node: HTMLDivElement | null) => {
+    localRef.current = node;
+    if (typeof forwardedRef === "function") {
+      forwardedRef(node);
+    } else if (forwardedRef) {
+      forwardedRef.current = node;
+    }
+  };
 
-  // Determine position-specific class
-  const positionClass = s[position];
-
-  // Show handle only for top/bottom positions
-  const showHandle = position === "top" || position === "bottom";
+  if (!shouldRenderPortal) {
+    return null;
+  }
 
   return (
     <DrawerPortal>
       <DrawerOverlay />
       <div
-        ref={ref}
+        ref={setRefs}
         role="dialog"
-        aria-modal="true"
+        aria-modal={modal ? "true" : undefined}
+        aria-hidden={phase === "closed" ? true : undefined}
         className={[s.content, positionClass, className]
           .filter(Boolean)
           .join(" ")}
-        data-position={position}
+        style={{
+          ...style,
+          ...(portalContainer ? { position: "absolute" } : {}),
+        }}
+        data-position={displayPosition}
+        data-phase={phase}
+        data-fast-close={isFastClose}
         {...props}
       >
         {showHandle && <div className={s.handle} aria-hidden="true" />}
