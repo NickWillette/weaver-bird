@@ -21,7 +21,7 @@ export interface WorkerRequest {
   id: string;
   elements: ModelElement[];
   textures: Record<string, string>;
-  textureUrls: Map<string, string>; // Will be serialized as array
+  textureUrls: Record<string, string>; // Serialized as plain object
   scale: number;
 }
 
@@ -474,10 +474,8 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const { id, elements, textures, textureUrls, scale } = event.data;
 
   try {
-    // Convert serialized Map back to Map
-    const textureUrlsMap = new Map(
-      Object.entries(textureUrls as Record<string, string>),
-    ) as Map<string, string>;
+    // Convert serialized object back to Map
+    const textureUrlsMap = new Map(Object.entries(textureUrls));
 
     // Process elements (CPU-intensive work)
     const renderedElements = processElements(

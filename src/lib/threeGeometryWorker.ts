@@ -2,7 +2,7 @@
  * Worker Manager for Three.js Geometry Pre-computation
  *
  * Provides a clean API for using the Three.js geometry worker.
- * Handles worker initialization, request/response management, and automatic fallback.
+ * Handles worker initialization and request/response management.
  */
 
 import type {
@@ -10,19 +10,13 @@ import type {
   WorkerResponse,
   ElementGeometryData,
 } from "@/workers/threeGeometry.worker";
-import type {
-  BlockModel,
-  ResolvedModel,
-} from "@lib/tauri/blockModels";
+import type { BlockModel, ResolvedModel } from "@lib/tauri/blockModels";
 
 export type { ElementGeometryData };
 
 class ThreeGeometryWorkerManager {
   private worker: Worker | null = null;
-  private pendingRequests = new Map<
-    string,
-    (result: WorkerResponse) => void
-  >();
+  private pendingRequests = new Map<string, (result: WorkerResponse) => void>();
   private requestCounter = 0;
 
   constructor() {
@@ -53,7 +47,10 @@ class ThreeGeometryWorkerManager {
 
       console.log("[ThreeGeometryWorker] Worker initialized successfully");
     } catch (error) {
-      console.error("[ThreeGeometryWorker] Failed to initialize worker:", error);
+      console.error(
+        "[ThreeGeometryWorker] Failed to initialize worker:",
+        error,
+      );
       this.worker = null;
     }
   }
@@ -73,14 +70,13 @@ class ThreeGeometryWorkerManager {
     biomeColor?: { r: number; g: number; b: number } | null,
     resolvedModel?: ResolvedModel,
   ): Promise<WorkerResponse> {
-    // Fallback to sync processing if worker failed to load
     if (!this.worker) {
-      console.warn(
-        "[ThreeGeometryWorker] Worker not available, using fallback",
+      throw new Error(
+        "[ThreeGeometryWorker] Worker failed to initialize - this is a critical error",
       );
-      const { computeGeometrySync } = await import("./threeGeometrySync");
-      return computeGeometrySync(model, resolvedTextures, biomeColor, resolvedModel);
     }
+
+    const worker = this.worker;
 
     return new Promise((resolve) => {
       const id = `request_${++this.requestCounter}`;
@@ -95,7 +91,7 @@ class ThreeGeometryWorkerManager {
         resolvedModel,
       };
 
-      this.worker!.postMessage(request);
+      worker.postMessage(request);
     });
   }
 

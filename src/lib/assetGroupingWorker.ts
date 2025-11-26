@@ -2,7 +2,6 @@
  * Worker Manager for Asset Variant Grouping
  *
  * Provides a clean API for using the Asset Grouping Web Worker.
- * Automatically falls back to synchronous processing if worker fails to load.
  */
 
 import type {
@@ -13,10 +12,7 @@ import type {
 
 class AssetGroupingWorkerManager {
   private worker: Worker | null = null;
-  private pendingRequests = new Map<
-    string,
-    (result: AssetGroup[]) => void
-  >();
+  private pendingRequests = new Map<string, (result: AssetGroup[]) => void>();
   private requestCounter = 0;
 
   constructor() {
@@ -55,17 +51,15 @@ class AssetGroupingWorkerManager {
 
   /**
    * Group assets by variant using the Web Worker
-   * Falls back to sync processing if worker is not available
    */
   async groupAssets(assetIds: string[]): Promise<AssetGroup[]> {
-    // Fallback to sync processing if worker failed to load
     if (!this.worker) {
-      console.warn(
-        "[AssetGroupingWorker] Worker not available, using fallback",
+      throw new Error(
+        "[AssetGroupingWorker] Worker failed to initialize - this is a critical error",
       );
-      const { groupAssetsSync } = await import("./assetGroupingSync");
-      return groupAssetsSync(assetIds);
     }
+
+    const worker = this.worker;
 
     return new Promise((resolve) => {
       const id = `request_${++this.requestCounter}`;
@@ -73,7 +67,7 @@ class AssetGroupingWorkerManager {
       this.pendingRequests.set(id, resolve);
 
       const request: WorkerRequest = { id, assetIds };
-      this.worker!.postMessage(request);
+      worker.postMessage(request);
     });
   }
 

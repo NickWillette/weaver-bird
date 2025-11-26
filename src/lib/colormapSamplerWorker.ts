@@ -2,7 +2,6 @@
  * Worker Manager for Colormap Sampling
  *
  * Provides a clean API for batch colormap sampling using a Web Worker.
- * Automatically falls back to synchronous implementation if worker fails.
  */
 
 import type {
@@ -10,11 +9,14 @@ import type {
   WorkerResponse,
   SampleRequest,
   SampleResult,
-} from '@/workers/colormapSampler.worker';
+} from "@/workers/colormapSampler.worker";
 
 class ColormapSamplerWorkerManager {
   private worker: Worker | null = null;
-  private pendingRequests = new Map<string, (results: SampleResult[]) => void>();
+  private pendingRequests = new Map<
+    string,
+    (results: SampleResult[]) => void
+  >();
   private requestCounter = 0;
 
   constructor() {
@@ -25,8 +27,8 @@ class ColormapSamplerWorkerManager {
     try {
       // Vite-specific: Use new URL() pattern for worker imports
       this.worker = new Worker(
-        new URL('@/workers/colormapSampler.worker.ts', import.meta.url),
-        { type: 'module' },
+        new URL("@/workers/colormapSampler.worker.ts", import.meta.url),
+        { type: "module" },
       );
 
       this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
@@ -40,11 +42,11 @@ class ColormapSamplerWorkerManager {
       };
 
       this.worker.onerror = (error) => {
-        console.error('[ColormapSamplerWorker] Worker error:', error);
+        console.error("[ColormapSamplerWorker] Worker error:", error);
       };
     } catch (error) {
       console.error(
-        '[ColormapSamplerWorker] Failed to initialize worker:',
+        "[ColormapSamplerWorker] Failed to initialize worker:",
         error,
       );
       this.worker = null;
@@ -64,14 +66,13 @@ class ColormapSamplerWorkerManager {
     foliageColormapUrl: string | null,
     coordinates: SampleRequest[],
   ): Promise<SampleResult[]> {
-    // Fallback to sync processing if worker failed to load
     if (!this.worker) {
-      console.warn(
-        '[ColormapSamplerWorker] Worker not available, using fallback',
+      throw new Error(
+        "[ColormapSamplerWorker] Worker failed to initialize - this is a critical error",
       );
-      const { sampleBatchSync } = await import('./colormapSamplerSync');
-      return sampleBatchSync(grassColormapUrl, foliageColormapUrl, coordinates);
     }
+
+    const worker = this.worker;
 
     return new Promise((resolve) => {
       const id = `request_${++this.requestCounter}`;
@@ -84,7 +85,7 @@ class ColormapSamplerWorkerManager {
         foliageColormapUrl,
         coordinates,
       };
-      this.worker!.postMessage(request);
+      worker.postMessage(request);
     });
   }
 

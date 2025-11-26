@@ -94,15 +94,13 @@ class BlockGeometryWorkerManager {
     textureUrls: Map<string, string>,
     scale: number,
   ): Promise<RenderedElement[]> {
-    // If worker failed to initialize, fall back to main thread processing
     if (!this.worker) {
-      console.warn(
-        "[BlockGeometryWorker] Worker not available, processing on main thread",
+      throw new Error(
+        "[BlockGeometryWorker] Worker failed to initialize - this is a critical error",
       );
-      // Import the fallback processor
-      const { processElementsSync } = await import("./blockGeometrySync");
-      return processElementsSync(elements, textures, textureUrls, scale);
     }
+
+    const worker = this.worker;
 
     return new Promise((resolve) => {
       const id = `request_${++this.requestCounter}`;
@@ -116,11 +114,11 @@ class BlockGeometryWorkerManager {
         id,
         elements,
         textures,
-        textureUrls: textureUrlsObj as Map<string, string>,
+        textureUrls: textureUrlsObj,
         scale,
       };
 
-      this.worker!.postMessage(request);
+      worker.postMessage(request);
     });
   }
 
