@@ -3,352 +3,33 @@
  *
  * PERFORMANCE OPTIMIZATIONS:
  * -------------------------
- * 1. Selective Subscriptions (lines 61-100):
+ * 1. Selective Subscriptions:
  *    - Cards only subscribe to grass/foliage colors if they actually use tinting
  *    - Prevents 95%+ of cards from re-rendering on pack order changes
- *    - Only grass blocks subscribe to grassColor, only leaves subscribe to foliageColor
  *
- * 2. Memoized Pack Winner (lines 127-129):
- *    - Caches winning pack path to prevent unnecessary texture reloads
- *    - Only reloads textures when the actual pack changes, not on unrelated state updates
- *
- * 3. React.memo with Custom Comparison (lines 242-253):
- *    - Prevents re-renders when props haven't meaningfully changed
- *    - Only re-renders on: asset ID change, selection change, variant count change
- *
- * 4. Lazy Loading with IntersectionObserver (lines 103-122):
+ * 2. Lazy Loading with IntersectionObserver:
  *    - Only loads textures for visible cards (200px buffer)
  *    - Drastically reduces initial load time for large asset lists
  *
- * 5. Progressive/Staggered Rendering (lines 292-321):
+ * 3. Progressive/Staggered Rendering:
  *    - Renders cards in batches of 12 using requestIdleCallback
  *    - Prevents browser lockup when loading 50+ cards at once
- *    - Shows "Loading more..." indicator while batches process
  *    - IMPACT: Initial page load feels instant, cards appear progressively
  */
-import { useEffect, useState, useRef, useMemo, useCallback, memo } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { getVanillaTexturePath, getPackTexturePath } from "@lib/tauri";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import {
   beautifyAssetName,
   getBlockStateIdFromAssetId,
-  isBiomeColormapAsset,
-  normalizeAssetId,
   isInventoryVariant,
   is2DOnlyTexture,
-  isMinecraftItem,
   isNumberedVariant,
 } from "@lib/assetUtils";
 import { assetGroupingWorker } from "@lib/assetGroupingWorker";
-import {
-  useSelectWinner,
-  useSelectIsPenciled,
-  useSelectPack,
-} from "@state/selectors";
 import { useStore } from "@state/store";
-import MinecraftCSSBlock from "@components/MinecraftCSSBlock";
+import { AssetCard } from "./components/AssetCard";
+import { getWinningPack } from "./utilities";
+import type { Props } from "./types";
 import s from "./styles.module.scss";
-
-interface AssetItem {
-  id: string;
-  name: string;
-}
-
-interface Props {
-  assets: AssetItem[];
-  selectedId?: string;
-  onSelect: (id: string) => void;
-  totalItems?: number; // Total count before pagination (for display)
-  displayRange?: { start: number; end: number }; // Range being displayed
-}
-
-interface AssetCardProps {
-  asset: AssetItem;
-  isSelected: boolean;
-  onSelect: () => void;
-  variantCount?: number; // Number of variants if this is a grouped asset
-  staggerIndex?: number; // Index for staggering 3D model loading
-}
-
-const AssetCard = memo(
-  function AssetCard({
-    asset,
-    isSelected,
-    onSelect,
-    variantCount,
-    staggerIndex,
-  }: AssetCardProps) {
-    const [imageSrc, setImageSrc] = useState<string | null>(null);
-    const [imageError, setImageError] = useState(false);
-    const [isVisible, setIsVisible] = useState(false);
-    const cardRef = useRef<HTMLDivElement>(null);
-    const isColormap = isBiomeColormapAsset(asset.id);
-    const is2DTexture = is2DOnlyTexture(asset.id);
-    const isItem = isMinecraftItem(asset.id);
-
-    // Get the winning pack for this asset
-    const winnerPackId = useSelectWinner(asset.id);
-    const isPenciled = useSelectIsPenciled(asset.id);
-    const winnerPack = useSelectPack(winnerPackId || "");
-
-    // OPTIMIZATION: Selective subscriptions - only subscribe to colors/colormaps if this asset uses them
-    // Determine if this block uses tinting (grass, leaves, vines, etc.)
-    const needsGrassTint = useMemo(() => {
-      return (
-        asset.id.includes("grass") ||
-        asset.id.includes("fern") ||
-        asset.id.includes("tall_grass") ||
-        asset.id.includes("sugar_cane")
-      );
-    }, [asset.id]);
-
-    const needsFoliageTint = useMemo(() => {
-      return (
-        asset.id.includes("leaves") ||
-        asset.id.includes("vine") ||
-        asset.id.includes("oak_leaves") ||
-        asset.id.includes("spruce_leaves") ||
-        asset.id.includes("birch_leaves") ||
-        asset.id.includes("jungle_leaves") ||
-        asset.id.includes("acacia_leaves") ||
-        asset.id.includes("dark_oak_leaves") ||
-        asset.id.includes("mangrove_leaves") ||
-        asset.id.includes("cherry_leaves")
-      );
-    }, [asset.id]);
-
-    // Only subscribe to colors and colormap URLs if this asset actually uses them
-    // This prevents 95%+ of cards from re-rendering on pack order changes
-    const selectedGrassColor = useStore((state) =>
-      needsGrassTint ? state.selectedGrassColor : undefined,
-    );
-    const selectedFoliageColor = useStore((state) =>
-      needsFoliageTint ? state.selectedFoliageColor : undefined,
-    );
-    const grassColormapUrl = useStore((state) =>
-      needsGrassTint ? state.grassColormapUrl : undefined,
-    );
-    const foliageColormapUrl = useStore((state) =>
-      needsFoliageTint ? state.foliageColormapUrl : undefined,
-    );
-
-    // Prevent unused variable warnings
-    void selectedGrassColor;
-    void selectedFoliageColor;
-    void grassColormapUrl;
-    void foliageColormapUrl;
-
-    // Intersection Observer to detect visibility
-    useEffect(() => {
-      if (!cardRef.current) return;
-
-      const observer = new IntersectionObserver(
-        ([entry]) => {
-          if (entry.isIntersecting) {
-            setIsVisible(true);
-            // Once visible, stop observing (lazy load only once)
-            observer.disconnect();
-          }
-        },
-        { rootMargin: "200px" }, // Start loading 200px before visible
-      );
-
-      observer.observe(cardRef.current);
-
-      return () => {
-        observer.disconnect();
-      };
-    }, []);
-
-    // Only load image when visible - needed for colormaps, 2D textures, and items
-    // MinecraftCSSBlock handles its own texture loading for 3D blocks
-    // OPTIMIZATION: Memoize winning pack path to prevent reloads when pack hasn't changed
-    const winnerPackPath = useMemo(() => {
-      return winnerPack ? `${winnerPack.path}:${winnerPack.is_zip}` : null;
-    }, [winnerPack]);
-
-    useEffect(() => {
-      if (!isVisible || (!isColormap && !is2DTexture && !isItem)) return;
-
-      let mounted = true;
-
-      const loadImage = async () => {
-        try {
-          let texturePath: string;
-          // Normalize asset ID to fix trailing underscores and other issues
-          const normalizedAssetId = normalizeAssetId(asset.id);
-
-          // Priority: 1. Pack texture (if exists), 2. Vanilla texture (fallback)
-          if (winnerPackId && winnerPack) {
-            try {
-              // Try to load from the winning pack
-              texturePath = await getPackTexturePath(
-                winnerPack.path,
-                normalizedAssetId,
-                winnerPack.is_zip,
-              );
-            } catch (packError) {
-              // If pack texture fails, fall back to vanilla
-              console.warn(
-                `Pack texture not found for ${normalizedAssetId}, using vanilla.`,
-                packError,
-              );
-              texturePath = await getVanillaTexturePath(normalizedAssetId);
-            }
-          } else {
-            // No pack provides this texture, use vanilla
-            texturePath = await getVanillaTexturePath(normalizedAssetId);
-          }
-
-          if (mounted) {
-            // Convert file path to Tauri asset URL
-            const assetUrl = convertFileSrc(texturePath);
-            setImageSrc(assetUrl);
-            setImageError(false);
-          }
-        } catch (error) {
-          if (mounted) {
-            setImageError(true);
-            console.warn(`Failed to load texture for ${asset.id}:`, error);
-          }
-        }
-      };
-
-      loadImage();
-
-      return () => {
-        mounted = false;
-      };
-    }, [
-      isVisible,
-      isColormap,
-      is2DTexture,
-      isItem,
-      asset.id,
-      winnerPackId,
-      winnerPackPath,
-      winnerPack,
-    ]);
-
-    // Generate display name with special handling for paintings, pottery shards, and entity decorated pots
-    const displayName = useMemo(() => {
-      const baseName = asset.name || beautifyAssetName(asset.id);
-
-      // Special handling for paintings: show "Painting - Name" instead of just "Painting"
-      const path = asset.id.includes(":") ? asset.id.split(":")[1] : asset.id;
-      if (path.startsWith("painting/")) {
-        const paintingName = path.replace("painting/", "");
-        const formattedPaintingName = paintingName
-          .split("_")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ");
-        return `Painting - ${formattedPaintingName}`;
-      }
-
-      // Special handling for pottery shards: show "Pottery Shard - Type" instead of just "Pottery Shard"
-      if (path.startsWith("item/pottery_shard_")) {
-        const shardType = path.replace("item/pottery_shard_", "");
-        const formattedShardType = shardType
-          .split("_")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ");
-        return `Pottery Shard - ${formattedShardType}`;
-      }
-
-      // Special handling for entity decorated pot textures: show "Pattern - Decorated Pot"
-      if (path.startsWith("entity/decorated_pot/")) {
-        const patternName = path
-          .replace("entity/decorated_pot/", "")
-          .replace(/\.png$/, "")
-          .replace(/_pottery_pattern$/, ""); // Remove "_pottery_pattern" suffix
-        const formattedPatternName = patternName
-          .split("_")
-          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(" ");
-        return `${formattedPatternName} - Decorated Pot`;
-      }
-
-      return baseName;
-    }, [asset.name, asset.id]);
-
-    return (
-      <div
-        ref={cardRef}
-        className={`${s.card} ${isSelected ? s.selected : ""}`}
-        onClick={onSelect}
-      >
-        <div className={s.imageContainer}>
-          {isColormap || is2DTexture || isItem ? (
-            // Colormaps, 2D textures, and items display as flat images
-            imageSrc && !imageError ? (
-              <img
-                src={imageSrc}
-                alt={displayName}
-                className={
-                  isItem
-                    ? s.itemTexture
-                    : is2DTexture
-                      ? s.texture2D
-                      : s.colormapTexture
-                }
-                onError={() => setImageError(true)}
-              />
-            ) : imageError ? (
-              <div className={s.placeholder}>
-                <span className={s.placeholderIcon}>
-                  {isItem ? "⚔️" : is2DTexture ? "🖼️" : "🎨"}
-                </span>
-              </div>
-            ) : (
-              <div className={s.placeholder}>
-                <span className={s.placeholderIcon}>⏳</span>
-              </div>
-            )
-          ) : // Blocks display as 3D CSS cubes
-          isVisible ? (
-            <MinecraftCSSBlock
-              assetId={asset.id}
-              packId={winnerPackId || undefined}
-              alt={displayName}
-              size={75}
-              staggerIndex={staggerIndex}
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div className={s.placeholder}>
-              <span className={s.placeholderIcon}>⏳</span>
-            </div>
-          )}
-          {isPenciled && (
-            <div
-              className={s.penciledIndicator}
-              title="Manually selected texture"
-            >
-              ✏️
-            </div>
-          )}
-          {variantCount != null && variantCount > 1 && (
-            <div className={s.variantBadge} title={`${variantCount} variants`}>
-              {variantCount}
-            </div>
-          )}
-        </div>
-        <div className={s.assetName}>{displayName}</div>
-      </div>
-    );
-  },
-  (prevProps, nextProps) => {
-    // Custom comparison function - return true if props are equal (skip re-render)
-    // Only re-render if these specific props change:
-    return (
-      prevProps.asset.id === nextProps.asset.id &&
-      prevProps.isSelected === nextProps.isSelected &&
-      prevProps.variantCount === nextProps.variantCount
-      // Note: foliageColor changes will trigger re-render via the hook inside the component
-      // Note: winnerPackId, isPenciled changes will trigger re-render via selectors
-    );
-  },
-);
 
 export default function AssetResults({
   assets,
@@ -398,25 +79,16 @@ export default function AssetResults({
     };
   }, [renderCount, assets.length, renderBatchSize]);
 
-  // Helper to get winning pack for an asset
-  const getWinningPack = useCallback(
+  // Helper to get winning pack for an asset - wrapped to use store state
+  const getWinningPackForAsset = useCallback(
     (assetId: string): string | undefined => {
-      // Check if asset is penciled to a specific pack
-      const override = winners[assetId];
-      if (override && !disabledSet.has(override.packId)) {
-        return override.packId;
-      }
-
-      // Otherwise, get first provider in pack order
-      const providers = (providersByAsset[assetId] ?? []).filter(
-        (packId) => !disabledSet.has(packId),
+      return getWinningPack(
+        assetId,
+        winners,
+        providersByAsset,
+        packOrder,
+        disabledSet,
       );
-      if (providers.length === 0) return undefined;
-
-      const sorted = [...providers].sort(
-        (a, b) => packOrder.indexOf(a) - packOrder.indexOf(b),
-      );
-      return sorted[0];
     },
     [winners, providersByAsset, packOrder, disabledSet],
   );
@@ -457,11 +129,11 @@ export default function AssetResults({
       // Filter each group to only include variants from the same winning pack
       const packFilteredGroups = groups.map((group) => {
         // Get the winning pack for the base asset
-        const baseWinningPack = getWinningPack(group.variantIds[0]);
+        const baseWinningPack = getWinningPackForAsset(group.variantIds[0]);
 
         // Filter variants to only those with the same winning pack
         const filteredVariants = group.variantIds.filter((variantId) => {
-          return getWinningPack(variantId) === baseWinningPack;
+          return getWinningPackForAsset(variantId) === baseWinningPack;
         });
 
         return {
@@ -514,7 +186,7 @@ export default function AssetResults({
     return () => {
       mounted = false;
     };
-  }, [assets, getWinningPack]);
+  }, [assets, getWinningPackForAsset]);
 
   // Create a stable callback that can be reused
   const handleSelectAsset = useCallback(
