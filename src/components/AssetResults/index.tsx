@@ -443,6 +443,17 @@ export default function AssetResults({
 
       if (!mounted) return;
 
+      // Debug logging for grass_block
+      const grassBlockGroups = groups.filter((g) =>
+        g.baseId.includes("grass_block"),
+      );
+      if (grassBlockGroups.length > 0) {
+        console.log(
+          "[AssetResults] Grass block groups BEFORE pack filtering:",
+          grassBlockGroups,
+        );
+      }
+
       // Filter each group to only include variants from the same winning pack
       const packFilteredGroups = groups.map((group) => {
         // Get the winning pack for the base asset
@@ -458,6 +469,17 @@ export default function AssetResults({
           variantIds: filteredVariants,
         };
       });
+
+      // Debug logging for grass_block after filtering
+      const grassBlockFiltered = packFilteredGroups.filter((g) =>
+        g.baseId.includes("grass_block"),
+      );
+      if (grassBlockFiltered.length > 0) {
+        console.log(
+          "[AssetResults] Grass block groups AFTER pack filtering:",
+          grassBlockFiltered,
+        );
+      }
 
       // Return only the base asset from each group
       // Prefer inventory variant as display icon since that's what players recognize

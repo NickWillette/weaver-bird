@@ -361,6 +361,7 @@ export const useStore = create<WeaverbirdStore>()(
     setSelectedGrassColor: (
       color: { r: number; g: number; b: number } | undefined,
     ) => {
+      console.log("[Store] setSelectedGrassColor called with:", color);
       set((state) => {
         state.selectedGrassColor = color;
       });

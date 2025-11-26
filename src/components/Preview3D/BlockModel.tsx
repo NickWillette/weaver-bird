@@ -98,24 +98,26 @@ function BlockModel({
   const blockPropsKey = JSON.stringify(blockProps);
 
   useEffect(() => {
-    console.log("=== [BlockModel] Dependencies Updated ===");
-    console.log("[BlockModel] Original Asset ID:", assetId);
-    console.log("[BlockModel] Normalized Asset ID:", normalizedAssetId);
-    console.log("[BlockModel] Winner Pack ID:", resolvedPackId);
-    console.log("[BlockModel] Winner Pack:", resolvedPack);
-    console.log("[BlockModel] Packs Dir:", packsDir);
-    console.log("===========================================");
-  }, [assetId, normalizedAssetId, resolvedPackId, resolvedPack, packsDir]);
+    console.log(
+      `[BlockModel.useEffect.deps] asset=${normalizedAssetId} pack=${resolvedPackId} biomeColor=${biomeColorKey}`,
+    );
+  }, [
+    assetId,
+    normalizedAssetId,
+    resolvedPackId,
+    resolvedPack,
+    packsDir,
+    biomeColor,
+  ]);
 
   // Load the real block model
   useEffect(() => {
-    console.log("[BlockModel] === Model Load Effect Triggered ===");
-    console.log("[BlockModel] Asset ID:", assetId);
-    console.log("[BlockModel] Winner Pack ID:", resolvedPackId);
+    console.log(
+      `[BlockModel.useEffect.loadModel] asset=${normalizedAssetId} pack=${resolvedPackId}`,
+    );
 
     // Clean up previous model first
     if (blockGroup) {
-      console.log("[BlockModel] Cleaning up previous model");
       blockGroup.traverse((obj) => {
         if (obj instanceof THREE.Mesh) {
           obj.geometry?.dispose();
@@ -131,7 +133,6 @@ function BlockModel({
 
     // Need all dependencies to load
     if (!resolvedPackId || !resolvedPack || !packsDir) {
-      console.log("[BlockModel] Missing required data, showing placeholder");
       createPlaceholder();
       return;
     }
@@ -147,14 +148,9 @@ function BlockModel({
       setError(null);
 
       try {
-        console.log("=== [BlockModel] Starting Model Load ===");
-        console.log("[BlockModel] Asset ID:", assetId);
-        console.log("[BlockModel] Is Potted:", isPotted);
-        console.log("[BlockModel] Show Pot:", showPot);
-        console.log("[BlockModel] Pack ID:", packId);
-        console.log("[BlockModel] Pack Path:", resolvedPack.path);
-        console.log("[BlockModel] Pack is_zip:", resolvedPack.is_zip);
-        console.log("[BlockModel] Packs Dir:", packsDirPath);
+        console.log(
+          `[BlockModel.loadModel] starting: asset=${assetId} pack=${packId} potted=${isPotted}`,
+        );
 
         // For potted plants, decide whether to load the potted model or just the plant
         let modelAssetId = normalizedAssetId;
@@ -166,10 +162,6 @@ function BlockModel({
             const plantName = getPlantNameFromPotted(normalizedAssetId);
             if (plantName) {
               modelAssetId = plantName;
-              console.log(
-                "[BlockModel] Loading plant without pot:",
-                modelAssetId,
-              );
             }
           }
           // If not already potted, just use the original asset
@@ -177,29 +169,16 @@ function BlockModel({
           // If showPot is true, load the full potted model
           if (isAlreadyPotted) {
             // Already a potted asset, use as-is
-            console.log(
-              "[BlockModel] Loading full potted model:",
-              modelAssetId,
-            );
           } else {
             // Convert plant to potted version (e.g., oak_sapling -> potted_oak_sapling)
             modelAssetId = getPottedAssetId(normalizedAssetId);
-            console.log(
-              "[BlockModel] Loading potted version of plant:",
-              modelAssetId,
-            );
           }
         }
 
         // Resolve blockstate -> models with transformations
-        console.log("[BlockModel] Calling resolveBlockState Tauri command...");
 
         // Extract inferred properties from asset ID (e.g., _on -> powered=true)
         const inferredProps = extractBlockStateProperties(modelAssetId);
-        console.log(
-          "[BlockModel] Inferred props from asset ID:",
-          inferredProps,
-        );
 
         // Merge user-provided props with inferred props (user props take precedence)
         let mergedProps = { ...inferredProps, ...blockProps };
@@ -208,14 +187,7 @@ function BlockModel({
         // This provides sensible defaults before Rust resolver applies its alphabetic defaults
         mergedProps = applyNaturalBlockStateDefaults(mergedProps);
 
-        console.log(
-          "[BlockModel] Merged block props with natural defaults:",
-          mergedProps,
-        );
-        console.log("[BlockModel] Seed:", seed);
-
         const blockStateAssetId = getBlockStateIdFromAssetId(modelAssetId);
-        console.log("[BlockModel] Blockstate asset ID:", blockStateAssetId);
 
         const resolution = await resolveBlockState(
           packId,
@@ -225,16 +197,11 @@ function BlockModel({
           seed,
         );
 
-        console.log("[BlockModel] Blockstate resolved successfully!");
         console.log(
-          "[BlockModel] Resolution result:",
-          JSON.stringify(resolution, null, 2),
+          `[BlockModel.loadModel] blockstate resolved: models=${resolution.models.length}`,
         );
-        console.log("[BlockModel] Number of models:", resolution.models.length);
-        console.log("[BlockModel] State props:", resolution.stateProps);
 
         if (cancelled) {
-          console.log("[BlockModel] Load cancelled, aborting");
           return;
         }
 
@@ -249,7 +216,6 @@ function BlockModel({
         }
 
         // Create texture loader for this pack
-        console.log("[BlockModel] Creating texture loader...");
         const textureLoader = createTextureLoader(
           resolvedPack.path,
           resolvedPack.is_zip,
@@ -263,24 +229,12 @@ function BlockModel({
 
         // Load and convert each resolved model
         for (const resolvedModel of resolution.models) {
-          console.log("[BlockModel] Loading model:", resolvedModel.modelId);
-          console.log(
-            "[BlockModel] Rotations - X:",
-            resolvedModel.rotX,
-            "Y:",
-            resolvedModel.rotY,
-            "Z:",
-            resolvedModel.rotZ,
-          );
-          console.log("[BlockModel] UV Lock:", resolvedModel.uvlock);
-
           // Load the actual model JSON directly by model ID
           const model = await loadModelJson(
             packId,
             resolvedModel.modelId,
             packsDirPath,
           );
-          console.log("[BlockModel] Model loaded:", resolvedModel.modelId);
 
           // Check if this model has tintindex
           let modelHasTint = false;
@@ -299,12 +253,15 @@ function BlockModel({
           }
 
           if (cancelled) {
-            console.log("[BlockModel] Load cancelled, aborting");
             return;
           }
 
           // Convert to Three.js geometry
-          console.log("[BlockModel] Converting model to Three.js...");
+
+          console.log(
+            "[BlockModel] Passing biomeColor to converter:",
+            biomeColor,
+          );
           const modelGroup = await blockModelToThreeJs(
             model,
             textureLoader,
@@ -312,14 +269,9 @@ function BlockModel({
             resolvedModel, // Pass resolved model for rotations and uvlock
           );
 
-          console.log("[BlockModel] Model converted successfully");
           parentGroup.add(modelGroup);
         }
 
-        console.log(
-          "[BlockModel] All models loaded. Has tintindex:",
-          hasTintindex,
-        );
         if (onTintDetected) {
           // Determine tint type from vanilla block colors registry
           // Convert assetId to blockId: "minecraft:block/oak_leaves" -> "minecraft:oak_leaves"
@@ -341,15 +293,10 @@ function BlockModel({
               ? registryTintType
               : undefined;
 
-          console.log(
-            `[BlockModel] Tint detection - blockId: ${blockId}, hasTintindex: ${hasTintindex}, registryTintType: ${registryTintType}, tintType: ${tintType}`,
-          );
-
           onTintDetected({ hasTint: hasTintindex, tintType });
         }
 
         if (cancelled) {
-          console.log("[BlockModel] Load cancelled after conversion, aborting");
           return;
         }
 
@@ -358,7 +305,7 @@ function BlockModel({
 
         setBlockGroup(parentGroup);
         setLoading(false);
-        console.log("=== [BlockModel] Model Load Complete ===");
+        console.log(`[BlockModel.loadModel] complete`);
       } catch (err) {
         console.error("=== [BlockModel] Model Load FAILED ===");
         console.error(
@@ -402,8 +349,6 @@ function BlockModel({
     }
 
     function createPlaceholder() {
-      console.log("[BlockModel] Creating placeholder cube for:", assetId);
-
       try {
         const geometry = new THREE.BoxGeometry(1, 1, 1);
         const material = new THREE.MeshStandardMaterial({
@@ -429,7 +374,6 @@ function BlockModel({
     loadModel();
 
     return () => {
-      console.log("[BlockModel] Cleanup function called");
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -458,17 +402,13 @@ function BlockModel({
     console.error("[BlockModel] Rendering error state:", error);
     // Still render the placeholder even on error - don't crash!
     if (!blockGroup) {
-      console.log("[BlockModel] No blockGroup due to error, returning null");
       return null;
     }
   }
 
   if (loading || !blockGroup) {
-    console.log("[BlockModel] Waiting for model to load...");
     return null;
   }
-
-  console.log("[BlockModel] Rendering model group");
 
   // Wrap in try-catch to prevent any rendering errors from crashing the Canvas
   try {

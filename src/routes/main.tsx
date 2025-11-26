@@ -248,6 +248,7 @@ export default function MainRoute() {
     useState<ItemDisplayMode>("ground");
 
   // Viewing variant state (view-only, temporary, for Preview3D)
+  // This is managed by OptionsPanel via onViewingVariantChange callback
   const [viewingVariantId, setViewingVariantId] = useState<string | undefined>(
     undefined,
   );
@@ -281,6 +282,7 @@ export default function MainRoute() {
   // Determine which color to use based on the block's tint type
   // This handles both colormap assets and regular blocks (like leaves)
   const biomeColor = useMemo(() => {
+    console.log(`[main.useMemo.biomeColor] asset=${uiState.selectedAssetId}`);
     if (!uiState.selectedAssetId) return undefined;
 
     // First check if it's a colormap asset itself
@@ -289,15 +291,48 @@ export default function MainRoute() {
     if (colormapType === "foliage") return selectedFoliageColor;
 
     // If not a colormap asset, check if it's a tinted block
-    // Convert assetId to blockId: "minecraft:block/oak_leaves" -> "minecraft:oak_leaves"
-    let blockId = uiState.selectedAssetId;
-    if (blockId.includes("/block/")) {
-      blockId = blockId.replace("/block/", ":");
-    } else if (blockId.includes("/item/")) {
-      blockId = blockId.replace("/item/", ":");
+    // Extract the base block name by removing ALL texture suffix patterns
+    // (e.g., "minecraft:block/grass_block_side_overlay" -> "minecraft:block/grass_block")
+    let baseAssetId = uiState.selectedAssetId;
+    const textureSuffixes = [
+      "_side_overlay", // Check compound suffixes first
+      "_side",
+      "_top",
+      "_bottom",
+      "_overlay",
+      "_particle",
+      "_snow",
+    ];
+
+    // Keep stripping suffixes until none match
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const suffix of textureSuffixes) {
+        if (baseAssetId.endsWith(suffix)) {
+          baseAssetId = baseAssetId.substring(
+            0,
+            baseAssetId.length - suffix.length,
+          );
+          changed = true;
+          break;
+        }
+      }
     }
 
-    const tintType = getBlockTintType(blockId);
+    // Convert assetId to blockId: "minecraft:block/grass_block" -> "minecraft:grass_block"
+    let baseBlockId = baseAssetId;
+    if (baseBlockId.includes("/block/")) {
+      baseBlockId = baseBlockId.replace("/block/", ":");
+    } else if (baseBlockId.includes("/item/")) {
+      baseBlockId = baseBlockId.replace("/item/", ":");
+    } else {
+      // Fallback: manually replace
+      baseBlockId = baseBlockId.replace(":block/", ":");
+      baseBlockId = baseBlockId.replace(":item/", ":");
+    }
+
+    const tintType = getBlockTintType(baseBlockId);
     if (tintType === "grass") return selectedGrassColor;
     if (tintType === "foliage") return selectedFoliageColor;
 
@@ -305,6 +340,41 @@ export default function MainRoute() {
   }, [uiState.selectedAssetId, selectedGrassColor, selectedFoliageColor]);
   const packOrder = useSelectPackOrder();
   const overridesRecord = useSelectOverridesRecord();
+
+  // PERFORMANCE OPTIMIZATION: Only track colormap-specific override changes
+  // Create a stable string key instead of an object to avoid reference issues
+  const colormapOverridesKey = useStore((state) => {
+    const grassOverride = state.overrides[GRASS_COLORMAP_ASSET_ID];
+    const foliageOverride = state.overrides[FOLIAGE_COLORMAP_ASSET_ID];
+
+    const grassKey = grassOverride
+      ? `${grassOverride.packId}:${grassOverride.variantPath ?? ""}`
+      : "none";
+    const foliageKey = foliageOverride
+      ? `${foliageOverride.packId}:${foliageOverride.variantPath ?? ""}`
+      : "none";
+
+    return `${grassKey}|${foliageKey}`;
+  });
+
+  // Rebuild the overrides object only when the key changes
+  const colormapOverrides = useMemo(() => {
+    const state = useStore.getState();
+    const filtered: Record<string, { packId: string; variantPath?: string }> =
+      {};
+
+    if (state.overrides[GRASS_COLORMAP_ASSET_ID]) {
+      filtered[GRASS_COLORMAP_ASSET_ID] =
+        state.overrides[GRASS_COLORMAP_ASSET_ID];
+    }
+    if (state.overrides[FOLIAGE_COLORMAP_ASSET_ID]) {
+      filtered[FOLIAGE_COLORMAP_ASSET_ID] =
+        state.overrides[FOLIAGE_COLORMAP_ASSET_ID];
+    }
+
+    return filtered;
+  }, [colormapOverridesKey]);
+
   const selectedLauncher = useSelectSelectedLauncher();
   const availableLaunchers = useSelectAvailableLaunchers();
   const providersByAsset = useStore((state) => state.providersByAsset);
@@ -377,10 +447,10 @@ export default function MainRoute() {
   // Triggers on: pack order change, colormap coordinates change, overrides change
   // OPTIMIZATION: Wrapped in React 18 transition for non-blocking updates
   useEffect(() => {
+    console.log(`[main.useEffect.colormapManager] triggered`);
     const updateColormapState = async () => {
       // Only run if we have the required data
       if (allAssets.length === 0 || packOrder.length === 0) {
-        console.log("[ColormapManager] Waiting for assets/packs to load");
         return;
       }
 
@@ -397,11 +467,12 @@ export default function MainRoute() {
         (async () => {
           try {
             // Step 1: Resolve colormap winners (respects penciled selections)
+            // Use colormapOverrides instead of overridesRecord for performance
             const grassWinner = resolveColormapWinner(
               GRASS_COLORMAP_ASSET_ID,
               packOrder,
               providersByAsset,
-              overridesRecord,
+              colormapOverrides,
               disabledPackIds,
             );
 
@@ -409,25 +480,25 @@ export default function MainRoute() {
               FOLIAGE_COLORMAP_ASSET_ID,
               packOrder,
               providersByAsset,
-              overridesRecord,
+              colormapOverrides,
               disabledPackIds,
             );
 
             // Step 2: Load colormap URLs (deferred as low-priority)
             const grassUrl = grassWinner
               ? await loadColormapUrl(
-                GRASS_COLORMAP_ASSET_ID,
-                grassWinner,
-                packsMap,
-              )
+                  GRASS_COLORMAP_ASSET_ID,
+                  grassWinner,
+                  packsMap,
+                )
               : null;
 
             const foliageUrl = foliageWinner
               ? await loadColormapUrl(
-                FOLIAGE_COLORMAP_ASSET_ID,
-                foliageWinner,
-                packsMap,
-              )
+                  FOLIAGE_COLORMAP_ASSET_ID,
+                  foliageWinner,
+                  packsMap,
+                )
               : null;
 
             // Update URLs and pack IDs in state
@@ -482,7 +553,7 @@ export default function MainRoute() {
     packOrder,
     packs,
     providersByAsset,
-    overridesRecord,
+    colormapOverrides, // Only colormap overrides, not all overrides!
     disabledPackIds,
     startTransition,
     // Note: colormapCoordinates is NOT in dependencies - we read it directly
@@ -496,6 +567,9 @@ export default function MainRoute() {
   const foliageColormapUrl = useStore((state) => state.foliageColormapUrl);
 
   useEffect(() => {
+    console.log(
+      `[main.useEffect.resampleColors] coords=${colormapCoordinates?.x},${colormapCoordinates?.y}`,
+    );
     const resampleColors = async () => {
       if (!colormapCoordinates || (!grassColormapUrl && !foliageColormapUrl)) {
         return;
@@ -524,12 +598,6 @@ export default function MainRoute() {
             colormapCoordinates.y,
           );
           useStore.getState().setSelectedBiomeId(biomeId || undefined);
-
-          console.log("[ColormapManager] Colors re-sampled:", {
-            grassColor,
-            foliageColor,
-            biomeId,
-          });
         } catch (error) {
           console.error("[ColormapManager] Failed to re-sample colors:", error);
         }
@@ -1112,7 +1180,7 @@ export default function MainRoute() {
           disabled2D={
             uiState.selectedAssetId
               ? !is2DOnlyTexture(uiState.selectedAssetId) &&
-              !isEntityTexture(uiState.selectedAssetId)
+                !isEntityTexture(uiState.selectedAssetId)
               : false
           }
           disabled3D={

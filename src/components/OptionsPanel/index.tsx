@@ -113,15 +113,27 @@ export default function OptionsPanel({
     undefined,
   );
 
+  // Get the winning pack for this asset (respects pencil overrides)
+  const winnerPackIdForVariants = useSelectWinner(assetId ?? "");
+
+  // Reset viewing variant when asset changes (switching blocks or packs)
+  // We need to reset when EITHER the asset OR the winning pack changes
+  useEffect(() => {
+    console.log(
+      `[OptionsPanel.useEffect.resetVariant] asset=${assetId} pack=${winnerPackIdForVariants}`,
+    );
+    setViewingVariantId(undefined);
+  }, [assetId, winnerPackIdForVariants]);
+
   // Notify parent when viewing variant changes
   useEffect(() => {
+    console.log(
+      `[OptionsPanel.useEffect.notifyVariantChange] variantId=${viewingVariantId}`,
+    );
     if (onViewingVariantChange) {
       onViewingVariantChange(viewingVariantId);
     }
   }, [viewingVariantId, onViewingVariantChange]);
-
-  // Get the winning pack for this asset (respects pencil overrides)
-  const winnerPackIdForVariants = useSelectWinner(assetId ?? "");
 
   // Check if texture variants are available for the selected asset
   // Only numbered variants (e.g., acacia_planks1, acacia_planks2) count as texture variants

@@ -107,12 +107,6 @@ export default function BiomeColorCard({
   const [hoveredBiome, setHoveredBiome] = useState<string | null>(null);
   const [imageData, setImageData] = useState<ImageData | null>(null);
 
-  const assets = useStore((state) => state.assets);
-  const providersByAsset = useStore((state) => state.providersByAsset);
-  const packs = useStore((state) => state.packs);
-  const packOrder = useStore((state) => state.packOrder);
-  const disabledPackIds = useStore((state) => state.disabledPackIds);
-
   const setOverride = useSelectSetOverride();
   const winnerPackId = useSelectWinner(assetId);
   const overrideVariantPath = useSelectOverrideVariantPath(assetId);
@@ -123,43 +117,53 @@ export default function BiomeColorCard({
 
   const resolvedType = getColormapTypeFromAssetId(assetId) ?? type;
 
+  // Get all assets and providers (simple subscriptions)
+  const assets = useStore((state) => state.assets);
+  const providersByAsset = useStore((state) => state.providersByAsset);
+  const packs = useStore((state) => state.packs);
+  const packOrder = useStore((state) => state.packOrder);
+  const disabledPackIds = useStore((state) => state.disabledPackIds);
+
   const sourceOptions: ColormapSourceOption[] = useMemo(() => {
+    console.log(`[BiomeColorCard.useMemo.sourceOptions] type=${resolvedType}`);
     const options: ColormapSourceOption[] = [];
     const seen = new Set<string>();
     const orderLookup = new Map<string, number>();
     packOrder.forEach((id, index) => orderLookup.set(id, index));
     const disabledSet = new Set(disabledPackIds);
 
-    Object.values(assets)
-      .filter((asset) => {
-        if (!isBiomeColormapAsset(asset.id)) return false;
-        return getColormapTypeFromAssetId(asset.id) === resolvedType;
-      })
-      .forEach((asset) => {
-        const variantLabel = getColormapVariantLabel(asset.id);
-        const providers = (providersByAsset[asset.id] ?? []).filter(
-          (packId) => !disabledSet.has(packId),
-        );
+    // Filter to only colormap assets of the correct type
+    const colormapAssets = Object.values(assets).filter(
+      (asset) =>
+        isBiomeColormapAsset(asset.id) &&
+        getColormapTypeFromAssetId(asset.id) === resolvedType,
+    );
 
-        providers.forEach((packId) => {
-          const packName = packs[packId]?.name ?? packId;
-          const id = `${asset.id}::${packId}`;
-          if (seen.has(id)) return;
-          seen.add(id);
+    colormapAssets.forEach((asset) => {
+      const variantLabel = getColormapVariantLabel(asset.id);
+      const providers = (providersByAsset[asset.id] ?? []).filter(
+        (packId) => !disabledSet.has(packId),
+      );
 
-          const priority = orderLookup.get(packId);
-          options.push({
-            id,
-            assetId: asset.id,
-            packId,
-            packName,
-            label: variantLabel ? `${packName} (${variantLabel})` : packName,
-            variantLabel,
-            relativePath: assetIdToTexturePath(asset.id),
-            order: priority === undefined ? Number.MAX_SAFE_INTEGER : priority,
-          });
+      providers.forEach((packId) => {
+        const packName = packs[packId]?.name ?? packId;
+        const id = `${asset.id}::${packId}`;
+        if (seen.has(id)) return;
+        seen.add(id);
+
+        const priority = orderLookup.get(packId);
+        options.push({
+          id,
+          assetId: asset.id,
+          packId,
+          packName,
+          label: variantLabel ? `${packName} (${variantLabel})` : packName,
+          variantLabel,
+          relativePath: assetIdToTexturePath(asset.id),
+          order: priority === undefined ? Number.MAX_SAFE_INTEGER : priority,
         });
       });
+    });
 
     if (
       !options.some(
@@ -192,8 +196,8 @@ export default function BiomeColorCard({
     packs,
     packOrder,
     assetId,
-    resolvedType,
     disabledPackIds,
+    resolvedType,
   ]);
 
   const selectedSource = useMemo(() => {
@@ -228,6 +232,9 @@ export default function BiomeColorCard({
 
   // Resolve file path for the currently selected source
   useEffect(() => {
+    console.log(
+      `[BiomeColorCard.useEffect.loadColormap] source=${selectedSource?.packId}`,
+    );
     let cancelled = false;
 
     async function loadColormap() {
@@ -358,7 +365,7 @@ export default function BiomeColorCard({
     setSelectedBiome(biome.id);
 
     // Update global store so dropdown reflects the selection
-    const {setSelectedBiomeId} = useStore.getState();
+    const { setSelectedBiomeId } = useStore.getState();
     setSelectedBiomeId(biome.id);
 
     // Call the optional callback if provided (for temporary override in 3D preview)

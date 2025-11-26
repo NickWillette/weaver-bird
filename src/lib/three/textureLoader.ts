@@ -194,17 +194,32 @@ export function createTextureLoader(
     console.log(`[textureLoader] Attempting pack texture load...`);
     let texture = await loadPackTexture(packPath, actualTextureId, isZip);
 
+    // If variant texture failed and we applied a variant suffix, try without it
+    // This handles cases like grass_block_side which don't have variants
+    if (!texture && variantNumber && actualTextureId !== textureId) {
+      console.log(
+        `[textureLoader] Variant texture failed, trying base texture: ${textureId}`,
+      );
+      texture = await loadPackTexture(packPath, textureId, isZip);
+    }
+
     // Fall back to vanilla if not found
     if (!texture) {
       console.log(
         `[textureLoader] Pack texture failed, trying vanilla fallback...`,
       );
       texture = await loadVanillaTexture(actualTextureId);
+
+      // Also try vanilla without variant suffix
+      if (!texture && variantNumber && actualTextureId !== textureId) {
+        texture = await loadVanillaTexture(textureId);
+      }
+
       if (texture) {
         console.log(`[textureLoader] ✓ Vanilla texture loaded successfully`);
       } else {
         console.error(
-          `[textureLoader] ✗ Both pack and vanilla texture loads failed for ${actualTextureId}`,
+          `[textureLoader] ✗ All texture load attempts failed for ${actualTextureId}`,
         );
       }
     }

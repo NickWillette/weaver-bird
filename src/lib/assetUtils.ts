@@ -911,25 +911,55 @@ export function getVariantGroupKey(assetId: string): string {
     path = path.replace(/_potted$/, "");
   }
 
+  // Handle variated/ texture paths FIRST before other processing
+  // "block/variated/grass_block/grass_block_top_01" -> "block/grass_block"
+  // "block/variated/grass_block/grass_block" -> "block/grass_block"
+  // "block/variated/andesite/0" -> "block/andesite"
+  const variatedMatch = path.match(/^(.+?)\/variated\/([^/]+)\//);
+  if (variatedMatch) {
+    const prefixPath = variatedMatch[1]; // "block"
+    const blockName = variatedMatch[2]; // "grass_block"
+    return `${prefixPath}/${blockName}`;
+  }
+
+  // Also handle variated paths without trailing slash (end of path)
+  const variatedMatchEnd = path.match(/^(.+?)\/variated\/([^/]+)\/([^/]+)$/);
+  if (variatedMatchEnd) {
+    const prefixPath = variatedMatchEnd[1]; // "block"
+    const blockName = variatedMatchEnd[2]; // "grass_block"
+    return `${prefixPath}/${blockName}`;
+  }
+
   // Extract the block name from the path for suffix processing
   const pathParts = path.split("/");
   let blockName = pathParts[pathParts.length - 1];
   const pathPrefix = pathParts.slice(0, -1).join("/");
 
   // Remove comprehensive structural and texture-specific suffixes
+  // Loop to handle compound suffixes like "_side_overlay" -> strip both "_overlay" AND "_side"
   // This groups block states/faces on the same card (e.g., activator_rail + activator_rail_on)
   // Note: Variant counting logic separately determines what's a "texture variant"
-  blockName = blockName.replace(
-    /_(top|bottom|upper|lower|head|foot|side|front|back|left|right|north|south|east|west|inventory|bushy|bushy_inventory|stage\d+|stalk|stem|large_leaves|small_leaves|singleleaf|occupied|empty|inner|base|round|pivot|overlay|moist|corner|flow|still|arm|inside|outside|eye|conditional|dead|compost|ready|bloom|hanging|particle|post|walls|tip|frustum|merge|middle|crafting|ejecting|ominous)\d*$/,
-    "",
-  );
+  let changed = true;
+  while (changed) {
+    const before = blockName;
+    blockName = blockName.replace(
+      /_(top|bottom|upper|lower|head|foot|side|front|back|left|right|north|south|east|west|inventory|bushy|bushy_inventory|stage\d+|stalk|stem|large_leaves|small_leaves|singleleaf|occupied|empty|inner|base|round|pivot|overlay|snow|moist|corner|flow|still|arm|inside|outside|eye|conditional|dead|compost|ready|bloom|hanging|particle|post|walls|tip|frustum|merge|middle|crafting|ejecting|ominous)\d*$/,
+      "",
+    );
+    changed = blockName !== before;
+  }
 
   // Remove block state suffixes (on/off, lit, powered, open/closed, etc.)
-  // This keeps block states on the same card
-  blockName = blockName.replace(
-    /_(on|off|lit|unlit|powered|unpowered|open|closed|locked|unlocked|connected|disconnected|triggered|untriggered|enabled|disabled|active|inactive|extended|retracted|attached|detached|disarmed|unstable|tipped|filled|empty|honey|partial_tilt|full_tilt|level_\d+|age_\d+|bites_\d+|layers_\d+|delay_\d+|note_\d+|power_\d+|moisture_\d+|rotation_\d+|distance_\d+|charges_\d+|candles_\d+|pickles_\d+|eggs_\d+|hatch_\d+|dusted_\d+)$/,
-    "",
-  );
+  // Also loop for compound state suffixes
+  changed = true;
+  while (changed) {
+    const before = blockName;
+    blockName = blockName.replace(
+      /_(on|off|lit|unlit|powered|unpowered|open|closed|locked|unlocked|connected|disconnected|triggered|untriggered|enabled|disabled|active|inactive|extended|retracted|attached|detached|disarmed|unstable|tipped|filled|empty|honey|partial_tilt|full_tilt|level_\d+|age_\d+|bites_\d+|layers_\d+|delay_\d+|note_\d+|power_\d+|moisture_\d+|rotation_\d+|distance_\d+|charges_\d+|candles_\d+|pickles_\d+|eggs_\d+|hatch_\d+|dusted_\d+)$/,
+      "",
+    );
+    changed = blockName !== before;
+  }
 
   // Reconstruct path with cleaned block name
   path = pathPrefix ? `${pathPrefix}/${blockName}` : blockName;

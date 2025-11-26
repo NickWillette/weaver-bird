@@ -6,17 +6,15 @@ import {
 } from "@lib/tauri/blockModels";
 import { getBlockStateIdFromAssetId } from "@lib/assetUtils";
 import { useSelectWinner, useSelectPacksDir } from "@state/selectors";
-import {
-  Select,
-  type SelectOption,
-} from "@/ui/components/Select/Select";
+import { Select, type SelectOption } from "@/ui/components/Select/Select";
 import { NumberInput } from "@/ui/components/NumberInput";
 import { Slider } from "@/ui/components/Slider/Slider";
 import s from "./BlockStatePanel.module.scss";
 
 // Property descriptions for common block state properties
 const PROPERTY_DESCRIPTIONS: Record<string, string> = {
-  distance: "Distance from nearest log (1-7). Leaves with distance 7 will decay unless persistent.",
+  distance:
+    "Distance from nearest log (1-7). Leaves with distance 7 will decay unless persistent.",
   persistent: "Player-placed leaves that won't decay naturally.",
   waterlogged: "Whether this block contains water.",
   facing: "Direction the block faces.",
@@ -55,7 +53,9 @@ export default function BlockStatePanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Local state for slider preview (updates during drag without triggering 3D re-render)
-  const [sliderPreviewValues, setSliderPreviewValues] = useState<Record<string, string>>({});
+  const [sliderPreviewValues, setSliderPreviewValues] = useState<
+    Record<string, string>
+  >({});
 
   const winnerPackId = useSelectWinner(assetId);
   const packsDir = useSelectPacksDir();
@@ -86,20 +86,32 @@ export default function BlockStatePanel({
       setError(null);
 
       try {
-        console.log("[BlockStatePanel] Loading schema for:", assetId);
+        console.log(
+          "[BlockStatePanel.loadSchema] Loading schema for:",
+          assetId,
+        );
 
         const schemaData = await getBlockStateSchema(
           packIdForSchema,
           targetBlockStateId,
           packsDir!,
         );
-        console.log("[BlockStatePanel] Schema loaded:", schemaData);
+        console.log(
+          "[BlockStatePanel.loadSchema] Schema loaded, defaultState:",
+          schemaData.defaultState,
+        );
 
         if (cancelled) return;
 
         setSchema(schemaData);
-        // Initialize with default state if no props set
-        if (Object.keys(blockProps).length === 0) {
+
+        // Initialize with default state synchronously when schema loads
+        // This ensures blockProps are set BEFORE BlockModel tries to render
+        if (Object.keys(schemaData.defaultState).length > 0) {
+          console.log(
+            "[BlockStatePanel.loadSchema] Setting default state:",
+            schemaData.defaultState,
+          );
           onBlockPropsChange(schemaData.defaultState);
         }
         setLoading(false);
@@ -118,14 +130,16 @@ export default function BlockStatePanel({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     assetId,
     blockStateAssetId,
     winnerPackId,
     packsDir,
     isMinecraftNamespace,
-    blockProps,
-    onBlockPropsChange,
+    // IMPORTANT: Do NOT include blockProps or onBlockPropsChange in deps
+    // This effect should only run when the asset changes, not when props change
+    // We call onBlockPropsChange inside but it's intentionally not in deps
   ]);
 
   // Render property control based on type

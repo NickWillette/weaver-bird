@@ -74,13 +74,10 @@ export default function Preview3D({
     : null;
 
   useEffect(() => {
-    console.log("[Preview3D] Component mounted");
-    console.log("[Preview3D] Asset ID:", assetId);
-
-    return () => {
-      console.log("[Preview3D] Component unmounting");
-    };
-  }, [assetId]);
+    console.log(
+      `[Preview3D.useEffect] asset=${assetId} biomeColor=${biomeColor ? "set" : "none"}`,
+    );
+  }, [assetId, biomeColor]);
 
   // Forward tint detection to parent if callback provided
   useEffect(() => {
@@ -112,7 +109,6 @@ export default function Preview3D({
         {/* Always keep Canvas mounted to prevent context loss - NO Suspense wrapper here! */}
         <Canvas
           onCreated={({ gl, scene }) => {
-            console.log("[Preview3D] Canvas created successfully");
             // Disable tone mapping for accurate Minecraft colors
             gl.toneMapping = THREE.NoToneMapping;
             // Set background to light gray/white
