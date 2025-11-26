@@ -4,8 +4,8 @@
  * Uses Three.js to render a flat sprite with zoom/pan controls
  * Consistent with Preview3D but optimized for 2D textures
  */
-import { useEffect, useState, useRef } from "react";
-import { Canvas } from "@react-three/fiber";
+import { useEffect, useState, useRef, useMemo } from "react";
+import { Canvas, useLoader } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Text } from "@react-three/drei";
 import * as THREE from "three";
 import { convertFileSrc } from "@tauri-apps/api/core";
@@ -52,19 +52,31 @@ interface UVBoxProps {
 /**
  * UV Box - A single UV mapping box with hover interaction and directional labels
  */
-function UVBox({ position, size, color, label, faceName, onHover }: UVBoxProps) {
+function UVBox({
+  position,
+  size,
+  color,
+  label,
+  faceName,
+  onHover,
+}: UVBoxProps) {
   const [hovered, setHovered] = useState(false);
 
   // Determine directional labels based on face orientation
   const getDirectionalLabels = (): { top: string; bottom: string } | null => {
     const face = faceName.toLowerCase();
 
-    if (face === 'north' || face === 'south' || face === 'east' || face === 'west') {
+    if (
+      face === "north" ||
+      face === "south" ||
+      face === "east" ||
+      face === "west"
+    ) {
       // Horizontal faces: show which side is up
-      return { top: 'UP', bottom: 'DOWN' };
-    } else if (face === 'up' || face === 'down') {
+      return { top: "UP", bottom: "DOWN" };
+    } else if (face === "up" || face === "down") {
       // Vertical faces: show which sides are north/south
-      return { top: 'NORTH', bottom: 'SOUTH' };
+      return { top: "NORTH", bottom: "SOUTH" };
     }
 
     return null;
@@ -106,13 +118,28 @@ function UVBox({ position, size, color, label, faceName, onHover }: UVBoxProps) 
       {hovered && labels && (
         <>
           {/* Top label background */}
-          <mesh position={[position[0], position[1] + size[1] / 2 + 0.05, position[2] + 0.01]}>
+          <mesh
+            position={[
+              position[0],
+              position[1] + size[1] / 2 + 0.05,
+              position[2] + 0.01,
+            ]}
+          >
             <planeGeometry args={[size[0] * 0.8, 0.08]} />
-            <meshBasicMaterial color={0x000000} transparent opacity={0.7} depthTest={false} />
+            <meshBasicMaterial
+              color={0x000000}
+              transparent
+              opacity={0.7}
+              depthTest={false}
+            />
           </mesh>
           {/* Top label text */}
           <Text
-            position={[position[0], position[1] + size[1] / 2 + 0.05, position[2] + 0.02]}
+            position={[
+              position[0],
+              position[1] + size[1] / 2 + 0.05,
+              position[2] + 0.02,
+            ]}
             fontSize={0.04}
             color="white"
             anchorX="center"
@@ -123,13 +150,28 @@ function UVBox({ position, size, color, label, faceName, onHover }: UVBoxProps) 
           </Text>
 
           {/* Bottom label background */}
-          <mesh position={[position[0], position[1] - size[1] / 2 - 0.05, position[2] + 0.01]}>
+          <mesh
+            position={[
+              position[0],
+              position[1] - size[1] / 2 - 0.05,
+              position[2] + 0.01,
+            ]}
+          >
             <planeGeometry args={[size[0] * 0.8, 0.08]} />
-            <meshBasicMaterial color={0x000000} transparent opacity={0.7} depthTest={false} />
+            <meshBasicMaterial
+              color={0x000000}
+              transparent
+              opacity={0.7}
+              depthTest={false}
+            />
           </mesh>
           {/* Bottom label text */}
           <Text
-            position={[position[0], position[1] - size[1] / 2 - 0.05, position[2] + 0.02]}
+            position={[
+              position[0],
+              position[1] - size[1] / 2 - 0.05,
+              position[2] + 0.02,
+            ]}
             fontSize={0.04}
             color="white"
             anchorX="center"
@@ -222,78 +264,125 @@ function UVOverlay({
  * The sprite always faces the camera and maintains aspect ratio
  */
 function TextureSprite({ texturePath, onTextureLoaded }: TextureSpriteProps) {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const [texture, setTexture] = useState<THREE.Texture | null>(null);
-  const [aspectRatio, setAspectRatio] = useState(1);
+  // Load texture using drei's useLoader hook
+  const texture = useLoader(THREE.TextureLoader, texturePath);
 
+  // Configure texture settings
+  useMemo(() => {
+    texture.magFilter = THREE.NearestFilter; // Pixelated look (Minecraft style)
+    texture.minFilter = THREE.NearestFilter;
+    texture.colorSpace = THREE.SRGBColorSpace;
+  }, [texture]);
+
+  // Calculate aspect ratio and notify parent
   useEffect(() => {
-    const loader = new THREE.TextureLoader();
+    if (texture.image) {
+      const width = texture.image.width;
+      const height = texture.image.height;
 
-    loader.load(
-      texturePath,
-      (loadedTexture) => {
-        // Configure texture settings
-        loadedTexture.magFilter = THREE.NearestFilter; // Pixelated look (Minecraft style)
-        loadedTexture.minFilter = THREE.NearestFilter;
-        loadedTexture.colorSpace = THREE.SRGBColorSpace;
+      console.log(`[Preview2D] Loaded texture: ${width}x${height}`);
 
-        // Calculate aspect ratio
-        const aspect = loadedTexture.image.width / loadedTexture.image.height;
-        setAspectRatio(aspect);
-        setTexture(loadedTexture);
-
-        console.log(
-          `[Preview2D] Loaded texture: ${loadedTexture.image.width}x${loadedTexture.image.height}`,
-        );
-
-        // Notify parent of texture dimensions
-        if (onTextureLoaded) {
-          onTextureLoaded(
-            loadedTexture.image.width,
-            loadedTexture.image.height,
-          );
-        }
-      },
-      undefined,
-      (error) => {
-        console.error("[Preview2D] Failed to load texture:", error);
-      },
-    );
-
-    return () => {
-      if (texture) {
-        texture.dispose();
-      }
-    };
-  }, [texturePath, onTextureLoaded]);
-
-  // Update mesh scale based on aspect ratio
-  useEffect(() => {
-    if (meshRef.current && texture) {
-      // Scale sprite to maintain aspect ratio
-      // Base size is 2 units, scale width by aspect ratio
-      if (aspectRatio >= 1) {
-        // Landscape or square
-        meshRef.current.scale.set(aspectRatio * 2, 2, 1);
-      } else {
-        // Portrait
-        meshRef.current.scale.set(2, 2 / aspectRatio, 1);
+      if (onTextureLoaded) {
+        onTextureLoaded(width, height);
       }
     }
-  }, [aspectRatio, texture]);
+  }, [texture, onTextureLoaded]);
 
-  if (!texture) {
-    return null;
-  }
+  // Calculate geometry size based on aspect ratio
+  const aspectRatio = texture.image
+    ? texture.image.width / texture.image.height
+    : 1;
+  const width = aspectRatio >= 1 ? aspectRatio * 2 : 2;
+  const height = aspectRatio >= 1 ? 2 : 2 / aspectRatio;
 
   return (
-    <mesh ref={meshRef} position={[0, 0, 0]}>
+    <mesh position={[0, 0, 0]} scale={[width, height, 1]}>
       <planeGeometry args={[1, 1]} />
       <meshBasicMaterial
         map={texture}
         transparent
         side={THREE.DoubleSide}
         alphaTest={0.01}
+      />
+    </mesh>
+  );
+}
+
+/**
+ * Pixel grid overlay showing individual Minecraft pixels
+ */
+interface PixelGridProps {
+  textureWidth: number;
+  textureHeight: number;
+  aspectRatio: number;
+}
+
+function PixelGrid({
+  textureWidth,
+  textureHeight,
+  aspectRatio,
+}: PixelGridProps) {
+  const [gridTexture, setGridTexture] = useState<THREE.Texture | null>(null);
+
+  useEffect(() => {
+    if (textureWidth === 0 || textureHeight === 0) return;
+
+    // Create a canvas to draw the grid
+    const canvas = document.createElement("canvas");
+    // Make the canvas high-res enough to show crisp lines
+    const scale = 16; // Each "pixel" gets 16 canvas pixels
+    canvas.width = textureWidth * scale;
+    canvas.height = textureHeight * scale;
+    const ctx = canvas.getContext("2d");
+
+    if (ctx) {
+      // Draw grid lines
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.3)"; // Semi-transparent white
+      ctx.lineWidth = 1;
+
+      // Vertical lines
+      for (let x = 0; x <= textureWidth; x++) {
+        ctx.beginPath();
+        ctx.moveTo(x * scale, 0);
+        ctx.lineTo(x * scale, canvas.height);
+        ctx.stroke();
+      }
+
+      // Horizontal lines
+      for (let y = 0; y <= textureHeight; y++) {
+        ctx.beginPath();
+        ctx.moveTo(0, y * scale);
+        ctx.lineTo(canvas.width, y * scale);
+        ctx.stroke();
+      }
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+
+    setGridTexture(texture);
+
+    return () => {
+      texture.dispose();
+      setGridTexture(null);
+    };
+  }, [textureWidth, textureHeight]);
+
+  // Match the size of the texture sprite
+  const width = aspectRatio >= 1 ? aspectRatio * 2 : 2;
+  const height = aspectRatio >= 1 ? 2 : 2 / aspectRatio;
+
+  if (!gridTexture) return null;
+
+  return (
+    <mesh position={[0, 0, 0.02]} rotation={[0, 0, 0]}>
+      <planeGeometry args={[width, height]} />
+      <meshBasicMaterial
+        map={gridTexture}
+        transparent
+        opacity={1}
+        depthWrite={false}
       />
     </mesh>
   );
@@ -349,6 +438,7 @@ export default function Preview2D({ assetId }: Props) {
   const [texturePath, setTexturePath] = useState<string | null>(null);
   const [error, setError] = useState(false);
   const showUVWrap = useStore((state) => state.canvas2DShowUVWrap);
+  const showPixelGrid = useStore((state) => state.canvas2DShowPixelGrid);
   const [entityModel, setEntityModel] = useState<ParsedEntityModel | null>(
     null,
   );
@@ -527,6 +617,14 @@ export default function Preview2D({ assetId }: Props) {
           texturePath={texturePath}
           onTextureLoaded={handleTextureLoaded}
         />
+
+        {showPixelGrid && textureWidth > 0 && textureHeight > 0 && (
+          <PixelGrid
+            textureWidth={textureWidth}
+            textureHeight={textureHeight}
+            aspectRatio={aspectRatio}
+          />
+        )}
 
         {showUVWrap && entityModel && textureWidth > 0 && textureHeight > 0 && (
           <UVOverlay

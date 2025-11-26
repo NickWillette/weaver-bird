@@ -6,7 +6,10 @@
  */
 
 import type { ModelElement } from "@lib/tauri/blockModels";
-import type { WorkerRequest, WorkerResponse } from "@/workers/blockGeometry.worker";
+import type {
+  WorkerRequest,
+  WorkerResponse,
+} from "@/workers/blockGeometry.worker";
 
 // Re-export types for components to use
 export interface RenderedFace {
@@ -36,7 +39,10 @@ export interface RenderedElement {
 
 class BlockGeometryWorkerManager {
   private worker: Worker | null = null;
-  private pendingRequests = new Map<string, (result: RenderedElement[]) => void>();
+  private pendingRequests = new Map<
+    string,
+    (result: RenderedElement[]) => void
+  >();
   private requestCounter = 0;
 
   constructor() {
@@ -48,7 +54,7 @@ class BlockGeometryWorkerManager {
       // Initialize the worker
       this.worker = new Worker(
         new URL("@/workers/blockGeometry.worker.ts", import.meta.url),
-        { type: "module" }
+        { type: "module" },
       );
 
       this.worker.onmessage = (event: MessageEvent<WorkerResponse>) => {
@@ -65,7 +71,10 @@ class BlockGeometryWorkerManager {
         console.error("[BlockGeometryWorker] Worker error:", error);
       };
     } catch (error) {
-      console.error("[BlockGeometryWorker] Failed to initialize worker:", error);
+      console.error(
+        "[BlockGeometryWorker] Failed to initialize worker:",
+        error,
+      );
       this.worker = null;
     }
   }
@@ -87,7 +96,9 @@ class BlockGeometryWorkerManager {
   ): Promise<RenderedElement[]> {
     // If worker failed to initialize, fall back to main thread processing
     if (!this.worker) {
-      console.warn("[BlockGeometryWorker] Worker not available, processing on main thread");
+      console.warn(
+        "[BlockGeometryWorker] Worker not available, processing on main thread",
+      );
       // Import the fallback processor
       const { processElementsSync } = await import("./blockGeometrySync");
       return processElementsSync(elements, textures, textureUrls, scale);
@@ -105,7 +116,7 @@ class BlockGeometryWorkerManager {
         id,
         elements,
         textures,
-        textureUrls: textureUrlsObj as any,
+        textureUrls: textureUrlsObj as Map<string, string>,
         scale,
       };
 

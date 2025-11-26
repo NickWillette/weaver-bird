@@ -91,6 +91,7 @@ function ItemMesh({ texturePath, rotate, hover, displayMode }: ItemMeshProps) {
       // Note: geometry from cache shouldn't be disposed here
       // It will be managed by the cache
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [texturePath]);
 
   // Rotation and bobbing animation for dropped items
@@ -394,6 +395,6 @@ export default function PreviewItem({
                 : "Drag to orbit • Scroll to zoom"}
         </span>
       </div>
-    </div >
+    </div>
   );
 }

@@ -108,6 +108,7 @@ function BlockModel({
     resolvedPack,
     packsDir,
     biomeColor,
+    biomeColorKey,
   ]);
 
   // Load the real block model
@@ -184,10 +185,7 @@ function BlockModel({
         let mergedProps = { ...inferredProps, ...blockProps };
 
         // Apply natural defaults (e.g. axis=y instead of x)
-        mergedProps = applyNaturalBlockStateDefaults(
-          mergedProps,
-          assetId,
-        );
+        mergedProps = applyNaturalBlockStateDefaults(mergedProps, assetId);
 
         const blockStateAssetId = getBlockStateIdFromAssetId(modelAssetId);
 

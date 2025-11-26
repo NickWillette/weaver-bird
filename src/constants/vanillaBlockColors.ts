@@ -82,10 +82,30 @@ export type TintType = "grass" | "foliage" | "water" | "special";
  * Get the tint type for a block ID.
  */
 export function getBlockTintType(blockId: string): TintType | undefined {
-  if (GRASS_TINTED_BLOCKS.includes(blockId as any)) return "grass";
-  if (FOLIAGE_TINTED_BLOCKS.includes(blockId as any)) return "foliage";
-  if (WATER_TINTED_BLOCKS.includes(blockId as any)) return "water";
-  if (SPECIAL_TINTED_BLOCKS.includes(blockId as any)) return "special";
+  if (
+    GRASS_TINTED_BLOCKS.includes(
+      blockId as (typeof GRASS_TINTED_BLOCKS)[number],
+    )
+  )
+    return "grass";
+  if (
+    FOLIAGE_TINTED_BLOCKS.includes(
+      blockId as (typeof FOLIAGE_TINTED_BLOCKS)[number],
+    )
+  )
+    return "foliage";
+  if (
+    WATER_TINTED_BLOCKS.includes(
+      blockId as (typeof WATER_TINTED_BLOCKS)[number],
+    )
+  )
+    return "water";
+  if (
+    SPECIAL_TINTED_BLOCKS.includes(
+      blockId as (typeof SPECIAL_TINTED_BLOCKS)[number],
+    )
+  )
+    return "special";
   return undefined;
 }
 

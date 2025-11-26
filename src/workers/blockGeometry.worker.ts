@@ -475,10 +475,9 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
 
   try {
     // Convert serialized Map back to Map
-    const textureUrlsMap = new Map(Object.entries(textureUrls as any)) as Map<
-      string,
-      string
-    >;
+    const textureUrlsMap = new Map(
+      Object.entries(textureUrls as Record<string, string>),
+    ) as Map<string, string>;
 
     // Process elements (CPU-intensive work)
     const renderedElements = processElements(

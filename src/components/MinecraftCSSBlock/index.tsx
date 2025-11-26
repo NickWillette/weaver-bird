@@ -892,7 +892,7 @@ export default function MinecraftCSSBlock({
 
         if (mounted) {
           setFallbackTextureUrl(null);
-          setRenderedElements(rendered as any); // Types are compatible
+          setRenderedElements(rendered);
           setError(false);
           setRenderPhase("3d");
         }

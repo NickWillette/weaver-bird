@@ -240,10 +240,9 @@ export default function BlockStatePanel({
                     onValueCommit={(values) => {
                       // Update actual block props when drag ends (triggers 3D update)
                       const newValue = String(values[0]);
-                      setSliderPreviewValues({
-                        ...sliderPreviewValues,
-                        [prop.name]: undefined as any,
-                      });
+                      const newPreviewValues = { ...sliderPreviewValues };
+                      delete newPreviewValues[prop.name];
+                      setSliderPreviewValues(newPreviewValues);
                       handleChange(newValue);
                     }}
                     className={s.slider}

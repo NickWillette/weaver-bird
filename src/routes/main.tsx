@@ -232,7 +232,7 @@ function renderPageNumbers(
 export default function MainRoute() {
   const [packsDir, setPacksDir] = useState<string>("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [tintInfo, setTintInfo] = useState<{
+  const [_tintInfo, setTintInfo] = useState<{
     hasTint: boolean;
     tintType?: "grass" | "foliage";
   }>({ hasTint: false });
@@ -373,6 +373,7 @@ export default function MainRoute() {
     }
 
     return filtered;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [colormapOverridesKey]);
 
   const selectedLauncher = useSelectSelectedLauncher();
@@ -487,18 +488,18 @@ export default function MainRoute() {
             // Step 2: Load colormap URLs (deferred as low-priority)
             const grassUrl = grassWinner
               ? await loadColormapUrl(
-                GRASS_COLORMAP_ASSET_ID,
-                grassWinner,
-                packsMap,
-              )
+                  GRASS_COLORMAP_ASSET_ID,
+                  grassWinner,
+                  packsMap,
+                )
               : null;
 
             const foliageUrl = foliageWinner
               ? await loadColormapUrl(
-                FOLIAGE_COLORMAP_ASSET_ID,
-                foliageWinner,
-                packsMap,
-              )
+                  FOLIAGE_COLORMAP_ASSET_ID,
+                  foliageWinner,
+                  packsMap,
+                )
               : null;
 
             // Update URLs and pack IDs in state
@@ -1078,7 +1079,6 @@ export default function MainRoute() {
       setCurrentPage,
       providers,
       handleSelectProvider,
-      tintInfo,
       setBlockProps,
       setSeed,
       allAssets,
@@ -1180,12 +1180,14 @@ export default function MainRoute() {
           disabled2D={
             uiState.selectedAssetId
               ? !is2DOnlyTexture(uiState.selectedAssetId) &&
-              !isEntityTexture(uiState.selectedAssetId)
+                !isEntityTexture(uiState.selectedAssetId) &&
+                !isMinecraftItem(uiState.selectedAssetId)
               : false
           }
           disabled3D={
             uiState.selectedAssetId
-              ? is2DOnlyTexture(uiState.selectedAssetId)
+              ? is2DOnlyTexture(uiState.selectedAssetId) ||
+                isMinecraftItem(uiState.selectedAssetId)
               : false
           }
           disabledItem={
