@@ -382,6 +382,18 @@ export default function PreviewItem({
           color="#000000"
         />
       </Canvas>
-    </div>
+
+      <div className={s.info}>
+        <span className={s.infoText}>
+          {rotate && hover && displayMode === "ground"
+            ? "Rotating • Hovering • Drag to orbit • Scroll to zoom"
+            : rotate && displayMode === "ground"
+              ? "Rotating • Drag to orbit • Scroll to zoom"
+              : hover && displayMode === "ground"
+                ? "Hovering • Drag to orbit • Scroll to zoom"
+                : "Drag to orbit • Scroll to zoom"}
+        </span>
+      </div>
+    </div >
   );
 }

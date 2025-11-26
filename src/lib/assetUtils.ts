@@ -380,34 +380,158 @@ export function extractBlockStateProperties(
  */
 export function applyNaturalBlockStateDefaults(
   props: Record<string, string>,
+  assetId?: string,
 ): Record<string, string> {
   const result = { ...props };
+  const name = assetId ? getBaseName(assetId) : "";
 
-  // axis: Default to "y" (vertical/upright) for any block with this property
-  // Rust defaults to "x" (alphabetically first), but "y" is more natural for:
-  // - Logs, stems, wood blocks (trees grow upward)
-  // - Pillars (purpur_pillar, quartz_pillar, etc.)
-  // - Basalt, bone blocks, hay blocks (naturally placed vertically)
-  if (!result.axis) {
+  // axis: Default to "y" (vertical/upright)
+  // Only apply to blocks that actually have an axis property
+  const hasAxis =
+    name.includes("log") ||
+    name.includes("wood") ||
+    name.includes("stem") ||
+    name.includes("hyphae") ||
+    name.includes("pillar") ||
+    name.includes("basalt") ||
+    name.includes("bone_block") ||
+    name.includes("hay_block") ||
+    name.includes("chain");
+
+  if (!result.axis && hasAxis) {
     result.axis = "y";
   }
 
-  // face: Default to "floor" for any block with this property
-  // Rust defaults to "ceiling" (alphabetically first), but "floor" is more natural for:
-  // - Buttons, levers (typically placed on walls or floors)
-  // - Grindstones (sit on the ground)
-  // This matches how these blocks appear when naturally placed
-  if (!result.face) {
+  // face: Default to "floor"
+  // Only apply to blocks that have a face property (buttons, levers, grindstones, etc.)
+  const hasFace =
+    name.includes("button") ||
+    name.includes("lever") ||
+    name.includes("grindstone") ||
+    name.includes("switch");
+
+  if (!result.face && hasFace) {
     result.face = "floor";
   }
 
-  // facing: Default to "down" for any block with this property
-  // Rust may default to "up" or another value, but "down" is more natural for:
-  // - Amethyst clusters (grow downward from ceilings)
-  // - Pointed dripstone (hangs down)
-  // - Other directional blocks (natural downward facing)
+  // facing: Context-aware defaults
   if (!result.facing) {
-    result.facing = "down";
+    // Case 1: Blocks that typically face UP by default
+    const defaultsUp = [
+      "amethyst_cluster",
+      "pointed_dripstone",
+      "end_rod",
+      "lightning_rod",
+      "candle",
+      "torch", // wall torch has facing, normal doesn't, but safe to check name
+      "lantern",
+      "campfire",
+    ];
+
+    // Case 2: Blocks that typically face DOWN by default
+    const defaultsDown = ["hopper"];
+
+    // Case 3: Blocks that MUST be horizontal (north/south/east/west)
+    // Only apply to blocks known to have horizontal facing
+    const isHorizontalOnly =
+      name.includes("trapdoor") ||
+      name.includes("stairs") ||
+      name.includes("furnace") ||
+      name.includes("chest") ||
+      name.includes("loom") ||
+      name.includes("stonecutter") ||
+      name.includes("gate") || // fence gates
+      name.includes("repeater") ||
+      name.includes("comparator") ||
+      name.includes("bed") ||
+      name.includes("door") ||
+      name.includes("glazed_terracotta") ||
+      name.includes("anvil") ||
+      name.includes("piston") ||
+      name.includes("observer") ||
+      name.includes("dropper") ||
+      name.includes("dispenser") ||
+      name.includes("beehive") ||
+      name.includes("bee_nest") ||
+      name.includes("lectern") ||
+      (name.includes("button") && result.face !== "wall") ||
+      (name.includes("lever") && result.face !== "wall") ||
+      (name.includes("grindstone") && result.face !== "wall");
+
+    if (defaultsUp.some((v) => name.includes(v))) {
+      // Only set facing=up if the block actually supports it
+      // (Some of these might be directional but not have 'facing' property in all cases,
+      // but usually safe for these specific ones if they are missing the prop)
+      // Actually, we should be careful. 'torch' doesn't have facing, 'wall_torch' does.
+      // If name is 'torch', we shouldn't add facing.
+      if (name !== "torch" && name !== "lantern" && name !== "campfire") {
+        result.facing = "up";
+      }
+    } else if (defaultsDown.some((v) => name.includes(v))) {
+      result.facing = "down";
+    } else if (isHorizontalOnly) {
+      result.facing = "north";
+    }
+  }
+
+  // half: Default to "bottom" (trapdoors, doors, stairs)
+  const hasHalf =
+    name.includes("trapdoor") ||
+    name.includes("door") ||
+    name.includes("stairs") ||
+    name.includes("peony") ||
+    name.includes("lilac") ||
+    name.includes("rose_bush") ||
+    name.includes("sunflower");
+
+  if (!result.half && hasHalf) {
+    result.half = "bottom";
+  }
+
+  // open: Default to "false"
+  const hasOpen =
+    name.includes("door") ||
+    name.includes("gate") ||
+    name.includes("trapdoor") ||
+    name.includes("barrel");
+
+  if (!result.open && hasOpen) {
+    result.open = "false";
+  }
+
+  // powered: Default to "false"
+  // Many blocks have powered, safe to check common ones
+  const hasPowered =
+    name.includes("pressure_plate") ||
+    name.includes("button") ||
+    name.includes("lever") ||
+    name.includes("rail") ||
+    name.includes("note_block") ||
+    name.includes("door") ||
+    name.includes("trapdoor") ||
+    name.includes("gate") ||
+    name.includes("repeater") ||
+    name.includes("comparator") ||
+    name.includes("observer") ||
+    name.includes("daylight_detector") ||
+    name.includes("sculk");
+
+  if (!result.powered && hasPowered) {
+    result.powered = "false";
+  }
+
+  // lit: Default to "false"
+  const hasLit =
+    name.includes("furnace") ||
+    name.includes("smoker") ||
+    name.includes("campfire") ||
+    name.includes("redstone_ore") ||
+    name.includes("redstone_torch") ||
+    name.includes("redstone_lamp") ||
+    name.includes("candle");
+
+  if (!result.lit && hasLit) {
+    result.lit = "false";
   }
 
   return result;

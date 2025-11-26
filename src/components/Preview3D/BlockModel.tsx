@@ -183,9 +183,11 @@ function BlockModel({
         // Merge user-provided props with inferred props (user props take precedence)
         let mergedProps = { ...inferredProps, ...blockProps };
 
-        // Apply natural defaults (axis=y, face=floor, facing=down) for better visual appearance
-        // This provides sensible defaults before Rust resolver applies its alphabetic defaults
-        mergedProps = applyNaturalBlockStateDefaults(mergedProps);
+        // Apply natural defaults (e.g. axis=y instead of x)
+        mergedProps = applyNaturalBlockStateDefaults(
+          mergedProps,
+          assetId,
+        );
 
         const blockStateAssetId = getBlockStateIdFromAssetId(modelAssetId);
 
