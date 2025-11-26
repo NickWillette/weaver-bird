@@ -9,6 +9,10 @@ dist/
 build/
 *.bundle.js
 
+# TypeScript build artifacts
+*.d.ts
+*.d.ts.map
+
 # Environment
 .env
 .env.local
