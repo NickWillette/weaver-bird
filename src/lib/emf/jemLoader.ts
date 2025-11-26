@@ -88,7 +88,7 @@ export interface ParsedBox {
   /** Opposite corner [x, y, z] in pixels (absolute) */
   to: [number, number, number];
   /** UV coordinates for each face [u1, v1, u2, v2] */
-  uv?: {
+  uv: {
     east: [number, number, number, number];
     west: [number, number, number, number];
     up: [number, number, number, number];
@@ -98,8 +98,6 @@ export interface ParsedBox {
   };
   mirror: boolean;
   inflate: number;
-  textureOffset?: [number, number];
-  name?: string;
 }
 
 // =============================================================================
@@ -363,8 +361,6 @@ function calculateBoxUV(
 export function jemToThreeJS(
   model: ParsedEntityModel,
   texture: THREE.Texture | null,
-  textureSize: [number, number] = [64, 64],
-  modelName: string = "unknown",
 ): THREE.Group {
   const root = new THREE.Group();
   root.name = "jem_entity";
@@ -376,9 +372,9 @@ export function jemToThreeJS(
     texture.colorSpace = THREE.SRGBColorSpace;
   }
 
-  // Iterate over all root parts in the model
+  // Convert each part
   for (const part of model.parts) {
-    const partGroup = convertPart(part, textureSize, texture, modelName);
+    const partGroup = convertPart(part, model.textureSize, texture);
     root.add(partGroup);
   }
 
@@ -397,13 +393,9 @@ function convertPart(
   part: ParsedPart,
   textureSize: [number, number],
   texture: THREE.Texture | null,
-  modelName: string,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = part.name;
-
-  // Store the original origin for reference
-  group.userData.origin = part.origin;
 
   // Position at origin (in Three.js units)
   group.position.set(
@@ -427,7 +419,7 @@ function convertPart(
 
   // Create meshes for each box
   for (const box of part.boxes) {
-    const mesh = createBoxMesh(box, part.origin, textureSize, texture, part.rotation, modelName);
+    const mesh = createBoxMesh(box, part.origin, textureSize, texture, part.rotation);
     if (mesh) {
       group.add(mesh);
     }
@@ -435,7 +427,7 @@ function convertPart(
 
   // Recursively add children
   for (const child of part.children) {
-    const childGroup = convertPart(child, textureSize, texture, modelName);
+    const childGroup = convertPart(child, textureSize, texture);
 
     // Child position needs to be relative to parent
     // The child's origin is already absolute, so subtract parent's origin
@@ -463,7 +455,6 @@ function createBoxMesh(
   textureSize: [number, number],
   texture: THREE.Texture | null,
   rotation: [number, number, number],
-  modelName: string,
 ): THREE.Mesh | null {
   const { from, to } = box;
 
@@ -483,21 +474,11 @@ function createBoxMesh(
     return null;
   }
 
-  // Debug logging for UVs
-  if (modelName === 'chicken' || modelName === 'pig') {
-    const boxTextureOffset = box.textureOffset || [0, 0];
-    console.log(`[JEM Debug] Box UV details (model: ${modelName}):`, {
-      textureOffset: boxTextureOffset,
-      dims: [width, height, depth],
-      existingUV: box.uv
-    });
-  }
-
   // Create geometry
   const geometry = new THREE.BoxGeometry(width, height, depth);
 
   // Apply UV coordinates with rotation compensation
-  applyUVs(geometry, box.uv, textureSize, box.mirror, rotation, modelName);
+  applyUVs(geometry, box.uv, textureSize, box.mirror, rotation);
 
   // Create material
   const material = texture
@@ -507,10 +488,14 @@ function createBoxMesh(
       alphaTest: 0.1,
       side: THREE.DoubleSide,
     })
-    : new THREE.MeshStandardMaterial({ color: 0x00ff00 });
+    : new THREE.MeshStandardMaterial({
+      color: 0x8b4513,
+      side: THREE.DoubleSide,
+    });
 
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.name = box.name || "box";
+
+  // Calculate box center in absolute coordinates
   const centerX = (from[0] + to[0]) / 2;
   const centerY = (from[1] + to[1]) / 2;
   const centerZ = (from[2] + to[2]) / 2;
@@ -550,10 +535,7 @@ function applyUVs(
   textureSize: [number, number],
   mirror: boolean,
   rotation: [number, number, number],
-  modelName: string,
 ): void {
-  if (!uv) return;
-
   const [texWidth, texHeight] = textureSize;
   const uvAttr = geometry.attributes.uv;
   if (!uvAttr) return;
@@ -570,44 +552,27 @@ function applyUVs(
   const rotX = rotation[0];
   const hasXRotation = Math.abs(rotX) > 89 && Math.abs(rotX) < 91; // Check for ±90°
 
-  // console.log('[UV Debug] Rotation:', rotation, 'hasXRotation:', hasXRotation);
+  console.log('[UV Debug] Rotation:', rotation, 'hasXRotation:', hasXRotation);
 
-  let faceConfigs: { name: keyof NonNullable<ParsedBox["uv"]>; index: number; flipY?: boolean }[];
+  let faceConfigs: { name: keyof typeof uv; index: number; flipY?: boolean }[];
 
   if (hasXRotation) {
     console.log('[UV Debug] Applying rotation remapping for', rotX, 'degrees');
     // Remap faces for 90° X rotation
     if (rotX < 0) {
-      if (modelName === 'chicken') {
-        // Chicken special case: Works best with standard mapping but needs Front face flipped
-        faceConfigs = [
-          { name: "east", index: 0 },   // right face (+X)
-          { name: "west", index: 1 },   // left face (-X)
-          { name: "up", index: 2, flipY: true },     // top face (+Y) - flipped to fix Front
-          { name: "down", index: 3 },   // bottom face (-Y)
-          { name: "south", index: 4 },  // front face (+Z)
-          { name: "north", index: 5 },  // back face (-Z)
-        ];
-      } else {
-        // Standard rotation remapping for Pig, Cow, Sheep, etc.
-        // -90° rotation around X axis transforms:
-        // +Y (up) → -Z (front), -Y (down) → +Z (back)
-        // +Z (south) → +Y (top), -Z (north) → -Y (bottom)
-        // We want:
-        // - Visual Top (+Y) to have Up texture -> Assign Up to South face (index 4)
-        // - Visual Front (-Z) to have North texture -> Assign North to Up face (index 2)
-        // - Visual Bottom (-Y) to have Down texture -> Assign Down to North face (index 5)
-        // - Visual Back (+Z) to have South texture -> Assign South to Down face (index 3)
-        // - North texture (on Front/Back?) is flipped Y -> Add flipY to North
-        faceConfigs = [
-          { name: "east", index: 0 },   // right face (+X) - unchanged
-          { name: "west", index: 1 },   // left face (-X) - unchanged
-          { name: "north", index: 2 },  // top face (+Y) gets north UV (moves to front)
-          { name: "south", index: 3 },  // bottom face (-Y) gets south UV (moves to back)
-          { name: "up", index: 4 },     // front face (+Z) gets up UV (moves to top)
-          { name: "down", index: 5, flipY: true },   // back face (-Z) gets down UV (moves to bottom), flipped Y
-        ];
-      }
+      // Based on user observation:
+      // - Chicken works with standard mapping (Up->2, Down->3, South->4, North->5)
+      // - BUT Front face (-Z) is flipped vertically.
+      // - Hypothesis: Local Top (idx 2) rotates to Global Front (-Z).
+      // - So we need to flip index 2 ('up').
+      faceConfigs = [
+        { name: "east", index: 0 },   // right face (+X) - unchanged
+        { name: "west", index: 1 },   // left face (-X) - unchanged
+        { name: "up", index: 2, flipY: true },     // top face (+Y) gets up UV, flipped Y
+        { name: "down", index: 3 },   // bottom face (-Y) gets down UV
+        { name: "south", index: 4 },  // front face (+Z) gets south UV
+        { name: "north", index: 5 },  // back face (-Z) gets north UV
+      ];
     } else {
       // +90° rotation: up→south, south→down, down→north, north→up
       faceConfigs = [

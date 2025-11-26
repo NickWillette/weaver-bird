@@ -150,9 +150,9 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           );
         }
 
-        // Convert JEM model to Three.js group
-        console.log('[EntityModel] Converting model to Three.js...');
-        const group = jemToThreeJS(parsedModel, texture, [64, 64], entityType || "unknown");
+        // Convert parsed entity model to Three.js using new loader
+        console.log("[EntityModel] Converting model to Three.js...");
+        const group = jemToThreeJS(parsedModel, texture);
 
         if (cancelled) {
           console.log(
