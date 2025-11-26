@@ -1,0 +1,55 @@
+.hotspot {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    pointer-events: all;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    z-index: 1;
+
+    &:focus {
+        outline: none;
+    }
+
+    &.hovered {
+        z-index: 3;
+    }
+
+    &.selected {
+        z-index: 2;
+    }
+
+    &:disabled {
+        cursor: not-allowed;
+    }
+}
+
+.dot {
+    display: block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.85);
+    border: 2px solid var(--ink);
+    box-shadow: 1px 1px 0 var(--ink);
+
+    transition:
+        width 120ms var(--spring-bezier),
+        height 120ms var(--spring-bezier),
+        box-shadow 120ms var(--spring-bezier);
+
+    .hotspot:hover & {
+        width: 14px;
+        height: 14px;
+        background: var(--color-primary);
+        box-shadow: 2px 2px 0 var(--ink);
+    }
+
+    .hotspot.selected & {
+        width: 12px;
+        height: 12px;
+        background: var(--accent-color);
+        box-shadow: 2px 2px 0 var(--ink);
+    }
+}

@@ -1,0 +1,73 @@
+@use "@/ui/tokens" as tokens;
+
+.dropdownTrigger {
+    @include tokens.border-standard;
+    @include tokens.radius-quirky-sm;
+    @include tokens.shadow-sm;
+    @include tokens.rotate-slight;
+
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    background: var(--color-block);
+    border-color: var(--ink);
+    cursor: pointer;
+    font-family: var(--font-family);
+    text-align: left;
+
+    transition:
+        rotate 120ms var(--spring-bezier),
+        box-shadow 120ms var(--spring-bezier),
+        translate 120ms var(--spring-bezier);
+
+    &:hover {
+        @include tokens.shadow-md;
+        rotate: 0deg;
+        translate: 1px -1px;
+    }
+
+    &:active {
+        translate: 2px 0;
+        box-shadow: 2px 2px 0 var(--ink);
+    }
+}
+
+.dropdownLabel {
+    font-size: 0.55rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--color-text);
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.dropdownValue {
+    flex: 1;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dropdownChevron {
+    font-size: 0.6rem;
+    color: var(--ink);
+    opacity: 0.6;
+}
+
+.selectedItem {
+    background: var(--color-primary);
+    color: white;
+}
+
+// Reduced motion support
+@media (prefers-reduced-motion: reduce) {
+    .dropdownTrigger {
+        transition-duration: 0.01ms;
+    }
+}

@@ -1,38 +1,3 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
-import { getPackTexturePath, getVanillaTexturePath } from "@lib/tauri";
-import {
-  assetIdToTexturePath,
-  getColormapTypeFromAssetId,
-  getColormapVariantLabel,
-  isBiomeColormapAsset,
-} from "@lib/assetUtils";
-import {
-  useSelectIsPenciled,
-  useSelectOverrideVariantPath,
-  useSelectSetOverride,
-  useSelectWinner,
-  useStore,
-} from "@state";
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-} from "@/ui/components/Tooltip/Tooltip";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuLabel,
-} from "@/ui/components/DropdownMenu/DropdownMenu";
-import {
-  getBiomesWithCoords,
-  type BiomeData,
-} from "@components/BiomeColorPicker/biomeData";
-import s from "./styles.module.scss";
-
 /**
  * BiomeColorCard Component
  *
@@ -65,34 +30,30 @@ import s from "./styles.module.scss";
  * global state management through the worker system.
  */
 
-interface ColormapSourceOption {
-  id: string;
-  assetId: string;
-  packId: string;
-  packName: string;
-  label: string;
-  variantLabel?: string | null;
-  relativePath: string;
-  order: number;
-}
+import { useEffect, useMemo, useRef, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { getPackTexturePath, getVanillaTexturePath } from "@lib/tauri";
+import { getColormapTypeFromAssetId } from "@lib/assetUtils";
+import {
+  useSelectIsPenciled,
+  useSelectOverrideVariantPath,
+  useSelectSetOverride,
+  useSelectWinner,
+  useStore,
+} from "@state";
+import { getBiomesWithCoords } from "@components/BiomeColorPicker/biomeData";
+import { ColorSourceDropdown } from "./components/ColorSourceDropdown";
+import { BiomeHotspot } from "./components/BiomeHotspot";
+import {
+  sampleColor,
+  groupHotspotsByCoordinate,
+  buildSourceOptions,
+  selectActiveSource,
+} from "./utilities";
+import type { BiomeColorCardProps } from "./types";
+import s from "./styles.module.scss";
 
-export interface BiomeColorCardProps {
-  assetId: string;
-  type: "grass" | "foliage";
-  onColorSelect?: (color: { r: number; g: number; b: number }) => void;
-  showSourceSelector?: boolean;
-  readOnly?: boolean;
-  accent?: "emerald" | "gold" | "berry";
-  /**
-   * Whether to update global colormap coordinates when clicking
-   * - true: Updates global state (affects all tinted blocks) - used in Settings
-   * - false: Only calls onColorSelect callback (temporary override) - used in 3D preview
-   * @default true
-   */
-  updateGlobalState?: boolean;
-}
-
-export default function BiomeColorCard({
+export const BiomeColorCard = ({
   assetId,
   type,
   onColorSelect,
@@ -100,7 +61,7 @@ export default function BiomeColorCard({
   readOnly = false,
   accent = "emerald",
   updateGlobalState = true,
-}: BiomeColorCardProps) {
+}: BiomeColorCardProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [colormapSrc, setColormapSrc] = useState<string>("");
   const [selectedBiome, setSelectedBiome] = useState<string | null>(null);
@@ -124,72 +85,17 @@ export default function BiomeColorCard({
   const packOrder = useStore((state) => state.packOrder);
   const disabledPackIds = useStore((state) => state.disabledPackIds);
 
-  const sourceOptions: ColormapSourceOption[] = useMemo(() => {
+  const sourceOptions = useMemo(() => {
     console.log(`[BiomeColorCard.useMemo.sourceOptions] type=${resolvedType}`);
-    const options: ColormapSourceOption[] = [];
-    const seen = new Set<string>();
-    const orderLookup = new Map<string, number>();
-    packOrder.forEach((id, index) => orderLookup.set(id, index));
-    const disabledSet = new Set(disabledPackIds);
-
-    // Filter to only colormap assets of the correct type
-    const colormapAssets = Object.values(assets).filter(
-      (asset) =>
-        isBiomeColormapAsset(asset.id) &&
-        getColormapTypeFromAssetId(asset.id) === resolvedType,
+    return buildSourceOptions(
+      assets,
+      providersByAsset,
+      packs,
+      packOrder,
+      disabledPackIds,
+      assetId,
+      resolvedType,
     );
-
-    colormapAssets.forEach((asset) => {
-      const variantLabel = getColormapVariantLabel(asset.id);
-      const providers = (providersByAsset[asset.id] ?? []).filter(
-        (packId) => !disabledSet.has(packId),
-      );
-
-      providers.forEach((packId) => {
-        const packName = packs[packId]?.name ?? packId;
-        const id = `${asset.id}::${packId}`;
-        if (seen.has(id)) return;
-        seen.add(id);
-
-        const priority = orderLookup.get(packId);
-        options.push({
-          id,
-          assetId: asset.id,
-          packId,
-          packName,
-          label: variantLabel ? `${packName} (${variantLabel})` : packName,
-          variantLabel,
-          relativePath: assetIdToTexturePath(asset.id),
-          order: priority === undefined ? Number.MAX_SAFE_INTEGER : priority,
-        });
-      });
-    });
-
-    if (
-      !options.some(
-        (option) =>
-          option.packId === "minecraft:vanilla" && option.assetId === assetId,
-      )
-    ) {
-      options.push({
-        id: `${assetId}::minecraft:vanilla`,
-        assetId,
-        packId: "minecraft:vanilla",
-        packName: "Minecraft (Vanilla)",
-        label: "Minecraft (Vanilla)",
-        variantLabel: null,
-        relativePath: assetIdToTexturePath(assetId),
-        order: Number.MAX_SAFE_INTEGER / 2,
-      });
-    }
-
-    return options.sort((a, b) => {
-      if (a.order !== b.order) return a.order - b.order;
-      if (!!a.variantLabel !== !!b.variantLabel) {
-        return a.variantLabel ? 1 : -1;
-      }
-      return a.label.localeCompare(b.label);
-    });
   }, [
     assets,
     providersByAsset,
@@ -201,32 +107,11 @@ export default function BiomeColorCard({
   ]);
 
   const selectedSource = useMemo(() => {
-    if (!sourceOptions.length) return null;
-    if (!winnerPackId) {
-      return sourceOptions[0];
-    }
-
-    if (overrideVariantPath) {
-      const variantMatch = sourceOptions.find(
-        (option) =>
-          option.packId === winnerPackId &&
-          option.relativePath === overrideVariantPath,
-      );
-      if (variantMatch) {
-        return variantMatch;
-      }
-    }
-
-    const directMatch = sourceOptions.find(
-      (option) => option.packId === winnerPackId && option.assetId === assetId,
-    );
-    if (directMatch) {
-      return directMatch;
-    }
-
-    return (
-      sourceOptions.find((option) => option.packId === winnerPackId) ??
-      sourceOptions[0]
+    return selectActiveSource(
+      sourceOptions,
+      assetId,
+      winnerPackId,
+      overrideVariantPath,
     );
   }, [assetId, overrideVariantPath, sourceOptions, winnerPackId]);
 
@@ -309,20 +194,6 @@ export default function BiomeColorCard({
     img.src = colormapSrc;
   }, [colormapSrc]);
 
-  // Helper function to sample color from imageData
-  function sampleColor(
-    x: number,
-    y: number,
-  ): { r: number; g: number; b: number } | null {
-    if (!imageData) return null;
-    const index = (y * imageData.width + x) * 4;
-    return {
-      r: imageData.data[index],
-      g: imageData.data[index + 1],
-      b: imageData.data[index + 2],
-    };
-  }
-
   // Get the coordinate setter from store
   const setColormapCoordinates = useStore(
     (state) => state.setColormapCoordinates,
@@ -348,29 +219,29 @@ export default function BiomeColorCard({
 
     // Call the optional callback if provided (for temporary override in 3D preview)
     if (onColorSelect) {
-      const color = sampleColor(x, y);
+      const color = sampleColor(imageData, x, y);
       if (color) {
         onColorSelect(color);
       }
     }
   }
 
-  function handleBiomeSelect(biome: BiomeData, x: number, y: number) {
+  function handleBiomeSelect(x: number, y: number, biomeId: string) {
     if (readOnly) return;
 
     // Update global colormap coordinates if enabled (affects all tinted blocks)
     if (updateGlobalState) {
       setColormapCoordinates({ x, y });
     }
-    setSelectedBiome(biome.id);
+    setSelectedBiome(biomeId);
 
     // Update global store so dropdown reflects the selection
     const { setSelectedBiomeId } = useStore.getState();
-    setSelectedBiomeId(biome.id);
+    setSelectedBiomeId(biomeId);
 
     // Call the optional callback if provided (for temporary override in 3D preview)
     if (onColorSelect) {
-      const color = sampleColor(x, y);
+      const color = sampleColor(imageData, x, y);
       if (color) {
         onColorSelect(color);
       }
@@ -392,33 +263,12 @@ export default function BiomeColorCard({
   }
 
   const biomesWithCoords = getBiomesWithCoords();
-
-  // Group biomes by coordinate to deduplicate hotspots
-  const hotspotsByCoord = useMemo(() => {
-    const map = new Map<string, Array<BiomeData & { x: number; y: number }>>();
-
-    biomesWithCoords.forEach((biome) => {
-      const key = `${biome.x},${biome.y}`;
-      const existing = map.get(key);
-      if (existing) {
-        existing.push(biome);
-      } else {
-        map.set(key, [biome]);
-      }
-    });
-
-    return Array.from(map.entries()).map(([coordKey, biomes]) => ({
-      coordKey,
-      x: biomes[0].x,
-      y: biomes[0].y,
-      biomes,
-    }));
-  }, [biomesWithCoords]);
+  const hotspotsByCoord = useMemo(
+    () => groupHotspotsByCoordinate(biomesWithCoords),
+    [biomesWithCoords],
+  );
 
   const isAutoSelected = !isPenciled || !selectedSource;
-  const currentSourceLabel = isAutoSelected
-    ? `Pack order (${selectedSource?.packName ?? "Default"})`
-    : (selectedSource?.label ?? "Select source");
 
   const accentClass =
     accent === "gold"
@@ -440,39 +290,12 @@ export default function BiomeColorCard({
 
       {showSourceSelector && sourceOptions.length > 0 && (
         <div className={s.sourceSelector}>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button className={s.dropdownTrigger} type="button">
-                <span className={s.dropdownLabel}>Source</span>
-                <span className={s.dropdownValue}>{currentSourceLabel}</span>
-                <span className={s.dropdownChevron}>▼</span>
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              <DropdownMenuLabel>Colormap Source</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={() => handleSourceSelect("__auto")}
-                className={isAutoSelected ? s.selectedItem : ""}
-              >
-                Pack order ({selectedSource?.packName ?? "Default"})
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              {sourceOptions.map((option) => (
-                <DropdownMenuItem
-                  key={option.id}
-                  onSelect={() => handleSourceSelect(option.id)}
-                  className={
-                    !isAutoSelected && selectedSource?.id === option.id
-                      ? s.selectedItem
-                      : ""
-                  }
-                >
-                  {option.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ColorSourceDropdown
+            sourceOptions={sourceOptions}
+            selectedSource={selectedSource}
+            isAutoSelected={isAutoSelected}
+            onSourceSelect={handleSourceSelect}
+          />
         </div>
       )}
 
@@ -487,11 +310,9 @@ export default function BiomeColorCard({
           {imageData && (
             <div className={s.hotspots}>
               {hotspotsByCoord.map((hotspot) => {
-                // Use actual image dimensions instead of hardcoded 255
+                // Use actual image dimensions
                 const maxX = imageData.width - 1;
                 const maxY = imageData.height - 1;
-                const leftPercent = (hotspot.x / maxX) * 100;
-                const topPercent = (hotspot.y / maxY) * 100;
                 // Check both local selection and global selection
                 const isSelected = hotspot.biomes.some(
                   (b) => selectedBiome === b.id || selectedBiomeId === b.id,
@@ -501,56 +322,22 @@ export default function BiomeColorCard({
                 );
 
                 return (
-                  <Tooltip key={hotspot.coordKey} delayDuration={100}>
-                    <TooltipTrigger asChild>
-                      <button
-                        className={`${s.hotspot} ${isSelected ? s.selected : ""} ${isHovered ? s.hovered : ""}`}
-                        style={{
-                          left: `${leftPercent}%`,
-                          top: `${topPercent}%`,
-                        }}
-                        onClick={() =>
-                          handleBiomeSelect(
-                            hotspot.biomes[0],
-                            hotspot.x,
-                            hotspot.y,
-                          )
-                        }
-                        onMouseEnter={() =>
-                          setHoveredBiome(hotspot.biomes[0].id)
-                        }
-                        onMouseLeave={() => setHoveredBiome(null)}
-                        disabled={readOnly}
-                      >
-                        <span className={s.dot} />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" align="center">
-                      {hotspot.biomes.length > 1 ? (
-                        <div>
-                          <ul
-                            style={{
-                              margin: 0,
-                              paddingLeft: "1.2em",
-                              textAlign: "left",
-                              listStyleType: "disc",
-                            }}
-                          >
-                            {hotspot.biomes.map((biome) => (
-                              <li
-                                key={biome.id}
-                                style={{ display: "list-item" }}
-                              >
-                                {biome.name}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : (
-                        hotspot.biomes[0].name
-                      )}
-                    </TooltipContent>
-                  </Tooltip>
+                  <BiomeHotspot
+                    key={hotspot.coordKey}
+                    biomes={hotspot.biomes}
+                    x={hotspot.x}
+                    y={hotspot.y}
+                    maxX={maxX}
+                    maxY={maxY}
+                    isSelected={isSelected}
+                    isHovered={isHovered}
+                    onSelect={() =>
+                      handleBiomeSelect(hotspot.x, hotspot.y, hotspot.biomes[0].id)
+                    }
+                    onMouseEnter={() => setHoveredBiome(hotspot.biomes[0].id)}
+                    onMouseLeave={() => setHoveredBiome(null)}
+                    readOnly={readOnly}
+                  />
                 );
               })}
             </div>
@@ -559,4 +346,4 @@ export default function BiomeColorCard({
       </div>
     </div>
   );
-}
+};

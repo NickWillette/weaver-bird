@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import BiomeColorCard from "./index";
+import { BiomeColorCard } from "./index";
 
 const meta: Meta<typeof BiomeColorCard> = {
   component: BiomeColorCard,

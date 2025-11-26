@@ -41,8 +41,7 @@
         @include tokens.gradient-accent-band(var(--accent-color));
         @include tokens.rotate-strong;
         z-index: -2;
-        mask: radial-gradient(circle at 75% 10%, #000 55%, transparent 60%)
-            no-repeat 0 0 / 120%;
+        mask: radial-gradient(circle at 75% 10%, #000 55%, transparent 60%) no-repeat 0 0 / 120%;
     }
 
     // Halftone texture overlay
@@ -92,71 +91,6 @@
     margin-bottom: 0.25rem;
 }
 
-.dropdownTrigger {
-    @include tokens.border-standard;
-    @include tokens.radius-quirky-sm;
-    @include tokens.shadow-sm;
-    @include tokens.rotate-slight;
-
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    width: 100%;
-    padding: 0.45rem 0.6rem;
-    background: var(--color-block);
-    border-color: var(--ink);
-    cursor: pointer;
-    font-family: var(--font-family);
-    text-align: left;
-
-    transition:
-        rotate 120ms var(--spring-bezier),
-        box-shadow 120ms var(--spring-bezier),
-        translate 120ms var(--spring-bezier);
-
-    &:hover {
-        @include tokens.shadow-md;
-        rotate: 0deg;
-        translate: 1px -1px;
-    }
-
-    &:active {
-        translate: 2px 0;
-        box-shadow: 2px 2px 0 var(--ink);
-    }
-}
-
-.dropdownLabel {
-    font-size: 0.55rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--color-text);
-    opacity: 0.6;
-    flex-shrink: 0;
-}
-
-.dropdownValue {
-    flex: 1;
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--ink);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.dropdownChevron {
-    font-size: 0.6rem;
-    color: var(--ink);
-    opacity: 0.6;
-}
-
-.selectedItem {
-    background: var(--color-primary);
-    color: white;
-}
-
 .content {
     display: flex;
     flex-direction: column;
@@ -199,62 +133,6 @@
     overflow: visible;
 }
 
-.hotspot {
-    position: absolute;
-    transform: translate(-50%, -50%);
-    pointer-events: all;
-    background: none;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-    z-index: 1;
-
-    &:focus {
-        outline: none;
-    }
-
-    &.hovered {
-        z-index: 3;
-    }
-
-    &.selected {
-        z-index: 2;
-    }
-
-    &:disabled {
-        cursor: not-allowed;
-    }
-}
-
-.dot {
-    display: block;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.85);
-    border: 2px solid var(--ink);
-    box-shadow: 1px 1px 0 var(--ink);
-
-    transition:
-        width 120ms var(--spring-bezier),
-        height 120ms var(--spring-bezier),
-        box-shadow 120ms var(--spring-bezier);
-
-    .hotspot:hover & {
-        width: 14px;
-        height: 14px;
-        background: var(--color-primary);
-        box-shadow: 2px 2px 0 var(--ink);
-    }
-
-    .hotspot.selected & {
-        width: 12px;
-        height: 12px;
-        background: var(--accent-color);
-        box-shadow: 2px 2px 0 var(--ink);
-    }
-}
-
 // Accent variants
 .accentEmerald {
     --accent-color: var(--color-emerald);
@@ -270,12 +148,7 @@
 
 // Reduced motion support
 @media (prefers-reduced-motion: reduce) {
-    .card,
-    .dropdownTrigger {
-        transition-duration: 0.01ms;
-    }
-
-    .dot {
+    .card {
         transition-duration: 0.01ms;
     }
 }

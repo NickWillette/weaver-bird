@@ -70,7 +70,7 @@ import {
 import { BlockyTabs } from "@/ui/components/blocky-tabs/BlockyTabs";
 import type { TabItem, ZoneId } from "@/ui/components/blocky-tabs/types";
 import { CanvasTypeSelector } from "@components/CanvasTypeSelector";
-import BiomeColorCard from "@components/BiomeColorCard";
+import { BiomeColorCard } from "@components/BiomeColorCard";
 
 // Import tab icons
 import cobbleImg from "@/assets/textures/cobblestone.png";

@@ -22,3 +22,28 @@
 **Child Components**:
 
 - `AssetCard`: renders individual asset card with 3D preview
+
+---
+
+## BiomeColorCard
+
+**Purpose**: Interactive colormap selector for biome tinting
+
+**useEffects**:
+
+- Load colormap texture: triggers on `selectedSource`, `packs` changes
+- Draw canvas & extract imageData: triggers on `colormapSrc` change
+
+**Utilities** (from `utilities.ts`):
+
+- `sampleColor`: samples RGB color from coordinates
+- `groupHotspotsByCoordinate`: deduplicates biome hotspots
+- `buildSourceOptions`: creates available colormap sources list
+- `selectActiveSource`: determines active colormap source
+
+**Usage Count**: 3 usages (`src/routes/main.tsx` x2, `src/components/Settings/ColormapSettings.tsx` x1)
+
+**Child Components**:
+
+- `ColorSourceDropdown`: pack/variant selector dropdown
+- `BiomeHotspot`: individual biome coordinate marker

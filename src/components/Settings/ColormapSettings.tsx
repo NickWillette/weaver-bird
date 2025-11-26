@@ -1,4 +1,4 @@
-import BiomeColorCard from "@components/BiomeColorCard";
+import { BiomeColorCard } from "@components/BiomeColorCard";
 import s from "./ColormapSettings.module.scss";
 
 /**
