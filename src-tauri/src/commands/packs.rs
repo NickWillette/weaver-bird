@@ -36,6 +36,7 @@ fn create_vanilla_pack() -> Result<crate::model::PackMeta, AppError> {
         is_zip: false,
         description: Some("Default Minecraft textures".to_string()),
         icon_data: None,
+        pack_format: None, // Vanilla textures don't have a pack format
     })
 }
 
@@ -137,10 +138,30 @@ pub fn get_default_packs_dir_impl() -> Result<String, AppError> {
 
 /// Initialize vanilla textures (extract from Minecraft JAR if needed)
 ///
+/// # Arguments
+/// * `window` - Tauri window handle for emitting progress events
+///
 /// # Returns
 /// Path to the vanilla textures cache directory
-pub fn initialize_vanilla_textures_impl() -> Result<String, AppError> {
-    vanilla_textures::initialize_vanilla_textures()
+pub fn initialize_vanilla_textures_impl(window: tauri::Window) -> Result<String, AppError> {
+    use std::sync::Arc;
+    use tauri::Emitter;
+
+    // Create progress callback that emits events to the frontend
+    let progress_callback = Arc::new(move |current: usize, total: usize| {
+        println!(
+            "[initialize_vanilla_textures] Emitting progress: {}/{}",
+            current, total
+        );
+        if let Err(e) = window.emit("vanilla-texture-progress", (current, total)) {
+            eprintln!(
+                "[initialize_vanilla_textures] Failed to emit progress event: {}",
+                e
+            );
+        }
+    });
+
+    vanilla_textures::initialize_vanilla_textures_with_progress(Some(progress_callback))
         .map(|p| p.to_string_lossy().to_string())
         .map_err(|e| AppError::io(format!("Failed to initialize vanilla textures: {}", e)))
 }
@@ -169,6 +190,67 @@ pub fn get_colormap_path_impl(colormap_type: String) -> Result<String, AppError>
     vanilla_textures::get_colormap_path(&colormap_type)
         .map(|p| p.to_string_lossy().to_string())
         .map_err(|e| AppError::io(format!("Colormap not found: {}", e)))
+}
+
+/// List all available Minecraft versions
+///
+/// # Returns
+/// Array of MinecraftVersion objects with version info
+pub fn list_available_minecraft_versions_impl(
+) -> Result<Vec<vanilla_textures::MinecraftVersion>, AppError> {
+    vanilla_textures::list_all_available_versions()
+        .map_err(|e| AppError::io(format!("Failed to list Minecraft versions: {}", e)))
+}
+
+/// Get the currently cached vanilla texture version
+///
+/// # Returns
+/// Version string if cached, null if no cache exists
+pub fn get_cached_vanilla_version_impl() -> Result<Option<String>, AppError> {
+    vanilla_textures::get_cached_version()
+        .map_err(|e| AppError::io(format!("Failed to get cached version: {}", e)))
+}
+
+/// Extract vanilla textures for a specific Minecraft version
+///
+/// # Arguments
+/// * `version` - Version identifier (e.g., "1.21.4")
+/// * `window` - Tauri window handle for emitting progress events
+///
+/// # Returns
+/// Path to the vanilla textures cache directory
+pub fn set_vanilla_texture_version_impl(
+    version: String,
+    window: tauri::Window,
+) -> Result<String, AppError> {
+    use std::sync::Arc;
+    use tauri::Emitter;
+
+    // Create progress callback that emits events to the frontend
+    let progress_callback = Arc::new(move |current: usize, total: usize| {
+        println!(
+            "[set_vanilla_texture_version] Emitting progress: {}/{}",
+            current, total
+        );
+        if let Err(e) = window.emit("vanilla-texture-progress", (current, total)) {
+            eprintln!(
+                "[set_vanilla_texture_version] Failed to emit progress event: {}",
+                e
+            );
+        }
+    });
+
+    vanilla_textures::extract_vanilla_textures_for_version_with_progress(
+        &version,
+        Some(progress_callback),
+    )
+    .map(|p| p.to_string_lossy().to_string())
+    .map_err(|e| {
+        AppError::io(format!(
+            "Failed to extract vanilla textures for version {}: {}",
+            version, e
+        ))
+    })
 }
 
 /// Check if Minecraft is installed
@@ -1020,6 +1102,28 @@ pub fn read_vanilla_jem_impl(entity_type: String) -> Result<String, AppError> {
             e
         ))
     })
+}
+
+/// Get all entities that have version variants in JEM files
+/// Returns a map of entity ID -> list of version folders
+///
+/// # Errors
+/// - VALIDATION_ERROR: Directory doesn't exist or is invalid
+/// - SCAN_ERROR: Failed to scan packs for version variants
+pub fn get_entity_version_variants_impl(
+    packs_dir: String,
+) -> Result<HashMap<String, Vec<String>>, AppError> {
+    // Validate input
+    validation::validate_directory(&packs_dir, "Packs directory")?;
+
+    // Scan for packs
+    let packs = pack_scanner::scan_packs(&packs_dir).map_err(|e| AppError::scan(e.to_string()))?;
+
+    // Scan for version variants
+    let variants = asset_indexer::scan_entity_version_variants(&packs)
+        .map_err(|e| AppError::scan(format!("Failed to scan entity version variants: {}", e)))?;
+
+    Ok(variants)
 }
 
 #[cfg(test)]

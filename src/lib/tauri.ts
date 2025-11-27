@@ -144,6 +144,35 @@ export async function initializeVanillaTexturesFromCustomDir(
 }
 
 /**
+ * List all available Minecraft versions
+ * @returns Array of available Minecraft versions
+ */
+export async function listAvailableMinecraftVersions(): Promise<
+  MinecraftVersion[]
+> {
+  return invoke<MinecraftVersion[]>("list_available_minecraft_versions");
+}
+
+/**
+ * Get the currently cached vanilla texture version
+ * @returns Version string or null if no cache exists
+ */
+export async function getCachedVanillaVersion(): Promise<string | null> {
+  return invoke<string | null>("get_cached_vanilla_version");
+}
+
+/**
+ * Set the vanilla texture version to use
+ * @param version - Version identifier (e.g., "1.21.4")
+ * @returns Path to vanilla textures cache
+ */
+export async function setVanillaTextureVersion(
+  version: string,
+): Promise<string> {
+  return invoke<string>("set_vanilla_texture_version", { version });
+}
+
+/**
  * Launcher information
  */
 export interface LauncherInfo {
@@ -153,6 +182,15 @@ export interface LauncherInfo {
   found: boolean;
   icon: string;
   icon_path?: string;
+}
+
+/**
+ * Information about a Minecraft version
+ */
+export interface MinecraftVersion {
+  version: string;
+  jar_path: string;
+  modified_time: number;
 }
 
 /**
@@ -196,4 +234,19 @@ export async function getPackTexturePath(
   isZip: boolean,
 ): Promise<string> {
   return invoke<string>("get_pack_texture_path", { packPath, assetId, isZip });
+}
+
+/**
+ * Get all entities that have version variants in JEM files
+ * Scans all packs for JEM files in version-specific folders
+ *
+ * @param packsDir - Resource packs directory to scan
+ * @returns Map of entity ID -> list of version folders (e.g., {"cow": ["21.4", "21.5"]})
+ */
+export async function getEntityVersionVariants(
+  packsDir: string,
+): Promise<Record<string, string[]>> {
+  return invoke<Record<string, string[]>>("get_entity_version_variants", {
+    packsDir,
+  });
 }

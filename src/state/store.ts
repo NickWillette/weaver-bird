@@ -14,6 +14,7 @@ interface StoreActions {
   disablePack: (packId: PackId, targetIndex?: number) => void;
   enablePack: (packId: PackId, targetIndex?: number) => void;
   setDisabledPackOrder: (order: PackId[]) => void;
+  setPackFormats: (formats: Record<string, number>) => void;
 
   // Asset management
   ingestAssets: (assets: AssetRecord[]) => void;
@@ -75,6 +76,11 @@ interface StoreActions {
   // 3D block display settings
   setShowPot: (show: boolean) => void;
 
+  // Entity model compatibility
+  setUseLegacyCEM: (use: boolean) => void;
+  setTargetMinecraftVersion: (version: string | null) => void;
+  setEntityVersionVariants: (variants: Record<string, string[]>) => void;
+
   // Reset
   reset: () => void;
 }
@@ -89,6 +95,7 @@ const initialState: AppState = {
   assets: {},
   providersByAsset: {},
   overrides: {},
+  packFormats: {},
 
   // UI
   selectedAssetId: undefined,
@@ -123,6 +130,11 @@ const initialState: AppState = {
 
   // 3D block display settings
   showPot: true, // Show pot by default for potted plants
+
+  // Entity model compatibility
+  useLegacyCEM: true, // Use legacy CEM by default for older packs
+  targetMinecraftVersion: null, // Default to current vanilla version
+  entityVersionVariants: {}, // Will be loaded when packs are scanned
 };
 
 export const useStore = create<WeaverbirdStore>()(
@@ -208,6 +220,12 @@ export const useStore = create<WeaverbirdStore>()(
         });
         const remainder = state.disabledPackIds.filter((id) => !seen.has(id));
         state.disabledPackIds = [...filtered, ...remainder];
+      });
+    },
+
+    setPackFormats: (formats: Record<string, number>) => {
+      set((state) => {
+        state.packFormats = formats;
       });
     },
 
@@ -414,6 +432,25 @@ export const useStore = create<WeaverbirdStore>()(
     setShowPot: (show: boolean) => {
       set((state) => {
         state.showPot = show;
+      });
+    },
+
+    // Entity model compatibility
+    setUseLegacyCEM: (use: boolean) => {
+      set((state) => {
+        state.useLegacyCEM = use;
+      });
+    },
+
+    setTargetMinecraftVersion: (version: string | null) => {
+      set((state) => {
+        state.targetMinecraftVersion = version;
+      });
+    },
+
+    setEntityVersionVariants: (variants: Record<string, string[]>) => {
+      set((state) => {
+        state.entityVersionVariants = variants;
       });
     },
 

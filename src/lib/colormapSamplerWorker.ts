@@ -72,7 +72,7 @@ class ColormapSamplerWorkerManager {
       );
     }
 
-    const worker = this.worker;
+    const {worker} = this;
 
     return new Promise((resolve) => {
       const id = `request_${++this.requestCounter}`;

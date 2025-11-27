@@ -1,0 +1,107 @@
+.root {
+  padding: 1.5rem;
+  background: var(--color-bg-secondary);
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.header {
+  margin-bottom: 1.5rem;
+
+  h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--color-text-primary);
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+  }
+}
+
+.error {
+  padding: 0.75rem;
+  background: var(--color-error-bg, rgba(239, 68, 68, 0.1));
+  border: 1px solid var(--color-error, #ef4444);
+  border-radius: 6px;
+  color: var(--color-error, #ef4444);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.loading,
+.emptyState {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+}
+
+.versionSelector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+
+  label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-primary);
+  }
+
+  .versionDropdown {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    background: var(--color-bg-primary);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    color: var(--color-text-primary);
+    cursor: pointer;
+    transition: border-color 0.2s;
+
+    &:hover:not(:disabled) {
+      border-color: var(--color-border-hover, var(--color-primary));
+    }
+
+    &:focus {
+      outline: none;
+      border-color: var(--color-primary);
+      box-shadow: 0 0 0 3px var(--color-primary-alpha, rgba(59, 130, 246, 0.1));
+    }
+
+    &:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  }
+
+  .switchingMessage {
+    padding: 0.75rem;
+    background: var(--color-info-bg, rgba(59, 130, 246, 0.1));
+    border: 1px solid var(--color-info, #3b82f6);
+    border-radius: 6px;
+    color: var(--color-info, #3b82f6);
+    font-size: 0.875rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+
+    &::before {
+      content: "⏳";
+    }
+  }
+
+  .currentVersionInfo {
+    padding: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-text-secondary);
+
+    strong {
+      color: var(--color-text-primary);
+      font-weight: 600;
+    }
+  }
+}

@@ -72,7 +72,8 @@ pub fn scan_packs(packs_dir: &str) -> Result<Vec<PackMeta>> {
         .filter_map(|entry| match entry {
             PackEntry::Zip(entry_path, file_name_str, size) => {
                 println!("[scan_packs] Processing ZIP: {}", file_name_str);
-                let (description, icon_data) = extract_pack_metadata_from_zip(entry_path);
+                let (description, icon_data, pack_format) =
+                    extract_pack_metadata_from_zip(entry_path);
 
                 Some(PackMeta {
                     id: file_name_str.clone(),
@@ -82,12 +83,14 @@ pub fn scan_packs(packs_dir: &str) -> Result<Vec<PackMeta>> {
                     is_zip: true,
                     description,
                     icon_data,
+                    pack_format,
                 })
             }
             PackEntry::Dir(entry_path, file_name_str) => {
                 println!("[scan_packs] Processing directory: {}", file_name_str);
                 let size = calculate_dir_size(entry_path);
-                let (description, icon_data) = extract_pack_metadata_from_dir(entry_path);
+                let (description, icon_data, pack_format) =
+                    extract_pack_metadata_from_dir(entry_path);
 
                 Some(PackMeta {
                     id: file_name_str.clone(),
@@ -97,6 +100,7 @@ pub fn scan_packs(packs_dir: &str) -> Result<Vec<PackMeta>> {
                     is_zip: false,
                     description,
                     icon_data,
+                    pack_format,
                 })
             }
         })
@@ -125,44 +129,64 @@ fn calculate_dir_size(path: &Path) -> u64 {
         .sum()
 }
 
-/// Extract description from pack.mcmeta and icon from pack.png in a ZIP file
-fn extract_pack_metadata_from_zip(zip_path: &Path) -> (Option<String>, Option<String>) {
+/// Extract metadata from pack.mcmeta and icon from pack.png in a ZIP file
+fn extract_pack_metadata_from_zip(
+    zip_path: &Path,
+) -> (Option<String>, Option<String>, Option<u32>) {
     let file = match fs::File::open(zip_path) {
         Ok(f) => f,
-        Err(_) => return (None, None),
+        Err(_) => return (None, None, None),
     };
 
     let mut archive = match ZipArchive::new(file) {
         Ok(a) => a,
-        Err(_) => return (None, None),
+        Err(_) => return (None, None, None),
     };
 
-    // Extract description from pack.mcmeta
-    let description = extract_description_from_zip(&mut archive);
+    // Extract description and pack_format from pack.mcmeta
+    let (description, pack_format) = extract_mcmeta_from_zip(&mut archive);
 
     // Extract icon from pack.png
     let icon_data = extract_icon_from_zip(&mut archive);
 
-    (description, icon_data)
+    (description, icon_data, pack_format)
 }
 
-/// Extract description from pack.mcmeta in ZIP archive
-fn extract_description_from_zip(archive: &mut ZipArchive<fs::File>) -> Option<String> {
+/// Extract description and pack_format from pack.mcmeta in ZIP archive
+fn extract_mcmeta_from_zip(archive: &mut ZipArchive<fs::File>) -> (Option<String>, Option<u32>) {
     // Try to find pack.mcmeta
-    let mut mcmeta_file = archive.by_name("pack.mcmeta").ok()?;
+    let mut mcmeta_file = match archive.by_name("pack.mcmeta") {
+        Ok(file) => file,
+        Err(_) => return (None, None),
+    };
 
     let mut contents = String::new();
-    mcmeta_file.read_to_string(&mut contents).ok()?;
+    if mcmeta_file.read_to_string(&mut contents).is_err() {
+        return (None, None);
+    }
 
-    // Parse JSON and extract description
-    let json: serde_json::Value = serde_json::from_str(&contents).ok()?;
-    let description = json
-        .get("pack")?
-        .get("description")?
-        .as_str()
+    // Parse JSON and extract description and pack_format
+    let json: serde_json::Value = match serde_json::from_str(&contents) {
+        Ok(json) => json,
+        Err(_) => return (None, None),
+    };
+
+    let pack_obj = match json.get("pack") {
+        Some(pack) => pack,
+        None => return (None, None),
+    };
+
+    let description = pack_obj
+        .get("description")
+        .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    description
+    let pack_format = pack_obj
+        .get("pack_format")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
+    (description, pack_format)
 }
 
 /// Extract icon from pack.png in ZIP archive as base64
@@ -178,31 +202,49 @@ fn extract_icon_from_zip(archive: &mut ZipArchive<fs::File>) -> Option<String> {
     Some(general_purpose::STANDARD.encode(&buffer))
 }
 
-/// Extract description and icon from an uncompressed directory
-fn extract_pack_metadata_from_dir(dir_path: &Path) -> (Option<String>, Option<String>) {
-    // Extract description from pack.mcmeta
-    let description = extract_description_from_dir(dir_path);
+/// Extract metadata and icon from an uncompressed directory
+fn extract_pack_metadata_from_dir(
+    dir_path: &Path,
+) -> (Option<String>, Option<String>, Option<u32>) {
+    // Extract description and pack_format from pack.mcmeta
+    let (description, pack_format) = extract_mcmeta_from_dir(dir_path);
 
     // Extract icon from pack.png
     let icon_data = extract_icon_from_dir(dir_path);
 
-    (description, icon_data)
+    (description, icon_data, pack_format)
 }
 
 /// Extract description from pack.mcmeta in directory
-fn extract_description_from_dir(dir_path: &Path) -> Option<String> {
+fn extract_mcmeta_from_dir(dir_path: &Path) -> (Option<String>, Option<u32>) {
     let mcmeta_path = dir_path.join("pack.mcmeta");
-    let contents = fs::read_to_string(mcmeta_path).ok()?;
+    let contents = match fs::read_to_string(mcmeta_path) {
+        Ok(contents) => contents,
+        Err(_) => return (None, None),
+    };
 
-    // Parse JSON and extract description
-    let json: serde_json::Value = serde_json::from_str(&contents).ok()?;
-    let description = json
-        .get("pack")?
-        .get("description")?
-        .as_str()
+    // Parse JSON and extract description and pack_format
+    let json: serde_json::Value = match serde_json::from_str(&contents) {
+        Ok(json) => json,
+        Err(_) => return (None, None),
+    };
+
+    let pack_obj = match json.get("pack") {
+        Some(pack) => pack,
+        None => return (None, None),
+    };
+
+    let description = pack_obj
+        .get("description")
+        .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    description
+    let pack_format = pack_obj
+        .get("pack_format")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as u32);
+
+    (description, pack_format)
 }
 
 /// Extract icon from pack.png in directory as base64
@@ -369,7 +411,7 @@ mod tests {
             )
             .expect("Failed to write pack.mcmeta");
 
-        let description = extract_description_from_dir(&temp_dir);
+        let (description, _pack_format) = extract_mcmeta_from_dir(&temp_dir);
 
         // Clean up
         fs::remove_file(&mcmeta_path).ok();
@@ -383,7 +425,7 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("test_extract_desc_missing");
         fs::create_dir_all(&temp_dir).expect("Failed to create test directory");
 
-        let description = extract_description_from_dir(&temp_dir);
+        let (description, _pack_format) = extract_mcmeta_from_dir(&temp_dir);
 
         // Clean up
         fs::remove_dir(&temp_dir).ok();

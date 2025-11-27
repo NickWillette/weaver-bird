@@ -227,7 +227,7 @@ function parseModelPart(
  */
 function parseBox(
   box: JEMBox,
-  textureSize: [number, number],
+  _textureSize: [number, number],
   partMirrorUV: boolean,
 ): ParsedBox | null {
   // Default coordinates if not specified
@@ -419,7 +419,13 @@ function convertPart(
 
   // Create meshes for each box
   for (const box of part.boxes) {
-    const mesh = createBoxMesh(box, part.origin, textureSize, texture, part.rotation);
+    const mesh = createBoxMesh(
+      box,
+      part.origin,
+      textureSize,
+      texture,
+      part.rotation,
+    );
     if (mesh) {
       group.add(mesh);
     }
@@ -429,13 +435,18 @@ function convertPart(
   for (const child of part.children) {
     const childGroup = convertPart(child, textureSize, texture);
 
-    // Child position needs to be relative to parent
-    // The child's origin is already absolute, so subtract parent's origin
-    childGroup.position.set(
-      (child.origin[0] - part.origin[0]) / PIXELS_PER_UNIT,
-      (child.origin[1] - part.origin[1]) / PIXELS_PER_UNIT,
-      (child.origin[2] - part.origin[2]) / PIXELS_PER_UNIT,
-    );
+    // CRITICAL FIX: Child origins are already absolute (made so during parsing
+    // at lines 161-166 by adding parent translate). Since the parent group is
+    // positioned at its origin, the child should be at the origin [0,0,0]
+    // relative to the parent, NOT at (child.origin - parent.origin).
+    //
+    // The old calculation double-subtracted the parent's position:
+    //   WRONG: (child.origin - parent.origin) / 16
+    //   This resulted in children positioned at negative offsets
+    //
+    // The child's origin IS the absolute world position, so relative to
+    // a parent that's also absolutely positioned, it's just at origin.
+    childGroup.position.set(0, 0, 0);
 
     group.add(childGroup);
   }
@@ -552,12 +563,12 @@ function applyUVs(
   const rotX = rotation[0];
   const hasXRotation = Math.abs(rotX) > 89 && Math.abs(rotX) < 91; // Check for ±90°
 
-  console.log('[UV Debug] Rotation:', rotation, 'hasXRotation:', hasXRotation);
+  console.log("[UV Debug] Rotation:", rotation, "hasXRotation:", hasXRotation);
 
   let faceConfigs: { name: keyof typeof uv; index: number; flipY?: boolean }[];
 
   if (hasXRotation) {
-    console.log('[UV Debug] Applying rotation remapping for', rotX, 'degrees');
+    console.log("[UV Debug] Applying rotation remapping for", rotX, "degrees");
     // Remap faces for 90° X rotation
     if (rotX < 0) {
       // Based on user observation:
@@ -566,22 +577,22 @@ function applyUVs(
       // - Hypothesis: Local Top (idx 2) rotates to Global Front (-Z).
       // - So we need to flip index 2 ('up').
       faceConfigs = [
-        { name: "east", index: 0 },   // right face (+X) - unchanged
-        { name: "west", index: 1 },   // left face (-X) - unchanged
-        { name: "up", index: 2, flipY: true },     // top face (+Y) gets up UV, flipped Y
-        { name: "down", index: 3 },   // bottom face (-Y) gets down UV
-        { name: "south", index: 4 },  // front face (+Z) gets south UV
-        { name: "north", index: 5 },  // back face (-Z) gets north UV
+        { name: "east", index: 0 }, // right face (+X) - unchanged
+        { name: "west", index: 1 }, // left face (-X) - unchanged
+        { name: "up", index: 2, flipY: true }, // top face (+Y) gets up UV, flipped Y
+        { name: "down", index: 3 }, // bottom face (-Y) gets down UV
+        { name: "south", index: 4 }, // front face (+Z) gets south UV
+        { name: "north", index: 5 }, // back face (-Z) gets north UV
       ];
     } else {
       // +90° rotation: up→south, south→down, down→north, north→up
       faceConfigs = [
-        { name: "east", index: 0 },   // right face (+X) - unchanged
-        { name: "west", index: 1 },   // left face (-X) - unchanged
-        { name: "north", index: 2 },  // top face (+Y) gets north UV
-        { name: "south", index: 3 },  // bottom face (-Y) gets south UV
-        { name: "down", index: 4 },   // front face (+Z) gets down UV
-        { name: "up", index: 5 },     // back face (-Z) gets up UV
+        { name: "east", index: 0 }, // right face (+X) - unchanged
+        { name: "west", index: 1 }, // left face (-X) - unchanged
+        { name: "north", index: 2 }, // top face (+Y) gets north UV
+        { name: "south", index: 3 }, // bottom face (-Y) gets south UV
+        { name: "down", index: 4 }, // front face (+Z) gets down UV
+        { name: "up", index: 5 }, // back face (-Z) gets up UV
       ];
     }
   } else {

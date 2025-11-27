@@ -16,6 +16,7 @@ export interface PackMeta {
   is_zip: boolean;
   description?: string;
   icon_data?: string; // Base64-encoded PNG
+  pack_format?: number; // Pack format version from pack.mcmeta
 }
 
 /**
@@ -59,6 +60,7 @@ export interface EntitiesState {
   assets: Record<AssetId, AssetRecord>;
   providersByAsset: Record<AssetId, PackId[]>;
   overrides: Record<AssetId, OverrideEntry | undefined>;
+  packFormats: Record<string, number>; // Maps pack ID to pack format version
 }
 
 /**
@@ -121,6 +123,11 @@ export interface UIState {
 
   // 3D block display settings
   showPot?: boolean; // Show pot for potted plants (default: true)
+
+  // Entity model compatibility settings
+  useLegacyCEM: boolean; // Use legacy CEM files for entities with compatibility issues (default: true)
+  targetMinecraftVersion: string | null; // Target Minecraft version for compatibility (null = use current vanilla version)
+  entityVersionVariants: Record<string, string[]>; // Map of entity ID -> available version folders
 }
 
 /**

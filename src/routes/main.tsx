@@ -53,6 +53,9 @@ import SaveBar from "@components/SaveBar";
 import OutputSettings from "@components/OutputSettings";
 import Settings from "@components/Settings";
 import MinecraftLocations from "@components/Settings/MinecraftLocations";
+import VanillaTextureVersion from "@components/Settings/VanillaTextureVersion";
+import TargetVersion from "@components/Settings/TargetVersion";
+import VanillaTextureProgress from "@components/VanillaTextureProgress";
 import CanvasSettings from "@components/CanvasSettings";
 import BiomeSelector from "@components/BiomeSelector";
 import WindowControls from "@components/WindowControls";
@@ -86,8 +89,10 @@ import {
   initializeVanillaTextures,
   detectLaunchers,
   getLauncherResourcepacksDir,
+  getEntityVersionVariants,
 } from "@lib/tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import type { LauncherInfo } from "@lib/tauri";
 import { getBlockTintType } from "@/constants/vanillaBlockColors";
 import {
@@ -124,6 +129,7 @@ import {
   useSelectSetOutputDir,
   useSelectSetPackFormat,
   useSelectIngestPacks,
+  useSelectSetPackFormats,
   useSelectIngestAssets,
   useSelectIngestAllProviders,
   useSelectOverridesRecord,
@@ -239,6 +245,13 @@ export default function MainRoute() {
   const [blockProps, setBlockProps] = useState<Record<string, string>>({});
   const [seed, setSeed] = useState(0);
   const setPacksDirInStore = useSetPacksDir();
+
+  // Vanilla texture progress state - managed here to ensure listener is set up early
+  const [vanillaProgress, setVanillaProgress] = useState<{
+    current: number;
+    total: number;
+  } | null>(null);
+  const [vanillaProgressVisible, setVanillaProgressVisible] = useState(false);
 
   // Ref for canvas element to position CanvasTypeSelector
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -391,11 +404,15 @@ export default function MainRoute() {
   const setOutputDir = useSelectSetOutputDir();
   const setPackFormat = useSelectSetPackFormat();
   const ingestPacks = useSelectIngestPacks();
+  const setPackFormats = useSelectSetPackFormats();
   const ingestAssets = useSelectIngestAssets();
   const ingestAllProviders = useSelectIngestAllProviders();
   const setSelectedLauncher = useSelectSetSelectedLauncher();
   const setAvailableLaunchers = useSelectSetAvailableLaunchers();
   const setCurrentPage = useSelectSetCurrentPage();
+  const setEntityVersionVariants = useStore(
+    (state) => state.setEntityVersionVariants,
+  );
 
   // Canvas render mode state
   const canvasRenderMode = useStore((state) => state.canvasRenderMode);
@@ -406,6 +423,35 @@ export default function MainRoute() {
 
   // Get providers for selected asset
   const providers = useSelectProvidersWithWinner(uiState.selectedAssetId);
+
+  // Set up vanilla texture progress listener FIRST (before any effects that might trigger events)
+  useEffect(() => {
+    console.log("[MainRoute] Setting up vanilla-texture-progress listener");
+    const unlistenPromise = listen<[number, number]>(
+      "vanilla-texture-progress",
+      (event) => {
+        console.log(
+          "[MainRoute] Received vanilla-texture-progress event:",
+          event.payload,
+        );
+        const [current, total] = event.payload;
+        setVanillaProgress({ current, total });
+        setVanillaProgressVisible(true);
+
+        // Hide when complete after a short delay
+        if (current >= total) {
+          setTimeout(() => {
+            setVanillaProgressVisible(false);
+            setVanillaProgress(null);
+          }, 2000);
+        }
+      },
+    );
+
+    return () => {
+      unlistenPromise.then((fn) => fn());
+    };
+  }, []);
 
   useEffect(() => {
     setTintInfo({ hasTint: false, tintType: undefined });
@@ -739,6 +785,19 @@ export default function MainRoute() {
 
         console.log("[handleBrowsePacksFolder] Ingesting packs...");
         ingestPacks(result.packs);
+
+        // Extract pack formats from packs
+        const packFormats = result.packs.reduce(
+          (acc: Record<string, number>, pack: PackMeta) => {
+            if (pack.pack_format !== undefined) {
+              acc[pack.id] = pack.pack_format;
+            }
+            return acc;
+          },
+          {},
+        );
+        setPackFormats(packFormats);
+
         console.log("[handleBrowsePacksFolder] Ingesting assets...");
         ingestAssets(result.assets);
 
@@ -746,6 +805,25 @@ export default function MainRoute() {
         // Ingest providers (batch operation for performance)
         ingestAllProviders(result.providers);
         console.log("[handleBrowsePacksFolder] Providers ingested");
+
+        // Load entity version variants
+        console.log(
+          "[handleBrowsePacksFolder] Loading entity version variants...",
+        );
+        try {
+          const variants = await getEntityVersionVariants(selected);
+          setEntityVersionVariants(variants);
+          console.log(
+            "[handleBrowsePacksFolder] Entity version variants loaded:",
+            variants,
+          );
+        } catch (err) {
+          console.warn(
+            "[handleBrowsePacksFolder] Failed to load entity version variants:",
+            err,
+          );
+          setEntityVersionVariants({});
+        }
 
         // Set pack order to scan order
         if (result.packs.length > 0) {
@@ -771,6 +849,8 @@ export default function MainRoute() {
     setPacksDirInStore,
     setErrorMessage,
     setSuccessMessage,
+    setEntityVersionVariants,
+    setPackFormats,
   ]);
 
   const handleLauncherChange = useCallback(
@@ -793,10 +873,39 @@ export default function MainRoute() {
           // Scan the resourcepacks folder
           const result = await scanPacksFolder(resourcepacksDir);
           ingestPacks(result.packs);
+
+          // Extract pack formats from packs
+          const packFormats = result.packs.reduce(
+            (acc: Record<string, number>, pack: PackMeta) => {
+              if (pack.pack_format !== undefined) {
+                acc[pack.id] = pack.pack_format;
+              }
+              return acc;
+            },
+            {},
+          );
+          setPackFormats(packFormats);
+
           ingestAssets(result.assets);
 
           // Ingest providers (batch operation for performance)
           ingestAllProviders(result.providers);
+
+          // Load entity version variants
+          try {
+            const variants = await getEntityVersionVariants(resourcepacksDir);
+            setEntityVersionVariants(variants);
+            console.log(
+              "[Auto-scan] Entity version variants loaded:",
+              variants,
+            );
+          } catch (err) {
+            console.warn(
+              "[Auto-scan] Failed to load entity version variants:",
+              err,
+            );
+            setEntityVersionVariants({});
+          }
 
           // Set pack order to scan order
           if (result.packs.length > 0) {
@@ -825,6 +934,8 @@ export default function MainRoute() {
       setPacksDirInStore,
       setErrorMessage,
       setSuccessMessage,
+      setEntityVersionVariants,
+      setPackFormats,
     ],
   );
 
@@ -856,8 +967,17 @@ export default function MainRoute() {
     });
   }, []);
 
+  // Track if vanilla texture initialization is running to prevent double-init in React StrictMode
+  const vanillaInitializedRef = useRef(false);
+
   // Initialize vanilla textures on startup (run once on mount)
   useEffect(() => {
+    // Prevent double initialization in React StrictMode (dev only)
+    if (vanillaInitializedRef.current) {
+      return;
+    }
+    vanillaInitializedRef.current = true;
+
     const initVanillaTextures = async () => {
       try {
         // Try to initialize vanilla textures automatically
@@ -1092,8 +1212,6 @@ export default function MainRoute() {
     // Auto-determine if certain modes should be disabled
     const is2DOnly =
       uiState.selectedAssetId && is2DOnlyTexture(uiState.selectedAssetId);
-    const _isEntity =
-      uiState.selectedAssetId && isEntityTexture(uiState.selectedAssetId);
 
     // Override mode for special asset types
     let effectiveMode = canvasRenderMode;
@@ -1209,6 +1327,10 @@ export default function MainRoute() {
 
       {/* Footer */}
       <div className={s.footer}>
+        <VanillaTextureProgress
+          progress={vanillaProgress}
+          isVisible={vanillaProgressVisible}
+        />
         <SaveBar
           isLoading={false}
           progress={uiState.progress}
@@ -1241,6 +1363,8 @@ export default function MainRoute() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         minecraftTab={<MinecraftLocations />}
+        vanillaVersionTab={<VanillaTextureVersion />}
+        targetVersionTab={<TargetVersion />}
         outputTab={
           <OutputSettings
             outputDir={uiState.outputDir}

@@ -105,6 +105,10 @@ export default function OptionsPanel({
   const setShowPot = useStore((state) => state.setShowPot);
   const providersByAsset = useStore((state) => state.providersByAsset);
 
+  // Read entity compatibility settings
+  const useLegacyCEM = useStore((state) => state.useLegacyCEM);
+  const setUseLegacyCEM = useStore((state) => state.setUseLegacyCEM);
+
   const [blockProps, setBlockProps] = useState<Record<string, string>>({});
   const [seed, setSeed] = useState(0);
 
@@ -190,6 +194,15 @@ export default function OptionsPanel({
   const isPlantPotted = assetId ? isPottedPlant(assetId) : false;
   const isColormapSelection = assetId ? isBiomeColormapAsset(assetId) : false;
   const isItem = assetId ? isMinecraftItem(assetId) : false;
+
+  // Get winner pack ID first (needed by other computed values)
+  const selectedWinnerPackId = useSelectWinner(assetId ?? "");
+  const winnerPackId = assetId ? selectedWinnerPackId : null;
+
+  // Entity compatibility is now checked in AssetCard with full context
+  // This panel doesn't need the compatibility checkbox anymore
+  const shouldShowCompatibilityCheckbox = false;
+
   const isPainting = assetId
     ? (() => {
         const path = assetId.includes(":") ? assetId.split(":")[1] : assetId;
@@ -214,8 +227,6 @@ export default function OptionsPanel({
         return path.startsWith("entity/decorated_pot/");
       })()
     : false;
-  const selectedWinnerPackId = useSelectWinner(assetId ?? "");
-  const winnerPackId = assetId ? selectedWinnerPackId : null;
   const packsDir = useSelectPacksDir();
   const blockStateAssetId =
     assetId != null ? getBlockStateIdFromAssetId(assetId) : null;
@@ -351,7 +362,9 @@ export default function OptionsPanel({
             ? "item"
             : shouldShowBlockStateTab
               ? "block-state"
-              : "advanced";
+              : shouldShowCompatibilityCheckbox
+                ? "compatibility"
+                : "advanced";
 
   if (!assetId) {
     return (
@@ -401,6 +414,9 @@ export default function OptionsPanel({
             <TabIcon icon="⚙" label="Block State" value="block-state" />
           )}
           {shouldShowPotTab && <TabIcon icon="🌱" label="Pot" value="pot" />}
+          {shouldShowCompatibilityCheckbox && (
+            <TabIcon icon="🔧" label="Compatibility" value="compatibility" />
+          )}
           {hasTextureVariants && onSelectVariant && (
             <TabIcon
               icon="🖼"
@@ -588,6 +604,61 @@ export default function OptionsPanel({
               </label>
               <p style={{ fontSize: "0.85rem", marginTop: "1rem" }}>
                 This is a potted plant. Toggle the pot display on or off.
+              </p>
+            </div>
+          </TabsContent>
+        )}
+
+        {shouldShowCompatibilityCheckbox && (
+          <TabsContent value="compatibility">
+            <div>
+              <h3>Model Compatibility</h3>
+              <Separator style={{ margin: "0.75rem 0" }} />
+              <label
+                style={{
+                  display: "flex",
+                  gap: "0.5rem",
+                  alignItems: "center",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={useLegacyCEM}
+                  onChange={(e) => setUseLegacyCEM(e.target.checked)}
+                  style={{
+                    cursor: "pointer",
+                    width: "18px",
+                    height: "18px",
+                  }}
+                />
+                <span
+                  style={{
+                    textTransform: "uppercase",
+                    fontWeight: "600",
+                  }}
+                >
+                  Use legacy model (for older versions)
+                </span>
+              </label>
+              <p
+                style={{
+                  fontSize: "0.85rem",
+                  marginTop: "1rem",
+                  color: "#888",
+                }}
+              >
+                This entity model changed between Minecraft versions. This
+                resource pack was made for an older version.
+              </p>
+              <p
+                style={{
+                  fontSize: "0.85rem",
+                  marginTop: "0.5rem",
+                  color: "#888",
+                }}
+              >
+                Enable this option to use the legacy model format compatible
+                with this pack. Disable to use the modern model format.
               </p>
             </div>
           </TabsContent>

@@ -111,8 +111,11 @@ export function Select({
     };
 
     // Use requestAnimationFrame to ensure DOM is ready
+    // Double RAF to ensure layout is complete
     requestAnimationFrame(() => {
-      updatePosition();
+      requestAnimationFrame(() => {
+        updatePosition();
+      });
     });
 
     window.addEventListener("scroll", updatePosition, true);

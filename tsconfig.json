@@ -30,7 +30,6 @@
     "types": ["vite/client", "vitest/globals", "node"],
     "paths": {
       "@/*": ["src/*"],
-      "@components/*": ["src/ui/components/*"],
       "@components/*": ["src/components/*"],
       "@app/*": ["src/app/*"],
       "@lib/*": ["src/lib/*"],

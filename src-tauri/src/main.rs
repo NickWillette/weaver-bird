@@ -5,12 +5,14 @@
 
 use weaverbird_lib::commands::{
     build_weaver_nest_impl, check_minecraft_installed_impl, detect_launchers_impl,
-    get_block_state_schema_impl, get_colormap_path_impl, get_default_packs_dir_impl,
+    get_block_state_schema_impl, get_cached_vanilla_version_impl, get_colormap_path_impl,
+    get_default_packs_dir_impl, get_entity_version_variants_impl,
     get_launcher_resourcepacks_dir_impl, get_pack_texture_path_impl,
     get_suggested_minecraft_paths_impl, get_vanilla_texture_path_impl, identify_launcher_impl,
     initialize_vanilla_textures_from_custom_dir_impl, initialize_vanilla_textures_impl,
-    load_model_json_impl, read_block_model_impl, read_pack_file_impl, read_vanilla_jem_impl,
-    resolve_block_state_impl, scan_packs_folder_impl, BuildWeaverNestRequest,
+    list_available_minecraft_versions_impl, load_model_json_impl, read_block_model_impl,
+    read_pack_file_impl, read_vanilla_jem_impl, resolve_block_state_impl, scan_packs_folder_impl,
+    set_vanilla_texture_version_impl, BuildWeaverNestRequest,
 };
 
 /// Tauri command wrapper for scanning resource packs (async for non-blocking UI)
@@ -43,9 +45,11 @@ fn get_default_packs_dir() -> Result<String, weaverbird_lib::AppError> {
 
 /// Tauri command wrapper for initializing vanilla textures (async for non-blocking UI)
 #[tauri::command]
-async fn initialize_vanilla_textures() -> Result<String, weaverbird_lib::AppError> {
+async fn initialize_vanilla_textures(
+    window: tauri::Window,
+) -> Result<String, weaverbird_lib::AppError> {
     // Use spawn_blocking for CPU/IO-heavy vanilla texture extraction
-    tokio::task::spawn_blocking(move || initialize_vanilla_textures_impl())
+    tokio::task::spawn_blocking(move || initialize_vanilla_textures_impl(window))
         .await
         .map_err(|e| weaverbird_lib::AppError::internal("Task join error", format!("{}", e)))?
 }
@@ -85,6 +89,32 @@ async fn initialize_vanilla_textures_from_custom_dir(
     })
     .await
     .map_err(|e| weaverbird_lib::AppError::internal("Task join error", format!("{}", e)))?
+}
+
+/// Tauri command wrapper for listing available Minecraft versions
+#[tauri::command]
+fn list_available_minecraft_versions(
+) -> Result<Vec<weaverbird_lib::util::vanilla_textures::MinecraftVersion>, weaverbird_lib::AppError>
+{
+    list_available_minecraft_versions_impl()
+}
+
+/// Tauri command wrapper for getting cached vanilla texture version
+#[tauri::command]
+fn get_cached_vanilla_version() -> Result<Option<String>, weaverbird_lib::AppError> {
+    get_cached_vanilla_version_impl()
+}
+
+/// Tauri command wrapper for setting vanilla texture version (async for non-blocking UI)
+#[tauri::command]
+async fn set_vanilla_texture_version(
+    version: String,
+    window: tauri::Window,
+) -> Result<String, weaverbird_lib::AppError> {
+    // Use spawn_blocking for CPU/IO-heavy vanilla texture extraction
+    tokio::task::spawn_blocking(move || set_vanilla_texture_version_impl(version, window))
+        .await
+        .map_err(|e| weaverbird_lib::AppError::internal("Task join error", format!("{}", e)))?
 }
 
 /// Tauri command wrapper for detecting all launchers
@@ -185,6 +215,17 @@ async fn resolve_block_state(
     .map_err(|e| weaverbird_lib::AppError::internal("Task join error", format!("{}", e)))?
 }
 
+/// Tauri command wrapper for getting entity version variants (async for non-blocking)
+#[tauri::command]
+async fn get_entity_version_variants(
+    packs_dir: String,
+) -> Result<std::collections::HashMap<String, Vec<String>>, weaverbird_lib::AppError> {
+    // Use spawn_blocking for I/O-heavy pack scanning
+    tokio::task::spawn_blocking(move || get_entity_version_variants_impl(packs_dir))
+        .await
+        .map_err(|e| weaverbird_lib::AppError::internal("Task join error", format!("{}", e)))?
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -242,6 +283,9 @@ fn main() {
             check_minecraft_installed,
             get_suggested_minecraft_paths,
             initialize_vanilla_textures_from_custom_dir,
+            list_available_minecraft_versions,
+            get_cached_vanilla_version,
+            set_vanilla_texture_version,
             detect_launchers,
             identify_launcher,
             get_launcher_resourcepacks_dir,
@@ -251,7 +295,8 @@ fn main() {
             read_vanilla_jem,
             load_model_json,
             get_block_state_schema,
-            resolve_block_state
+            resolve_block_state,
+            get_entity_version_variants
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

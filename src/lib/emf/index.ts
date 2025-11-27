@@ -24,6 +24,7 @@ export type {
 // Import types for internal use in this file
 import type { JEMFile, ParsedEntityModel } from "./jemLoader";
 import { parseJEM as parseJEMImpl } from "./jemLoader";
+import { packFormatToVersionRange } from "@lib/packFormatCompatibility";
 
 /**
  * Helper to check if an asset ID is an entity texture
@@ -37,101 +38,215 @@ export function isEntityTexture(assetId: string): boolean {
 }
 
 /**
- * Extract entity type from asset ID
- * e.g., "minecraft:entity/cow" -> "cow"
- * e.g., "minecraft:entity/chest/normal" -> "chest"
+ * Extract entity information from asset ID
+ * Returns both the variant name and the parent entity type for fallback
+ *
+ * Examples:
+ * - "minecraft:entity/cow" -> { variant: "cow", parent: null }
+ * - "minecraft:entity/chicken/cold_chicken" -> { variant: "cold_chicken", parent: "chicken" }
+ * - "minecraft:entity/cow/red_mooshroom" -> { variant: "red_mooshroom", parent: "mooshroom" }
  */
-export function getEntityTypeFromAssetId(assetId: string): string | null {
+export function getEntityInfoFromAssetId(assetId: string): {
+  variant: string;
+  parent: string | null;
+} | null {
   // Remove namespace prefix
   const path = assetId.replace(/^minecraft:/, "");
 
-  // Extract entity type from path
-  const match = path.match(/entity\/([^/]+)/);
-  if (match) {
-    return match[1];
+  // Extract full entity path from asset ID
+  const match = path.match(/entity\/(.+)/);
+  if (!match) {
+    // Handle special cases like chests
+    if (path.includes("chest/")) {
+      if (path.includes("trapped"))
+        return { variant: "trapped_chest", parent: null };
+      if (path.includes("ender"))
+        return { variant: "ender_chest", parent: null };
+      return { variant: "chest", parent: null };
+    }
+
+    if (path.includes("shulker_box/")) {
+      return { variant: "shulker_box", parent: null };
+    }
+
+    return null;
   }
 
-  // Handle special cases like chests
-  if (path.includes("chest/")) {
-    if (path.includes("trapped")) return "trapped_chest";
-    if (path.includes("ender")) return "ender_chest";
-    return "chest";
-  }
+  const fullPath = match[1];
+  const segments = fullPath.split("/");
 
-  if (path.includes("shulker_box/")) {
-    return "shulker_box";
-  }
+  if (segments.length === 1) {
+    // Base entity (e.g., "cow", "chicken")
+    return { variant: segments[0], parent: null };
+  } else {
+    // Variant entity (e.g., "chicken/cold_chicken", "cow/red_mooshroom")
+    const variant = segments[segments.length - 1];
 
-  return null;
+    // Determine parent based on common patterns
+    // For mooshrooms, the parent is "mooshroom" not "cow"
+    let parent = segments[0];
+    if (variant.includes("mooshroom")) {
+      parent = "mooshroom";
+    }
+
+    return { variant, parent };
+  }
+}
+
+/**
+ * Extract entity type from asset ID (legacy function for compatibility)
+ * e.g., "minecraft:entity/cow" -> "cow"
+ * e.g., "minecraft:entity/chicken/cold_chicken" -> "cold_chicken"
+ */
+export function getEntityTypeFromAssetId(assetId: string): string | null {
+  const info = getEntityInfoFromAssetId(assetId);
+  return info?.variant ?? null;
 }
 
 /**
  * Load an entity model from a resource pack or vanilla
  *
- * Loads JEM files from OptiFine CEM directory structure:
- * - assets/minecraft/optifine/cem/{entityType}.jem
+ * LOADING STRATEGY:
+ * 1. Try variant-specific JEM (e.g., cold_chicken.jem, red_mooshroom.jem)
+ * 2. If not found, try parent entity JEM (e.g., chicken.jem, mooshroom.jem)
+ * 3. Check for version-specific variants based on pack format
+ * 4. Fall back to vanilla JEM files
  *
- * @param entityType - Entity type (e.g., "cow", "chest", "shulker_box")
+ * @param entityType - Entity type (e.g., "cow", "cold_chicken", "red_mooshroom")
  * @param packPath - Path to the resource pack
  * @param isZip - Whether the pack is a ZIP file
- * @returns Parsed entity model or null if not found
+ * @param targetVersion - Target Minecraft version (e.g., "1.21.4")
+ * @param entityVersionVariants - Map of entity -> available version folders (from scan)
+ * @param parentEntity - Parent entity type for fallback (e.g., "chicken" for "cold_chicken")
+ * @param packFormat - Pack format of the winning pack (for version matching)
+ * @returns Parsed entity model with metadata, or null if not found
  */
 export async function loadEntityModel(
   entityType: string,
   packPath?: string,
   isZip?: boolean,
-): Promise<ParsedEntityModel | null> {
-  console.log("[EMF] Loading entity model:", entityType);
+  _targetVersion?: string | null,
+  _entityVersionVariants?: Record<string, string[]>,
+  parentEntity?: string | null,
+  packFormat?: number,
+): Promise<
+  (ParsedEntityModel & { jemSource?: string; usedLegacyJem?: boolean }) | null
+> {
+  console.log(
+    "[EMF] Loading entity model:",
+    entityType,
+    "parent:",
+    parentEntity,
+    "packFormat:",
+    packFormat,
+  );
 
   // Import invoke dynamically to avoid issues if Tauri is not available
   const { invoke } = await import("@tauri-apps/api/core");
 
-  // Try loading from resource pack first
-  if (packPath) {
+  // Helper function to try loading a JEM file
+  const tryLoadJem = async (
+    jemName: string,
+    source: string,
+  ): Promise<
+    (ParsedEntityModel & { jemSource: string; usedLegacyJem: boolean }) | null
+  > => {
     try {
-      const jemPath = `assets/minecraft/optifine/cem/${entityType}.jem`;
-      console.log("[EMF] Looking for JEM in pack:", jemPath);
+      const jemPath = `assets/minecraft/optifine/cem/${jemName}.jem`;
+      console.log(`[EMF] Trying ${source} JEM:`, jemPath);
 
       const jemContent = await invoke<string>("read_pack_file", {
-        packPath,
+        packPath: packPath!,
         filePath: jemPath,
         isZip: isZip ?? false,
       });
 
       const jemData = JSON.parse(jemContent) as JEMFile;
-      console.log("[EMF] ✓ JEM file loaded from pack");
+      console.log(`[EMF] ✓ Loaded ${source} JEM`);
 
       const parsed = parseJEMImpl(jemData);
       return {
         ...parsed,
         texturePath: parsed.texturePath || `entity/${entityType}`,
+        jemSource: jemName,
+        usedLegacyJem: false,
       };
     } catch {
-      console.log(
-        `[EMF] No custom JEM in pack for ${entityType}, trying vanilla fallback...`,
-      );
+      console.log(`[EMF] ${source} JEM not found:`, jemName);
+      return null;
+    }
+  };
+
+  // Helper to try vanilla JEM
+  const tryLoadVanillaJem = async (
+    jemName: string,
+  ): Promise<
+    (ParsedEntityModel & { jemSource: string; usedLegacyJem: boolean }) | null
+  > => {
+    try {
+      console.log("[EMF] Looking for vanilla JEM:", jemName);
+      const jemContent = await invoke<string>("read_vanilla_jem", {
+        entityType: jemName,
+      });
+
+      const jemData = JSON.parse(jemContent) as JEMFile;
+      console.log("[EMF] ✓ Vanilla JEM loaded:", jemName);
+
+      const parsed = parseJEMImpl(jemData);
+      return {
+        ...parsed,
+        texturePath: parsed.texturePath || `entity/${entityType}`,
+        jemSource: jemName,
+        usedLegacyJem: false,
+      };
+    } catch {
+      console.log("[EMF] Vanilla JEM not found:", jemName);
+      return null;
+    }
+  };
+
+  if (packPath) {
+    // STEP 1: Try variant-specific JEM (e.g., cold_chicken.jem, red_mooshroom.jem)
+    let result = await tryLoadJem(entityType, "variant");
+    if (result) return result;
+
+    // STEP 2: Try parent entity JEM if variant not found (e.g., chicken.jem for cold_chicken)
+    if (parentEntity) {
+      result = await tryLoadJem(parentEntity, "parent");
+      if (result) return result;
+    }
+
+    // STEP 3: Try version-specific JEM based on pack format (e.g., cow_21.4.jem)
+    if (packFormat) {
+      const versionRange = packFormatToVersionRange(packFormat);
+      if (versionRange) {
+        // Extract version number (e.g., "1.21.4" -> "21.4")
+        const versionMatch = versionRange.match(/1\.(\d+\.\d+)/);
+        if (versionMatch) {
+          const shortVersion = versionMatch[1];
+          const versionedName = `${parentEntity || entityType}_${shortVersion}`;
+
+          result = await tryLoadJem(versionedName, "legacy versioned");
+          if (result) {
+            result.usedLegacyJem = true;
+            return result;
+          }
+        }
+      }
     }
   }
 
-  // Fallback to vanilla JEM files
-  try {
-    console.log("[EMF] Looking for vanilla JEM:", entityType);
+  // STEP 4: Try vanilla JEM files
+  // Try variant first
+  let result = await tryLoadVanillaJem(entityType);
+  if (result) return result;
 
-    // Use Tauri to read from __mocks__/cem/ directory
-    const jemContent = await invoke<string>("read_vanilla_jem", {
-      entityType,
-    });
-
-    const jemData = JSON.parse(jemContent) as JEMFile;
-    console.log("[EMF] ✓ Vanilla JEM loaded successfully");
-
-    const parsed = parseJEMImpl(jemData);
-    return {
-      ...parsed,
-      texturePath: parsed.texturePath || `entity/${entityType}`,
-    };
-  } catch {
-    console.log(`[EMF] No vanilla JEM found for ${entityType}`);
-    return null;
+  // Try parent entity
+  if (parentEntity) {
+    result = await tryLoadVanillaJem(parentEntity);
+    if (result) return result;
   }
+
+  console.log(`[EMF] No JEM found for ${entityType}`);
+  return null;
 }

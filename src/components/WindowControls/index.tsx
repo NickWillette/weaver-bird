@@ -1,18 +1,19 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import s from "./WindowControls.module.scss";
 
-const appWindow = getCurrentWindow();
-
 export default function WindowControls() {
   const handleMinimize = () => {
+    const appWindow = getCurrentWindow();
     appWindow.minimize();
   };
 
   const handleMaximize = () => {
+    const appWindow = getCurrentWindow();
     appWindow.toggleMaximize();
   };
 
   const handleClose = () => {
+    const appWindow = getCurrentWindow();
     appWindow.close();
   };
 

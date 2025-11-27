@@ -1,0 +1,275 @@
+.layout {
+    display: flex;
+    flex-direction: row;
+    height: 100vh;
+    overflow: hidden;
+    background: var(--docs-bg);
+    position: relative;
+}
+
+/* Ambient Background Glow */
+.layout::before {
+    content: "";
+    position: fixed;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background:
+        radial-gradient(
+            ellipse at 20% 30%,
+            rgba(255, 92, 92, 0.08) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            ellipse at 80% 70%,
+            rgba(92, 225, 230, 0.06) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            ellipse at 50% 50%,
+            rgba(139, 92, 246, 0.04) 0%,
+            transparent 60%
+        );
+    pointer-events: none;
+    z-index: 0;
+    animation: ambientShift 30s ease-in-out infinite;
+}
+
+@keyframes ambientShift {
+    0%,
+    100% {
+        transform: translate(0, 0) rotate(0deg);
+    }
+    33% {
+        transform: translate(-2%, 1%) rotate(1deg);
+    }
+    66% {
+        transform: translate(1%, -1%) rotate(-1deg);
+    }
+}
+
+/* Sidebar */
+.sidebar {
+    width: var(--docs-sidebar-width);
+    background: var(--docs-bg-elevated);
+    border-right: 1px solid var(--docs-border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+    position: relative;
+    z-index: 10;
+
+    /* Subtle gradient overlay */
+    &::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+            180deg,
+            rgba(255, 92, 92, 0.02) 0%,
+            transparent 30%,
+            transparent 70%,
+            rgba(92, 225, 230, 0.02) 100%
+        );
+        pointer-events: none;
+    }
+}
+
+.sidebarHeader {
+    height: var(--docs-header-height);
+    display: flex;
+    align-items: center;
+    padding: 0 var(--docs-space-lg);
+    border-bottom: 1px solid var(--docs-border);
+    position: relative;
+
+    span {
+        font-family: var(--docs-font-display);
+        font-weight: 700;
+        font-size: 1.125rem;
+        color: var(--docs-text);
+        display: flex;
+        align-items: center;
+        gap: var(--docs-space-sm);
+        cursor: pointer;
+        transition: color 0.2s var(--docs-ease);
+
+        &:hover {
+            color: var(--docs-accent);
+        }
+
+        /* Logo icon */
+        &::before {
+            content: "";
+            width: 28px;
+            height: 28px;
+            background: var(--docs-accent-gradient);
+            border-radius: 8px;
+            display: block;
+            position: relative;
+
+            /* Inner voxel pattern */
+            box-shadow:
+                inset -4px -4px 0 rgba(0, 0, 0, 0.2),
+                inset 4px 4px 0 rgba(255, 255, 255, 0.1);
+        }
+    }
+}
+
+.sidebarNav {
+    flex: 1;
+    overflow-y: auto;
+    padding: var(--docs-space-lg);
+
+    &::-webkit-scrollbar {
+        width: 4px;
+    }
+}
+
+.navGroup {
+    margin-bottom: var(--docs-space-xl);
+
+    &:last-child {
+        margin-bottom: 0;
+    }
+}
+
+.navTitle {
+    font-family: var(--docs-font-mono);
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--docs-text-muted);
+    font-weight: 600;
+    margin-bottom: var(--docs-space-sm);
+    padding-left: var(--docs-space-sm);
+    display: flex;
+    align-items: center;
+    gap: var(--docs-space-sm);
+
+    &::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        background: var(--docs-accent);
+        border-radius: 2px;
+        opacity: 0.5;
+    }
+}
+
+.navLink {
+    display: flex;
+    align-items: center;
+    gap: var(--docs-space-sm);
+    padding: var(--docs-space-sm) var(--docs-space-md);
+    color: var(--docs-text-secondary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s var(--docs-ease);
+    border-radius: var(--docs-radius-sm);
+    position: relative;
+    margin: 2px 0;
+
+    &:hover {
+        color: var(--docs-text);
+        background: var(--docs-bg-tertiary);
+    }
+
+    &.active {
+        color: var(--docs-accent);
+        background: rgba(255, 92, 92, 0.1);
+        font-weight: 500;
+
+        &::before {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 60%;
+            background: var(--docs-accent);
+            border-radius: 0 2px 2px 0;
+        }
+    }
+}
+
+/* Version Badge */
+.versionBadge {
+    margin-top: auto;
+    padding: var(--docs-space-lg);
+    border-top: 1px solid var(--docs-border);
+
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--docs-space-xs);
+        padding: var(--docs-space-xs) var(--docs-space-sm);
+        background: var(--docs-bg-tertiary);
+        border: 1px solid var(--docs-border);
+        border-radius: var(--docs-radius-sm);
+        font-family: var(--docs-font-mono);
+        font-size: 0.75rem;
+        color: var(--docs-text-tertiary);
+
+        &::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            background: #22c55e;
+            border-radius: 50%;
+            animation: pulse 2s ease-in-out infinite;
+        }
+    }
+}
+
+/* Main Content Area */
+.main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+}
+
+.content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        height: 100vh;
+        transform: translateX(-100%);
+        transition: transform 0.3s var(--docs-ease);
+        z-index: 100;
+
+        &.open {
+            transform: translateX(0);
+        }
+    }
+
+    .layout::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        opacity: 0;
+        visibility: hidden;
+        transition: all 0.3s var(--docs-ease);
+        z-index: 99;
+    }
+
+    .layout.sidebarOpen::after {
+        opacity: 1;
+        visibility: visible;
+    }
+}

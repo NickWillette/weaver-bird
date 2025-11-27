@@ -14,6 +14,8 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   minecraftTab: ReactNode;
+  vanillaVersionTab: ReactNode;
+  targetVersionTab: ReactNode;
   outputTab: ReactNode;
 }
 
@@ -21,10 +23,23 @@ export default function Settings({
   isOpen,
   onClose,
   minecraftTab,
+  vanillaVersionTab,
+  targetVersionTab,
   outputTab,
 }: Props) {
+  const handleOpenChange = (open: boolean) => {
+    if (!open) {
+      onClose();
+    }
+  };
+
+  // Don't render drawer content until it's been opened at least once
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <Drawer open={isOpen} onOpenChange={onClose} position="center">
+    <Drawer open={isOpen} onOpenChange={handleOpenChange} position="center">
       <DrawerContent className={s.drawerContent}>
         <DrawerHeader className={s.drawerHeader}>
           <DrawerTitle>Settings</DrawerTitle>
@@ -44,10 +59,18 @@ export default function Settings({
           <Tabs defaultValue="minecraft">
             <TabsList>
               <TabsTrigger value="minecraft">Minecraft Locations</TabsTrigger>
+              <TabsTrigger value="vanilla-version">
+                Vanilla Textures
+              </TabsTrigger>
+              <TabsTrigger value="target-version">Target Version</TabsTrigger>
               <TabsTrigger value="output">Output Settings</TabsTrigger>
             </TabsList>
 
             <TabsContent value="minecraft">{minecraftTab}</TabsContent>
+            <TabsContent value="vanilla-version">
+              {vanillaVersionTab}
+            </TabsContent>
+            <TabsContent value="target-version">{targetVersionTab}</TabsContent>
             <TabsContent value="output">{outputTab}</TabsContent>
           </Tabs>
         </div>

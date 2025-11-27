@@ -7,11 +7,13 @@ import {
 } from "@state/selectors";
 import {
   loadEntityModel,
-  getEntityTypeFromAssetId,
+  getEntityInfoFromAssetId,
   isEntityTexture,
   jemToThreeJS,
 } from "@lib/emf";
 import { loadPackTexture, loadVanillaTexture } from "@lib/three/textureLoader";
+import { useStore } from "@state/store";
+import { getEntityVersionVariants } from "@lib/tauri";
 
 interface Props {
   assetId: string;
@@ -36,17 +38,49 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const vanillaPack = useSelectPack("minecraft:vanilla");
   const packsDir = useSelectPacksDir();
 
+  // Get target version from store
+  const targetMinecraftVersion = useStore(
+    (state) => state.targetMinecraftVersion,
+  );
+
+  // State for entity version variants
+  const [entityVersionVariants, setEntityVersionVariants] = useState<
+    Record<string, string[]>
+  >({});
+
   const resolvedPackId =
     storeWinnerPackId ?? (vanillaPack ? "minecraft:vanilla" : undefined);
   const resolvedPack = storeWinnerPackId ? storeWinnerPack : vanillaPack;
+
+  // Load entity version variants when packs directory changes
+  useEffect(() => {
+    if (!packsDir) return;
+
+    async function loadVariants() {
+      try {
+        const variants = await getEntityVersionVariants(packsDir!);
+        setEntityVersionVariants(variants);
+        console.log("[EntityModel] Loaded entity version variants:", variants);
+      } catch (error) {
+        console.warn(
+          "[EntityModel] Failed to load entity version variants:",
+          error,
+        );
+        setEntityVersionVariants({});
+      }
+    }
+
+    loadVariants();
+  }, [packsDir]);
 
   useEffect(() => {
     console.log("=== [EntityModel] Dependencies Updated ===");
     console.log("[EntityModel] Asset ID:", assetId);
     console.log("[EntityModel] Winner Pack ID:", resolvedPackId);
     console.log("[EntityModel] Packs Dir:", packsDir);
+    console.log("[EntityModel] Target Version:", targetMinecraftVersion);
     console.log("==========================================");
-  }, [assetId, resolvedPackId, packsDir]);
+  }, [assetId, resolvedPackId, packsDir, targetMinecraftVersion]);
 
   // Load the entity model
   useEffect(() => {
@@ -69,14 +103,16 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
       setEntityGroup(null);
     }
 
-    // Get entity type from asset ID
-    const entityType = getEntityTypeFromAssetId(assetId);
-    if (!entityType) {
+    // Get entity info from asset ID (variant + parent for fallback)
+    const entityInfo = getEntityInfoFromAssetId(assetId);
+    if (!entityInfo) {
       console.warn("[EntityModel] Unknown entity type for:", assetId);
       setError("Unknown entity type");
       createPlaceholder();
       return;
     }
+
+    const { variant: entityType, parent: parentEntity } = entityInfo;
 
     let cancelled = false;
 
@@ -86,13 +122,18 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
 
       try {
         console.log("=== [EntityModel] Starting Entity Model Load ===");
-        console.log("[EntityModel] Entity type:", entityType);
+        console.log("[EntityModel] Entity variant:", entityType);
+        console.log("[EntityModel] Parent entity:", parentEntity);
 
         // Load the entity model definition (from pack or vanilla)
         const parsedModel = await loadEntityModel(
           entityType!,
           resolvedPack?.path,
           resolvedPack?.is_zip,
+          targetMinecraftVersion,
+          entityVersionVariants,
+          parentEntity,
+          resolvedPack?.pack_format,
         );
 
         if (!parsedModel) {
@@ -108,7 +149,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           return;
         }
 
-        console.log("[EntityModel] Model loaded:", parsedModel.entityType);
+        console.log("[EntityModel] Model loaded successfully");
         console.log("[EntityModel] Texture path:", parsedModel.texturePath);
 
         if (cancelled) {
@@ -219,7 +260,14 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assetId, resolvedPackId, resolvedPack, packsDir]);
+  }, [
+    assetId,
+    resolvedPackId,
+    resolvedPack,
+    packsDir,
+    targetMinecraftVersion,
+    entityVersionVariants,
+  ]);
 
   if (error) {
     console.error("[EntityModel] Rendering error state:", error);

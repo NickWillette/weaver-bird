@@ -4,7 +4,7 @@
  * Uses Three.js to render a flat sprite with zoom/pan controls
  * Consistent with Preview3D but optimized for 2D textures
  */
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Canvas, useLoader } from "@react-three/fiber";
 import { OrbitControls, PerspectiveCamera, Text } from "@react-three/drei";
 import * as THREE from "three";
@@ -15,7 +15,7 @@ import { useSelectWinner, useSelectPack } from "@state/selectors";
 import { useStore } from "@state/store";
 import {
   isEntityTexture,
-  getEntityTypeFromAssetId,
+  getEntityInfoFromAssetId,
   loadEntityModel,
 } from "@lib/emf";
 import type { ParsedEntityModel } from "@lib/emf";
@@ -267,18 +267,21 @@ function TextureSprite({ texturePath, onTextureLoaded }: TextureSpriteProps) {
   // Load texture using drei's useLoader hook
   const texture = useLoader(THREE.TextureLoader, texturePath);
 
-  // Configure texture settings
-  useMemo(() => {
+  // Configure texture settings (Three.js textures are mutable by design)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/immutability
     texture.magFilter = THREE.NearestFilter; // Pixelated look (Minecraft style)
+
     texture.minFilter = THREE.NearestFilter;
+
     texture.colorSpace = THREE.SRGBColorSpace;
   }, [texture]);
 
   // Calculate aspect ratio and notify parent
   useEffect(() => {
     if (texture.image) {
-      const width = texture.image.width;
-      const height = texture.image.height;
+      const { width } = texture.image;
+      const { height } = texture.image;
 
       console.log(`[Preview2D] Loaded texture: ${width}x${height}`);
 
@@ -516,8 +519,10 @@ export default function Preview2D({ assetId }: Props) {
       return;
     }
 
-    const entityType = getEntityTypeFromAssetId(assetId);
-    if (!entityType) return;
+    const entityInfo = getEntityInfoFromAssetId(assetId);
+    if (!entityInfo) return;
+
+    const { variant: entityType, parent: parentEntity } = entityInfo;
 
     let mounted = true;
 
@@ -527,6 +532,10 @@ export default function Preview2D({ assetId }: Props) {
           entityType,
           winnerPack?.path,
           winnerPack?.is_zip,
+          null, // targetVersion - not critical for 2D preview
+          undefined, // entityVersionVariants - not critical for 2D preview
+          parentEntity,
+          winnerPack?.pack_format,
         );
 
         if (mounted && model) {

@@ -1,5 +1,17 @@
 @use "@/ui/tokens" as tokens;
 
+// Keyframes for dropdown animation
+@keyframes slideDownAndFade {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
 // Trigger button
 .trigger {
     @include tokens.border-standard;
@@ -62,7 +74,10 @@
     position: absolute;
     min-width: 12rem;
     max-width: 20rem;
-    z-index: 50;
+    z-index: 9999;
+
+    // Ensure dropdown has a solid background
+    background: var(--color-bg, #ffffff);
 
     @include tokens.gradient-surface;
 

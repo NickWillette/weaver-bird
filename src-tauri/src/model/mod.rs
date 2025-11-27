@@ -22,6 +22,9 @@ pub struct PackMeta {
     /// Base64-encoded PNG icon data from pack.png
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon_data: Option<String>,
+    /// Pack format version from pack.mcmeta (indicates Minecraft version compatibility)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pack_format: Option<u32>,
 }
 
 /// A single asset (texture, model, config, etc.) with metadata
@@ -91,6 +94,7 @@ mod tests {
             is_zip: false,
             description: Some("Test description".to_string()),
             icon_data: Some("base64_icon_data".to_string()),
+            pack_format: None,
         };
 
         let json = serde_json::to_string(&pack).expect("should serialize");
@@ -106,7 +110,11 @@ mod tests {
     fn test_asset_record_serialization() {
         let asset = AssetRecord {
             id: "minecraft:block/stone".to_string(),
-            labels: vec!["minecraft".to_string(), "block".to_string(), "stone".to_string()],
+            labels: vec![
+                "minecraft".to_string(),
+                "block".to_string(),
+                "stone".to_string(),
+            ],
             files: vec!["assets/minecraft/textures/block/stone.png".to_string()],
         };
 
@@ -129,7 +137,8 @@ mod tests {
         assert!(json.contains("\"packId\""));
         assert!(json.contains("\"variantPath\""));
 
-        let deserialized: OverrideSelection = serde_json::from_str(&json).expect("should deserialize");
+        let deserialized: OverrideSelection =
+            serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(deserialized.pack_id, "custom_pack");
         assert_eq!(deserialized.variant_path, Some("variant1".to_string()));
     }
@@ -142,7 +151,8 @@ mod tests {
         };
 
         let json = serde_json::to_string(&override_sel).expect("should serialize");
-        let deserialized: OverrideSelection = serde_json::from_str(&json).expect("should deserialize");
+        let deserialized: OverrideSelection =
+            serde_json::from_str(&json).expect("should deserialize");
         assert_eq!(deserialized.variant_path, None);
     }
 
@@ -165,15 +175,23 @@ mod tests {
                 is_zip: true,
                 description: None,
                 icon_data: None,
+                pack_format: None,
             }],
             assets: vec![AssetRecord {
                 id: "minecraft:block/dirt".to_string(),
-                labels: vec!["minecraft".to_string(), "block".to_string(), "dirt".to_string()],
+                labels: vec![
+                    "minecraft".to_string(),
+                    "block".to_string(),
+                    "dirt".to_string(),
+                ],
                 files: vec!["assets/minecraft/textures/block/dirt.png".to_string()],
             }],
             providers: {
                 let mut map = HashMap::new();
-                map.insert("minecraft:block/dirt".to_string(), vec!["pack1".to_string()]);
+                map.insert(
+                    "minecraft:block/dirt".to_string(),
+                    vec!["pack1".to_string()],
+                );
                 map
             },
         };
@@ -214,6 +232,7 @@ mod tests {
             is_zip: true,
             description: Some("Description".to_string()),
             icon_data: None,
+            pack_format: None,
         };
 
         let pack2 = pack1.clone();

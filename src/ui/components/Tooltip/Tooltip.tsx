@@ -76,7 +76,7 @@ export const TooltipTrigger = forwardRef<
     ref,
   ) => {
     const { setOpen, delayDuration, triggerRef } = useTooltipContext();
-    const timeoutRef = useRef<number>();
+    const timeoutRef = useRef<ReturnType<typeof setTimeout>>();
 
     const handleMouseEnter = (e: React.MouseEvent<HTMLButtonElement>) => {
       timeoutRef.current = setTimeout(() => {

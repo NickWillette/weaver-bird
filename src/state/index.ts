@@ -29,6 +29,7 @@ export {
   useSelectSetOutputDir,
   useSelectSetPackFormat,
   useSelectIngestPacks,
+  useSelectSetPackFormats,
   useSelectIngestAssets,
   useSelectIngestProviders,
   useSelectIngestAllProviders,

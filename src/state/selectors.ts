@@ -129,7 +129,7 @@ export const useSelectFilteredAssets = () => {
     }
 
     return Object.values(assets).filter((asset) =>
-      assetMatchesQuery(asset.id, asset.labels, searchQuery)
+      assetMatchesQuery(asset.id, asset.labels, searchQuery),
     );
   }, [assets, searchQuery]);
 };
@@ -151,7 +151,7 @@ export const useSelectPaginatedAssets = () => {
 
     if (searchQuery) {
       filteredAssets = filteredAssets.filter((asset) =>
-        assetMatchesQuery(asset.id, asset.labels, searchQuery)
+        assetMatchesQuery(asset.id, asset.labels, searchQuery),
       );
     }
 
@@ -236,10 +236,11 @@ export const useSelectSetPackFormat = () =>
   useStore((state) => state.setPackFormat);
 export const useSelectIngestPacks = () =>
   useStore((state) => state.ingestPacks);
+export const useSelectSetPackFormats = () =>
+  useStore((state) => state.setPackFormats);
 export const useSelectDisablePack = () =>
   useStore((state) => state.disablePack);
-export const useSelectEnablePack = () =>
-  useStore((state) => state.enablePack);
+export const useSelectEnablePack = () => useStore((state) => state.enablePack);
 export const useSelectIngestAssets = () =>
   useStore((state) => state.ingestAssets);
 export const useSelectIngestProviders = () =>
@@ -328,14 +329,7 @@ export const useSelectProvidersWithWinner = (assetId?: AssetId) => {
       isWinner: packId === winner,
       isPenciled,
     }));
-  }, [
-    assetId,
-    packs,
-    overrides,
-    providersByAsset,
-    packOrder,
-    disabledPackIds,
-  ]);
+  }, [assetId, packs, overrides, providersByAsset, packOrder, disabledPackIds]);
 };
 
 /**

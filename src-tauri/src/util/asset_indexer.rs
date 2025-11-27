@@ -9,6 +9,7 @@ use walkdir::WalkDir;
 
 const ASSET_PATH_PREFIX: &str = "assets/";
 const TEXTURE_PATH: &str = "textures/";
+const CEM_PATH: &str = "assets/minecraft/optifine/cem/";
 
 /// Index all assets from a list of packs
 pub fn index_assets(
@@ -39,10 +40,14 @@ pub fn index_assets(
 
             match pack_assets {
                 Ok(assets) => {
-                    println!("[index_assets] Found {} assets in pack {}", assets.len(), pack.name);
+                    println!(
+                        "[index_assets] Found {} assets in pack {}",
+                        assets.len(),
+                        pack.name
+                    );
                     Ok((pack.id.clone(), assets))
                 }
-                Err(e) => Err(e)
+                Err(e) => Err(e),
             }
         })
         .collect::<Result<Vec<_>>>()?;
@@ -215,6 +220,141 @@ fn extract_labels(asset_id: &str) -> Vec<String> {
     labels
 }
 
+/// Scan all packs for JEM files with version variants
+/// Returns a map of entity ID -> list of version folders found
+///
+/// For example, if we find:
+/// - optifine/cem/cow.jem
+/// - optifine/cem/21.4/cow.jem
+/// - optifine/cem/21.5/cow.jem
+///
+/// Returns: {"cow": ["21.4", "21.5"]}
+pub fn scan_entity_version_variants(packs: &[PackMeta]) -> Result<HashMap<String, Vec<String>>> {
+    println!(
+        "[scan_entity_version_variants] Scanning {} packs for JEM version variants",
+        packs.len()
+    );
+
+    let mut entity_variants: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+
+    for pack in packs {
+        let jem_files = if pack.is_zip {
+            scan_jem_files_in_zip(&pack.path)?
+        } else {
+            scan_jem_files_in_folder(&pack.path)?
+        };
+
+        for jem_path in jem_files {
+            // Parse JEM file path to extract entity and version folder (if any)
+            if let Some((entity, version_folder)) = parse_jem_path(&jem_path) {
+                if let Some(version) = version_folder {
+                    // This JEM file is in a version folder
+                    entity_variants
+                        .entry(entity)
+                        .or_insert_with(std::collections::HashSet::new)
+                        .insert(version);
+                }
+            }
+        }
+    }
+
+    // Convert HashSet to Vec and sort
+    let result: HashMap<String, Vec<String>> = entity_variants
+        .into_iter()
+        .map(|(entity, versions)| {
+            let mut version_list: Vec<String> = versions.into_iter().collect();
+            version_list.sort();
+            (entity, version_list)
+        })
+        .collect();
+
+    println!(
+        "[scan_entity_version_variants] Found {} entities with version variants",
+        result.len()
+    );
+    for (entity, versions) in &result {
+        println!(
+            "[scan_entity_version_variants]   {}: {:?}",
+            entity, versions
+        );
+    }
+
+    Ok(result)
+}
+
+/// Scan for JEM files in a zip pack
+fn scan_jem_files_in_zip(zip_path: &str) -> Result<Vec<String>> {
+    let files = zip::list_zip_files(zip_path)?;
+    Ok(files
+        .into_iter()
+        .filter(|f| f.starts_with(CEM_PATH) && f.ends_with(".jem"))
+        .collect())
+}
+
+/// Scan for JEM files in a folder pack
+fn scan_jem_files_in_folder(folder_path: &str) -> Result<Vec<String>> {
+    let path = Path::new(folder_path);
+    let cem_dir = path.join(CEM_PATH);
+
+    if !cem_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut jem_files = Vec::new();
+
+    for entry in WalkDir::new(&cem_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "jem"))
+    {
+        let rel_path = entry
+            .path()
+            .strip_prefix(path)
+            .map(|p| p.to_string_lossy().to_string())?;
+        jem_files.push(rel_path);
+    }
+
+    Ok(jem_files)
+}
+
+/// Parse a JEM file path to extract entity ID and optional version folder
+///
+/// Examples:
+/// - "assets/minecraft/optifine/cem/cow.jem" -> Some(("cow", None))
+/// - "assets/minecraft/optifine/cem/21.4/cow.jem" -> Some(("cow", Some("21.4")))
+/// - "assets/minecraft/optifine/cem/1.21.5/cow.jem" -> Some(("cow", Some("1.21.5")))
+/// - "assets/minecraft/optifine/cem/variants/cow.jem" -> Some(("cow", Some("variants")))
+fn parse_jem_path(jem_path: &str) -> Option<(String, Option<String>)> {
+    // Must be in CEM directory
+    if !jem_path.starts_with(CEM_PATH) {
+        return None;
+    }
+
+    // Remove prefix and .jem extension
+    let relative = &jem_path[CEM_PATH.len()..];
+    let without_ext = relative.strip_suffix(".jem")?;
+
+    // Split by '/'
+    let parts: Vec<&str> = without_ext.split('/').collect();
+
+    match parts.len() {
+        1 => {
+            // Direct file: cem/cow.jem
+            Some((parts[0].to_string(), None))
+        }
+        2 => {
+            // Versioned file: cem/21.4/cow.jem
+            Some((parts[1].to_string(), Some(parts[0].to_string())))
+        }
+        _ => {
+            // More nested - take last as entity, second-to-last as version
+            let entity = parts[parts.len() - 1].to_string();
+            let version = parts[parts.len() - 2].to_string();
+            Some((entity, Some(version)))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -279,8 +419,14 @@ mod tests {
         assert_eq!(extract_asset_id("assets"), None);
 
         // Not a texture file
-        assert_eq!(extract_asset_id("assets/minecraft/models/block/stone.json"), None);
-        assert_eq!(extract_asset_id("assets/minecraft/sounds/ambient.ogg"), None);
+        assert_eq!(
+            extract_asset_id("assets/minecraft/models/block/stone.json"),
+            None
+        );
+        assert_eq!(
+            extract_asset_id("assets/minecraft/sounds/ambient.ogg"),
+            None
+        );
     }
 
     #[test]
@@ -338,8 +484,10 @@ mod tests {
         std::fs::create_dir_all(&asset_dir).expect("Failed to create test directory");
 
         // Create test texture files
-        std::fs::write(asset_dir.join("stone.png"), "fake png data").expect("Failed to create test file");
-        std::fs::write(asset_dir.join("dirt.png"), "fake png data").expect("Failed to create test file");
+        std::fs::write(asset_dir.join("stone.png"), "fake png data")
+            .expect("Failed to create test file");
+        std::fs::write(asset_dir.join("dirt.png"), "fake png data")
+            .expect("Failed to create test file");
 
         let pack = PackMeta {
             id: "test_pack".to_string(),
@@ -349,6 +497,7 @@ mod tests {
             is_zip: false,
             description: None,
             icon_data: None,
+            pack_format: None,
         };
 
         let result = index_assets(&[pack]);
@@ -385,8 +534,10 @@ mod tests {
         std::fs::create_dir_all(&asset_dir2).expect("Failed to create test directory");
 
         // Create the same texture file in both packs
-        std::fs::write(asset_dir1.join("stone.png"), "pack1 version").expect("Failed to create test file");
-        std::fs::write(asset_dir2.join("stone.png"), "pack2 version").expect("Failed to create test file");
+        std::fs::write(asset_dir1.join("stone.png"), "pack1 version")
+            .expect("Failed to create test file");
+        std::fs::write(asset_dir2.join("stone.png"), "pack2 version")
+            .expect("Failed to create test file");
 
         let pack1 = PackMeta {
             id: "pack1".to_string(),
@@ -396,6 +547,7 @@ mod tests {
             is_zip: false,
             description: None,
             icon_data: None,
+            pack_format: None,
         };
 
         let pack2 = PackMeta {
@@ -406,6 +558,7 @@ mod tests {
             is_zip: false,
             description: None,
             icon_data: None,
+            pack_format: None,
         };
 
         let result = index_assets(&[pack1, pack2]);
@@ -449,6 +602,7 @@ mod tests {
             is_zip: false,
             description: None,
             icon_data: None,
+            pack_format: None,
         };
 
         let result = index_assets(&[pack]);
