@@ -52,6 +52,7 @@ interface RenderedFace {
   zIndex: number;
   brightness: number;
   tintType?: "grass" | "foliage";
+  transform: string; // Pre-baked transform string for performance
 }
 
 interface RenderedElement {
@@ -182,6 +183,82 @@ function getColormapType(textureId: string): "grass" | "foliage" | undefined {
 }
 
 /**
+ * Generates a pre-baked CSS transform string for a face
+ * This eliminates CSS variable lookups during rendering for better performance
+ *
+ * @param faceType - The type of face (top, left, right)
+ * @param x - X position in pixels
+ * @param y - Y position in pixels
+ * @param z - Z position in pixels
+ * @returns Complete CSS transform string
+ */
+function generateFaceTransform(
+  faceType: "top" | "left" | "right",
+  x: number,
+  y: number,
+  z: number,
+): string {
+  const baseTransform = `translate(-50%, -50%) translate3d(${x}px, ${y}px, ${z}px)`;
+
+  switch (faceType) {
+    case "top":
+      // Top face - horizontal plane rotated to face up
+      return `${baseTransform} rotateX(90deg)`;
+    case "left":
+      // Left face (south/north) - vertical plane
+      return baseTransform;
+    case "right":
+      // Right face (east/west) - vertical plane rotated 90°
+      return `${baseTransform} rotateY(90deg)`;
+  }
+}
+
+/**
+ * Camera-Aware Face Culling - Determines if a face should be rendered based on camera angle
+ *
+ * PERFORMANCE OPTIMIZATION: Mimics Minecraft's frustum culling
+ * At rotateY(135deg), the camera is rotated 135° clockwise from north.
+ * This means we're looking from the SOUTHEAST toward the NORTHWEST.
+ *
+ * Minecraft coordinate system:
+ * - North: negative Z (back in our view)
+ * - South: positive Z (front in our view)
+ * - East: positive X (right in our view)
+ * - West: negative X (left in our view)
+ *
+ * At 135° rotation (looking from southeast), visible faces are:
+ * - up (top of block) ✓
+ * - north (becomes the front face after rotation) ✓
+ * - west (becomes the right face after rotation) ✓
+ *
+ * Hidden faces at 135° rotation:
+ * - down (bottom - occluded by block itself) ✗
+ * - south (back face - facing away from camera) ✗
+ * - east (left face - facing away from camera) ✗
+ *
+ * @param faceDirection - Minecraft face direction (up, down, north, south, east, west)
+ * @param cameraAngleY - Camera Y rotation in degrees (default 135 for isometric view)
+ * @returns true if face should be rendered, false if culled
+ */
+function shouldRenderFace(
+  faceDirection: string,
+  cameraAngleY: number = 135,
+): boolean {
+  // At 135° (looking from southeast toward northwest)
+  if (cameraAngleY === 135) {
+    return (
+      faceDirection === "up" ||
+      faceDirection === "north" ||
+      faceDirection === "west"
+    );
+  }
+
+  // Future-proof: if camera becomes rotatable, add other angle cases here
+  // For now, default to rendering all faces if angle is non-standard
+  return true;
+}
+
+/**
  * Fast path for processing simple full cubes (16x16x16 blocks with no rotation)
  * This handles the most common case (stone, dirt, planks, ores, etc.) much faster
  * by using hardcoded offsets instead of complex calculations.
@@ -204,7 +281,7 @@ function processSimpleCube(
   const westOffset = { x: -8 * scale, y: 0, z: 0 };
 
   // Top face (up)
-  if (element.faces.up) {
+  if (element.faces.up && shouldRenderFace("up")) {
     const face = element.faces.up;
     const textureId = resolveTextureRef(face.texture, textures);
     const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -227,12 +304,18 @@ function processSimpleCube(
         zIndex: 180, // Center Y (8) * 10 + 100
         brightness: 1.0,
         tintType,
+        transform: generateFaceTransform(
+          "top",
+          topOffset.x,
+          topOffset.y,
+          topOffset.z,
+        ),
       });
     }
   }
 
   // Bottom face (down)
-  if (element.faces.down) {
+  if (element.faces.down && shouldRenderFace("down")) {
     const face = element.faces.down;
     const textureId = resolveTextureRef(face.texture, textures);
     const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -255,12 +338,18 @@ function processSimpleCube(
         zIndex: -20, // Bottom
         brightness: 0.5,
         tintType,
+        transform: generateFaceTransform(
+          "top",
+          bottomOffset.x,
+          -bottomOffset.y,
+          bottomOffset.z,
+        ),
       });
     }
   }
 
   // South face
-  if (element.faces.south) {
+  if (element.faces.south && shouldRenderFace("south")) {
     const face = element.faces.south;
     const textureId = resolveTextureRef(face.texture, textures);
     const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -283,12 +372,18 @@ function processSimpleCube(
         zIndex: 80, // Center Y (8) * 10
         brightness: 0.8,
         tintType,
+        transform: generateFaceTransform(
+          "left",
+          southOffset.x,
+          southOffset.y,
+          southOffset.z,
+        ),
       });
     }
   }
 
   // North face
-  if (element.faces.north) {
+  if (element.faces.north && shouldRenderFace("north")) {
     const face = element.faces.north;
     const textureId = resolveTextureRef(face.texture, textures);
     const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -311,12 +406,18 @@ function processSimpleCube(
         zIndex: 70,
         brightness: 0.8,
         tintType,
+        transform: generateFaceTransform(
+          "left",
+          northOffset.x,
+          northOffset.y,
+          northOffset.z,
+        ),
       });
     }
   }
 
   // East face
-  if (element.faces.east) {
+  if (element.faces.east && shouldRenderFace("east")) {
     const face = element.faces.east;
     const textureId = resolveTextureRef(face.texture, textures);
     const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -339,12 +440,18 @@ function processSimpleCube(
         zIndex: 81, // Center Y (8) * 10 + 1
         brightness: 0.6,
         tintType,
+        transform: generateFaceTransform(
+          "right",
+          eastOffset.x,
+          eastOffset.y,
+          eastOffset.z,
+        ),
       });
     }
   }
 
   // West face
-  if (element.faces.west) {
+  if (element.faces.west && shouldRenderFace("west")) {
     const face = element.faces.west;
     const textureId = resolveTextureRef(face.texture, textures);
     const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -367,6 +474,12 @@ function processSimpleCube(
         zIndex: 71,
         brightness: 0.6,
         tintType,
+        transform: generateFaceTransform(
+          "right",
+          westOffset.x,
+          westOffset.y,
+          westOffset.z,
+        ),
       });
     }
   }
@@ -432,7 +545,7 @@ function processElements(
     const centerY = (y1 + y2) / 2 - blockCenter.y;
 
     // Top face
-    if (element.faces.up) {
+    if (element.faces.up && shouldRenderFace("up")) {
       const face = element.faces.up;
       const textureId = resolveTextureRef(face.texture, textures);
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -455,12 +568,18 @@ function processElements(
           zIndex: Math.round(centerY * 10 + 100),
           brightness: 1.0,
           tintType,
+          transform: generateFaceTransform(
+            "top",
+            offsets.top.x,
+            offsets.top.y,
+            offsets.top.z,
+          ),
         });
       }
     }
 
     // South face
-    if (element.faces.south) {
+    if (element.faces.south && shouldRenderFace("south")) {
       const face = element.faces.south;
       const textureId = resolveTextureRef(face.texture, textures);
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -483,12 +602,18 @@ function processElements(
           zIndex: Math.round(centerY * 10 + 50),
           brightness: 0.8,
           tintType,
+          transform: generateFaceTransform(
+            "left",
+            offsets.left.x,
+            offsets.left.y,
+            offsets.left.z,
+          ),
         });
       }
     }
 
     // North face
-    if (element.faces.north) {
+    if (element.faces.north && shouldRenderFace("north")) {
       const face = element.faces.north;
       const textureId = resolveTextureRef(face.texture, textures);
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -502,24 +627,29 @@ function processElements(
         const centerX = (x1 + x2) / 2 - blockCenter.x;
         const centerZ = (z1 + z2) / 2 - blockCenter.z;
 
+        const northX = centerX * scale;
+        const northY = offsets.left.y;
+        const northZ = (centerZ - depth / 2) * scale;
+
         faces.push({
           type: "left",
           textureUrl,
-          x: centerX * scale,
-          y: offsets.left.y,
-          z: (centerZ - depth / 2) * scale,
+          x: northX,
+          y: northY,
+          z: northZ,
           width: width * scale,
           height: height * scale,
           uv: normalizeUV(face.uv),
           zIndex: Math.round(centerY * 10 + 40),
           brightness: 0.8,
           tintType,
+          transform: generateFaceTransform("left", northX, northY, northZ),
         });
       }
     }
 
     // East face
-    if (element.faces.east) {
+    if (element.faces.east && shouldRenderFace("east")) {
       const face = element.faces.east;
       const textureId = resolveTextureRef(face.texture, textures);
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -542,12 +672,18 @@ function processElements(
           zIndex: Math.round(centerY * 10),
           brightness: 0.6,
           tintType,
+          transform: generateFaceTransform(
+            "right",
+            offsets.right.x,
+            offsets.right.y,
+            offsets.right.z,
+          ),
         });
       }
     }
 
     // West face
-    if (element.faces.west) {
+    if (element.faces.west && shouldRenderFace("west")) {
       const face = element.faces.west;
       const textureId = resolveTextureRef(face.texture, textures);
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -561,24 +697,29 @@ function processElements(
         const centerX = (x1 + x2) / 2 - blockCenter.x;
         const centerZ = (z1 + z2) / 2 - blockCenter.z;
 
+        const westX = (centerX - width / 2) * scale;
+        const westY = offsets.right.y;
+        const westZ = centerZ * scale;
+
         faces.push({
           type: "right",
           textureUrl,
-          x: (centerX - width / 2) * scale,
-          y: offsets.right.y,
-          z: centerZ * scale,
+          x: westX,
+          y: westY,
+          z: westZ,
           width: depth * scale,
           height: height * scale,
           uv: normalizeUV(face.uv),
           zIndex: Math.round(centerY * 10 - 10),
           brightness: 0.6,
           tintType,
+          transform: generateFaceTransform("right", westX, westY, westZ),
         });
       }
     }
 
     // Down face
-    if (element.faces.down) {
+    if (element.faces.down && shouldRenderFace("down")) {
       const face = element.faces.down;
       const textureId = resolveTextureRef(face.texture, textures);
       const textureUrl = textureId ? textureUrls.get(textureId) : null;
@@ -592,6 +733,10 @@ function processElements(
         const centerX = (x1 + x2) / 2 - blockCenter.x;
         const centerZ = (z1 + z2) / 2 - blockCenter.z;
         const bottomY = (centerY - height / 2) * scale;
+
+        const downX = centerX * scale;
+        const downY = -bottomY; // Negate for CSS coordinate system
+        const downZ = centerZ * scale;
 
         console.log(
           "[Worker] Down face - centerY:",
@@ -607,15 +752,16 @@ function processElements(
         faces.push({
           type: "top",
           textureUrl,
-          x: centerX * scale,
-          y: -bottomY, // Negate for CSS coordinate system (same as top face)
-          z: centerZ * scale,
+          x: downX,
+          y: downY,
+          z: downZ,
           width: width * scale,
           height: depth * scale,
           uv: normalizeUV(face.uv),
           zIndex: Math.round((centerY - height / 2) * 10 - 100),
           brightness: 0.5,
           tintType,
+          transform: generateFaceTransform("top", downX, downY, downZ),
         });
       }
     }

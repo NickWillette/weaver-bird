@@ -1,18 +1,87 @@
 .closeButton {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 1.5rem;
-  padding: 0.5rem;
-  line-height: 1;
-  z-index: 100;
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.5rem;
+    padding: 0.5rem;
+    line-height: 1;
+    z-index: 100;
 }
 
 .content {
-  padding: 0 1.5rem 1.5rem;
-  height: calc(100% - 80px);
-  overflow: auto;
+    padding: 0 1.5rem 1.5rem;
+    height: calc(100% - 80px);
+    overflow: auto;
+
+    // Assign view-transition-name for targeted animations
+    // This tells the browser to animate this element specifically
+    view-transition-name: drawer-content;
 }
+
+/**
+ * View Transitions API Animations
+ *
+ * These styles only apply when the browser supports View Transitions.
+ * They define how content transitions when switching between tabs.
+ *
+ * PROGRESSIVE ENHANCEMENT:
+ * - Supported browsers (Chrome 111+, Safari 18+, Firefox 144+) get smooth transitions
+ * - Unsupported browsers fall back to instant content swap (handled by JS)
+ *
+ * BROWSER COMPATIBILITY:
+ * - ::view-transition pseudo-elements only work in supporting browsers
+ * - No need for fallback CSS - browsers ignore unknown pseudo-elements
+ */
+
+// Smooth fade + slide for outgoing content (old snapshot)
+::view-transition-old(drawer-content) {
+    animation: drawer-content-fade-out 250ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+
+// Smooth fade + slide for incoming content (new snapshot)
+::view-transition-new(drawer-content) {
+    animation: drawer-content-fade-in 300ms cubic-bezier(0, 0, 0.2, 1) both;
+}
+
+// Outgoing content: fade out + slight slide down
+@keyframes drawer-content-fade-out {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+}
+
+// Incoming content: fade in + slight slide up
+@keyframes drawer-content-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/**
+ * IMPORTANT: View Transitions run DURING the drawer rotation animation
+ *
+ * The timing is carefully coordinated:
+ * - Drawer rotation: 300-400ms (BlockyTabs.module.scss)
+ * - Content transition: 250ms out + 300ms in = 550ms total
+ *
+ * The content transition is slightly longer than the drawer rotation,
+ * which creates a smooth "content slides in after drawer settles" effect.
+ *
+ * If you want content to finish WITH the drawer rotation:
+ * - Reduce fade-out to 150ms
+ * - Reduce fade-in to 200ms
+ * - Total: 350ms (matches drawer timing)
+ */

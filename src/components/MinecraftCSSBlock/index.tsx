@@ -38,7 +38,6 @@ import {
   clearTintCache,
   type TintColor,
 } from "@lib/textureColorization";
-import { getBlockTintType } from "@/constants/vanillaBlockColors";
 import { transitionQueue } from "@lib/transitionQueue";
 import { blockGeometryWorker } from "@lib/blockGeometryWorker";
 import { resolveTextureRef } from "@lib/utils/blockGeometry";
@@ -768,9 +767,7 @@ export default function MinecraftCSSBlock({
             className={`${s.face} ${s[`face${face.type.charAt(0).toUpperCase()}${face.type.slice(1)}`]} ${face.tintType ? s[`${face.tintType}Tint`] : ""}`}
             style={
               {
-                "--face-x": `${face.x}px`,
-                "--face-y": `${face.y}px`,
-                "--face-z": `${face.z}px`,
+                transform: face.transform, // Pre-baked transform from worker
                 "--face-width": `${face.width}px`,
                 "--face-height": `${face.height}px`,
                 "--face-brightness": face.brightness,

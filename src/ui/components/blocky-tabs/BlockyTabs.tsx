@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useTransition } from "react";
 import {
   DndContext,
   closestCorners,
@@ -39,6 +39,11 @@ export const BlockyTabs: React.FC<BlockyTabsProps> = ({
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null,
   );
+
+  // React 19: useTransition for non-blocking drawer content rendering
+  // This marks drawer content updates as low-priority, keeping the UI responsive
+  // during tab switches while the drawer rotation animation plays
+  const [_isPending, startTransition] = useTransition();
 
   // Sync items when initialTabs changes
   React.useEffect(() => {
@@ -197,7 +202,16 @@ export const BlockyTabs: React.FC<BlockyTabsProps> = ({
     };
   };
 
-  const handleTabClick = (id: string) => setActiveTabId(id || null);
+  const handleTabClick = (id: string) => {
+    // React 19 optimization: Wrap tab state change in startTransition
+    // This tells React that opening/closing drawers is non-urgent, allowing:
+    // 1. Rotation animations to run smoothly (high priority)
+    // 2. Content loading to happen in background (low priority)
+    // 3. User interactions (clicks, typing) to stay responsive
+    startTransition(() => {
+      setActiveTabId(id || null);
+    });
+  };
   const handleDrawerResize = (tabId: string, size: number) =>
     setDrawerSizes((prev) => ({ ...prev, [tabId]: size }));
 

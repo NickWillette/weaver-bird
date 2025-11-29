@@ -8,6 +8,18 @@
     transition: all 0.2s ease;
     overflow: hidden;
 
+    // Skip rendering when off-screen (2025 CSS baseline feature)
+    // Browser support: Chrome 85+, Edge 85+, Safari 17.4+, Firefox 109+
+    content-visibility: auto;
+
+    // Provide size hint to prevent layout shifts during scroll
+    // This tells the browser the expected size before rendering
+    contain-intrinsic-size: 120px 140px;
+
+    // Additional containment for performance
+    // Isolates layout/paint calculations to this card only
+    contain: layout paint style;
+
     &:hover {
         border-color: var(--color-primary);
         box-shadow: var(--shadow-md);
@@ -133,6 +145,54 @@
     image-rendering: pixelated;
     image-rendering: -moz-crisp-edges;
     image-rendering: crisp-edges;
+}
+
+/* Container Queries for Adaptive Block Sizing */
+/* Browser support: Chrome 105+, Edge 105+, Safari 16+, Firefox 110+ */
+
+/* Smaller drawer: reduce block scale for compact display */
+@container card-grid (max-width: 400px) {
+    .imageContainer {
+        :global(.minecraft-block) {
+            transform: scale(0.7);
+        }
+    }
+
+    .texture2D,
+    .itemTexture {
+        width: 70%;
+        height: 70%;
+    }
+}
+
+/* Medium drawer: standard sizing */
+@container card-grid (min-width: 401px) and (max-width: 700px) {
+    .imageContainer {
+        :global(.minecraft-block) {
+            transform: scale(0.85);
+        }
+    }
+
+    .texture2D,
+    .itemTexture {
+        width: 80%;
+        height: 80%;
+    }
+}
+
+/* Large drawer: enlarge blocks for better detail */
+@container card-grid (min-width: 701px) {
+    .imageContainer {
+        :global(.minecraft-block) {
+            transform: scale(1);
+        }
+    }
+
+    .texture2D,
+    .itemTexture {
+        width: 90%;
+        height: 90%;
+    }
 }
 
 .placeholder {

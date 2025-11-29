@@ -118,31 +118,21 @@
     }
 }
 
-// Top face - horizontal plane rotated to face up
+// Face type classes - transforms are now pre-baked in the worker and applied inline
+// These classes only set width/height from CSS variables
 .faceTop {
     width: var(--face-width);
     height: var(--face-height);
-    transform: translate(-50%, -50%)
-        translate3d(var(--face-x), var(--face-y), var(--face-z, 0))
-        rotateX(90deg);
 }
 
-// Left face (south) - vertical plane facing south
-// translateZ pushes face to front of block, which lowers it after scene rotateX
 .faceLeft {
     width: var(--face-width);
     height: var(--face-height);
-    transform: translate(-50%, -50%)
-        translate3d(var(--face-x), var(--face-y), var(--face-z, 0));
 }
 
-// Right face (east) - vertical plane facing east
 .faceRight {
     width: var(--face-width);
     height: var(--face-height);
-    transform: translate(-50%, -50%)
-        translate3d(var(--face-x), var(--face-y), var(--face-z, 0))
-        rotateY(90deg);
 }
 
 // Note: Foliage tinting disabled

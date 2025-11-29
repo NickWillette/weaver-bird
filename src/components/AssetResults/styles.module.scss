@@ -9,6 +9,11 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
     gap: var(--spacing-sm);
+
+    // Enable container queries for responsive card sizing
+    // Browser support: Chrome 105+, Edge 105+, Safari 16+, Firefox 110+
+    container-type: inline-size;
+    container-name: card-grid;
 }
 
 .paginationInfo {
