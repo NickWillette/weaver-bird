@@ -1,21 +1,15 @@
 import { useCallback } from "react";
 import { openFolderDialog } from "@lib/tauri";
 import Button from "@/ui/components/buttons/Button";
+import type { OutputSettingsProps } from "./types";
 import s from "./styles.module.scss";
 
-interface Props {
-  outputDir?: string;
-  packFormat?: number;
-  onOutputDirChange: (path: string) => void;
-  onPackFormatChange: (format: number) => void;
-}
-
-export default function OutputSettings({
+export const OutputSettings = ({
   outputDir,
   packFormat = 48,
   onOutputDirChange,
   onPackFormatChange,
-}: Props) {
+}: OutputSettingsProps) => {
   const handleBrowse = useCallback(async () => {
     try {
       const selected = await openFolderDialog();
@@ -64,4 +58,4 @@ export default function OutputSettings({
       </div>
     </div>
   );
-}
+};

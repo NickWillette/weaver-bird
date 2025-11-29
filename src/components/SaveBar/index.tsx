@@ -1,51 +1,11 @@
 import { useCallback } from "react";
 import { buildWeaverNest, formatError } from "@lib/tauri";
-import type { OverrideWirePayload } from "@state";
 import Button from "@/ui/components/buttons/Button";
+import { SaveIcon } from "./SaveIcon";
+import type { SaveBarProps } from "./types";
 import s from "./styles.module.scss";
 
-interface Progress {
-  phase: string;
-  completed: number;
-  total: number;
-  bytes?: number;
-}
-
-type StatusType = "idle" | "success" | "error";
-
-interface Props {
-  isLoading?: boolean;
-  progress?: Progress;
-  disabled?: boolean;
-  packsDir?: string;
-  packOrder: string[];
-  overrides: Record<string, OverrideWirePayload>;
-  outputDir?: string;
-  onSuccess?: () => void;
-  onError?: (error: string) => void;
-  statusMessage?: string;
-  statusType?: StatusType;
-  onClearStatus?: () => void;
-}
-
-const SaveIcon = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-    <polyline points="17 21 17 13 7 13 7 21" />
-    <polyline points="7 3 7 8 15 8" />
-  </svg>
-);
-
-export default function SaveBar({
+export const SaveBar = ({
   isLoading = false,
   progress,
   disabled = false,
@@ -58,7 +18,7 @@ export default function SaveBar({
   statusMessage,
   statusType = "idle",
   onClearStatus,
-}: Props) {
+}: SaveBarProps) => {
   const percent = progress
     ? Math.round((progress.completed / Math.max(progress.total, 1)) * 100)
     : 0;
@@ -128,4 +88,4 @@ export default function SaveBar({
       </div>
     </div>
   );
-}
+};

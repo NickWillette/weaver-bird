@@ -1,14 +1,15 @@
+import { useMemo } from "react";
 import { Combobox } from "@/ui/components/Combobox/Combobox";
-import { BIOMES, getBiome } from "@components/BiomeColorPicker/biomeData";
+import { BIOMES } from "@/components/BiomeColorCard/biomeData";
 import { useStore } from "@state/store";
-import { hexToRgb } from "@/constants/biomeCoordinates";
+import { handleBiomeSelection } from "./utilities";
 import s from "./styles.module.scss";
 
 /**
  * Biome selector for controlling foliage/grass colors globally
  * Sets colormap coordinates based on selected biome, or uses hex colors for noise biomes
  */
-export default function BiomeSelector() {
+export const BiomeSelector = () => {
   const selectedBiomeId = useStore((state) => state.selectedBiomeId);
   const setSelectedBiomeId = useStore((state) => state.setSelectedBiomeId);
   const setColormapCoordinates = useStore(
@@ -21,61 +22,23 @@ export default function BiomeSelector() {
     (state) => state.setSelectedFoliageColor,
   );
 
-  const biomeOptions = BIOMES.map((biome) => ({
-    value: biome.id,
-    label: biome.name,
-  }));
+  const biomeOptions = useMemo(
+    () =>
+      BIOMES.map((biome) => ({
+        value: biome.id,
+        label: biome.name,
+      })),
+    [],
+  );
 
   const handleBiomeChange = (biomeId: string) => {
-    if (!biomeId) return; // Handle empty selection
-    console.log("[BiomeSelector] Biome selected:", biomeId);
-
-    const biome = getBiome(biomeId);
-    if (!biome) {
-      console.warn("[BiomeSelector] Biome not found:", biomeId);
-      return;
-    }
-
-    // Store the user's exact biome selection
-    setSelectedBiomeId(biomeId);
-
-    // Handle coordinate-based biomes
-    if (biome.coords) {
-      setColormapCoordinates(biome.coords);
-      setSelectedGrassColor(undefined);
-      setSelectedFoliageColor(undefined);
-      console.log("[BiomeSelector] Set coordinates:", biome.coords);
-    }
-    // Handle noise biomes with hex colors
-    else if (biome.grassHexColor || biome.foliageHexColor) {
-      setColormapCoordinates(undefined);
-
-      if (biome.grassHexColor) {
-        const grassRgb = hexToRgb(biome.grassHexColor);
-        if (grassRgb) {
-          setSelectedGrassColor(grassRgb);
-          console.log("[BiomeSelector] Set grass color from hex:", grassRgb);
-        }
-      }
-
-      if (biome.foliageHexColor) {
-        const foliageRgb = hexToRgb(biome.foliageHexColor);
-        if (foliageRgb) {
-          setSelectedFoliageColor(foliageRgb);
-          console.log(
-            "[BiomeSelector] Set foliage color from hex:",
-            foliageRgb,
-          );
-        }
-      }
-
-      console.log("[BiomeSelector] Using hex colors for noise biome:", biomeId);
-    } else {
-      console.warn(
-        "[BiomeSelector] No coordinate or hex color data for biome:",
-        biomeId,
-      );
-    }
+    handleBiomeSelection(
+      biomeId,
+      setSelectedBiomeId,
+      setColormapCoordinates,
+      setSelectedGrassColor,
+      setSelectedFoliageColor,
+    );
   };
 
   return (
@@ -92,4 +55,4 @@ export default function BiomeSelector() {
       />
     </div>
   );
-}
+};

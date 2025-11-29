@@ -7,7 +7,7 @@
 
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getPackTexturePath, getVanillaTexturePath } from "@lib/tauri";
-import { getBiomesWithCoords } from "@components/BiomeColorPicker/biomeData";
+import { getBiomesWithCoords } from "@/components/BiomeColorCard/biomeData";
 import { colormapSamplerWorker } from "@lib/colormapSamplerWorker";
 import type { PackMeta } from "@state/types";
 

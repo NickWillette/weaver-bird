@@ -1,0 +1,24 @@
+.checkboxLabel {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    cursor: pointer;
+    margin-bottom: var(--spacing-sm);
+}
+
+.checkbox {
+    cursor: pointer;
+}
+
+.labelText {
+    font-size: var(--font-size-sm);
+    color: var(--color-text);
+}
+
+.description {
+    margin: 0 0 var(--spacing-md) 0;
+    padding-left: calc(var(--spacing-sm) + 16px);
+    font-size: var(--font-size-xs);
+    color: var(--color-text-light);
+    line-height: 1.4;
+}

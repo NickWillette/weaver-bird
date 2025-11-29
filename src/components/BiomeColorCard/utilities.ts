@@ -4,7 +4,7 @@ import {
     getColormapVariantLabel,
     isBiomeColormapAsset,
 } from "@lib/assetUtils";
-import type { BiomeData } from "@components/BiomeColorPicker/biomeData";
+import type { BiomeData } from "@/components/BiomeColorCard/biomeData";
 import type { ColormapSourceOption } from "./types";
 
 /**

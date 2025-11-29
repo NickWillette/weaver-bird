@@ -42,24 +42,24 @@ import {
 } from "react";
 import s from "./main.module.scss";
 
-import PackList from "@components/PackList";
+import { PackList } from "@components/PackList";
 import SearchBar from "@components/SearchBar";
 import AssetResults from "@components/AssetResults";
 import Preview3D from "@components/Preview3D";
 import Preview2D from "@components/Preview2D";
 import PreviewItem from "@components/PreviewItem";
-import OptionsPanel from "@components/OptionsPanel";
-import SaveBar from "@components/SaveBar";
-import OutputSettings from "@components/OutputSettings";
+import { OptionsPanel } from "@components/OptionsPanel";
+import { SaveBar } from "@components/SaveBar";
+import { OutputSettings } from "@components/OutputSettings";
 import Settings from "@components/Settings";
 import MinecraftLocations from "@components/Settings/MinecraftLocations";
 import VanillaTextureVersion from "@components/Settings/VanillaTextureVersion";
 import TargetVersion from "@components/Settings/TargetVersion";
 import VanillaTextureProgress from "@components/VanillaTextureProgress";
-import CanvasSettings from "@components/CanvasSettings";
-import BiomeSelector from "@components/BiomeSelector";
+import { CanvasSettings } from "@components/CanvasSettings";
+import { BiomeSelector } from "@components/BiomeSelector";
 import WindowControls from "@components/WindowControls";
-import ResizeHandle from "@components/ResizeHandle";
+import { ResizeHandle } from "@components/ResizeHandle";
 import Button from "@/ui/components/buttons/Button";
 import {
   Pagination,
@@ -534,18 +534,18 @@ export default function MainRoute() {
             // Step 2: Load colormap URLs (deferred as low-priority)
             const grassUrl = grassWinner
               ? await loadColormapUrl(
-                  GRASS_COLORMAP_ASSET_ID,
-                  grassWinner,
-                  packsMap,
-                )
+                GRASS_COLORMAP_ASSET_ID,
+                grassWinner,
+                packsMap,
+              )
               : null;
 
             const foliageUrl = foliageWinner
               ? await loadColormapUrl(
-                  FOLIAGE_COLORMAP_ASSET_ID,
-                  foliageWinner,
-                  packsMap,
-                )
+                FOLIAGE_COLORMAP_ASSET_ID,
+                foliageWinner,
+                packsMap,
+              )
               : null;
 
             // Update URLs and pack IDs in state
@@ -1298,14 +1298,14 @@ export default function MainRoute() {
           disabled2D={
             uiState.selectedAssetId
               ? !is2DOnlyTexture(uiState.selectedAssetId) &&
-                !isEntityTexture(uiState.selectedAssetId) &&
-                !isMinecraftItem(uiState.selectedAssetId)
+              !isEntityTexture(uiState.selectedAssetId) &&
+              !isMinecraftItem(uiState.selectedAssetId)
               : false
           }
           disabled3D={
             uiState.selectedAssetId
               ? is2DOnlyTexture(uiState.selectedAssetId) ||
-                isMinecraftItem(uiState.selectedAssetId)
+              isMinecraftItem(uiState.selectedAssetId)
               : false
           }
           disabledItem={

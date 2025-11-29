@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import ResourcePackCard from "./ResourcePackCard";
+import { ResourcePackCard } from "./index";
 
 const meta: Meta<typeof ResourcePackCard> = {
   component: ResourcePackCard,

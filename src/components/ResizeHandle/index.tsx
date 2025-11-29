@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import s from "./ResizeHandle.module.scss";
 
-export default function ResizeHandle() {
+export const ResizeHandle = () => {
   const handleMouseDown = async (e: React.MouseEvent) => {
     e.preventDefault();
     try {
@@ -26,4 +26,4 @@ export default function ResizeHandle() {
       </div>
     </div>
   );
-}
+};

@@ -41,7 +41,7 @@ import {
   useSelectWinner,
   useStore,
 } from "@state";
-import { getBiomesWithCoords } from "@components/BiomeColorPicker/biomeData";
+import { getBiomesWithCoords } from "@/components/BiomeColorCard/biomeData";
 import { ColorSourceDropdown } from "./components/ColorSourceDropdown";
 import { BiomeHotspot } from "./components/BiomeHotspot";
 import {
