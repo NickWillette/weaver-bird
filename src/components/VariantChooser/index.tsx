@@ -2,30 +2,14 @@ import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { useStore } from "@/state/store";
+import type { VariantChooserProps } from "./types";
 import s from "./styles.module.scss";
 
-/**
- * Represents a pack variant option with UI state
- * (distinct from the domain model Provider type)
- */
-interface ProviderOption {
-  packId: string;
-  packName: string;
-  isPenciled?: boolean;
-  isWinner?: boolean;
-}
-
-interface Props {
-  providers: ProviderOption[];
-  onSelectProvider: (packId: string) => void;
-  assetId?: string;
-}
-
-export default function VariantChooser({
+export const VariantChooser = ({
   providers,
   onSelectProvider,
   assetId,
-}: Props) {
+}: VariantChooserProps) => {
   const packs = useStore((state) => state.packs);
   const [textureUrls, setTextureUrls] = useState<Record<string, string>>({});
   const [loadingTextures, setLoadingTextures] = useState<Record<string, boolean>>({});
@@ -89,9 +73,8 @@ export default function VariantChooser({
         {providers.map((provider) => (
           <div
             key={provider.packId}
-            className={`${s.provider} ${provider.isWinner ? s.winner : ""} ${
-              provider.isPenciled ? s.penciled : ""
-            }`}
+            className={`${s.provider} ${provider.isWinner ? s.winner : ""} ${provider.isPenciled ? s.penciled : ""
+              }`}
             onClick={() => onSelectProvider(provider.packId)}
             title="Click to select this texture variant"
           >
@@ -124,4 +107,4 @@ export default function VariantChooser({
       </div>
     </div>
   );
-}
+};

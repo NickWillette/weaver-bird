@@ -1,6 +1,6 @@
 import { TabsContent } from "@/ui/components/tabs";
 import { Separator } from "@/ui/components/Separator/Separator";
-import VariantChooser from "@components/VariantChooser";
+import { VariantChooser } from "@components/VariantChooser";
 import type { ProviderOption } from "../../types";
 
 interface PackVariantsTabProps {
