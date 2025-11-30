@@ -515,7 +515,13 @@ function createBoxMesh(
   if (planeAxis) {
     applyPlaneUVs(geometry, box.uv, textureSize, planeAxis);
   } else {
-    applyUVs(geometry, box.uv, textureSize, box.mirror, rotation);
+    applyUVs(
+      geometry as THREE.BoxGeometry,
+      box.uv,
+      textureSize,
+      box.mirror,
+      rotation,
+    );
   }
 
   // Create material

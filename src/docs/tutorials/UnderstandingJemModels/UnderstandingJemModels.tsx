@@ -247,8 +247,15 @@ const SHEEP_WOOL_JEM = {
           rotate: [-90, 0, 0] as [number, number, number],
           boxes: [
             {
-              coordinates: [-4, -6, -7, 8, 16, 6],
-              textureOffset: [28, 8],
+              coordinates: [-4, -6, -7, 8, 16, 6] as [
+                number,
+                number,
+                number,
+                number,
+                number,
+                number,
+              ],
+              textureOffset: [28, 8] as [number, number],
               sizeAdd: 1.75, // Thick wool layer on body
             },
           ],
@@ -895,8 +902,8 @@ export default function UnderstandingJemModels(_props: Props) {
             Building the <span className={s.highlight}>Model</span>
           </h2>
           <p className={s.sectionDesc}>
-            Let's construct the sheep step-by-step. Edit the code on the left and
-            watch the 3D preview update in real-time.
+            Let's construct the sheep step-by-step. Edit the code on the left
+            and watch the 3D preview update in real-time.
           </p>
         </div>
 
@@ -1128,8 +1135,8 @@ export default function UnderstandingJemModels(_props: Props) {
               </li>
             </ul>
             <p style={{ marginTop: "1rem" }}>
-              This is how Minecraft creates sheared vs woolly sheep with
-              minimal data duplication!
+              This is how Minecraft creates sheared vs woolly sheep with minimal
+              data duplication!
             </p>
           </div>
         </div>
@@ -1145,8 +1152,8 @@ export default function UnderstandingJemModels(_props: Props) {
           </h2>
           <p className={s.sectionDesc}>
             By layering multiple models with different <code>sizeAdd</code>{" "}
-            values, we can create complex entities like a sheep with dyeable wool
-            and a separate undercoat.
+            values, we can create complex entities like a sheep with dyeable
+            wool and a separate undercoat.
           </p>
         </div>
 
@@ -1188,7 +1195,14 @@ export default function UnderstandingJemModels(_props: Props) {
                 <strong>Undercoat Color</strong>
               </div>
               <div className={s.cardContent}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "8px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "4px",
+                    marginTop: "8px",
+                  }}
+                >
                   {DYE_COLORS.map((c) => (
                     <button
                       key={c.name}
@@ -1198,7 +1212,10 @@ export default function UnderstandingJemModels(_props: Props) {
                         width: "20px",
                         height: "20px",
                         backgroundColor: c.hex,
-                        border: undercoatColor === c.hex ? "2px solid white" : "1px solid #444",
+                        border:
+                          undercoatColor === c.hex
+                            ? "2px solid white"
+                            : "1px solid #444",
                         borderRadius: "4px",
                         cursor: "pointer",
                       }}
@@ -1208,7 +1225,13 @@ export default function UnderstandingJemModels(_props: Props) {
                     type="color"
                     value={undercoatColor}
                     onChange={(e) => setUndercoatColor(e.target.value)}
-                    style={{ width: "20px", height: "20px", padding: 0, border: "none", background: "none" }}
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      padding: 0,
+                      border: "none",
+                      background: "none",
+                    }}
                   />
                 </div>
               </div>
@@ -1241,7 +1264,14 @@ export default function UnderstandingJemModels(_props: Props) {
                 <strong>Wool Color</strong>
               </div>
               <div className={s.cardContent}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginTop: "8px" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "4px",
+                    marginTop: "8px",
+                  }}
+                >
                   {DYE_COLORS.map((c) => (
                     <button
                       key={c.name}
@@ -1251,7 +1281,10 @@ export default function UnderstandingJemModels(_props: Props) {
                         width: "20px",
                         height: "20px",
                         backgroundColor: c.hex,
-                        border: woolColor === c.hex ? "2px solid white" : "1px solid #444",
+                        border:
+                          woolColor === c.hex
+                            ? "2px solid white"
+                            : "1px solid #444",
                         borderRadius: "4px",
                         cursor: "pointer",
                       }}
@@ -1261,7 +1294,13 @@ export default function UnderstandingJemModels(_props: Props) {
                     type="color"
                     value={woolColor}
                     onChange={(e) => setWoolColor(e.target.value)}
-                    style={{ width: "20px", height: "20px", padding: 0, border: "none", background: "none" }}
+                    style={{
+                      width: "20px",
+                      height: "20px",
+                      padding: 0,
+                      border: "none",
+                      background: "none",
+                    }}
                   />
                 </div>
               </div>
@@ -1430,7 +1469,10 @@ export default function UnderstandingJemModels(_props: Props) {
           </p>
         </div>
 
-        <div className={s.previewContainer} style={{ height: "600px", position: "relative" }}>
+        <div
+          className={s.previewContainer}
+          style={{ height: "600px", position: "relative" }}
+        >
           {/* Base Layer */}
           <div style={{ position: "absolute", inset: 0 }}>
             <DocThreePreview
@@ -1441,7 +1483,9 @@ export default function UnderstandingJemModels(_props: Props) {
             />
           </div>
           {/* Undercoat Layer */}
-          <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+          <div
+            style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+          >
             <DocThreePreview
               jemData={SHEEP_UNDERCOAT_JEM}
               textureUrl={sheepWoolUndercoatTexture}
@@ -1449,7 +1493,9 @@ export default function UnderstandingJemModels(_props: Props) {
             />
           </div>
           {/* Wool Layer */}
-          <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+          <div
+            style={{ position: "absolute", inset: 0, pointerEvents: "none" }}
+          >
             <DocThreePreview
               jemData={SHEEP_WOOL_JEM}
               textureUrl={sheepWoolTexture}
@@ -1460,7 +1506,7 @@ export default function UnderstandingJemModels(_props: Props) {
         <div className={s.caption}>
           Complete sheep model with base, undercoat, and wool layers.
         </div>
-      </section >
-    </div >
+      </section>
+    </div>
   );
 }

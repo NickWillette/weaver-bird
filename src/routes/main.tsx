@@ -50,7 +50,6 @@ import Preview2D from "@components/Preview2D";
 import PreviewItem from "@components/PreviewItem";
 import { OptionsPanel } from "@components/OptionsPanel";
 import { SaveBar } from "@components/SaveBar";
-import { OutputSettings } from "@components/OutputSettings";
 import { Settings } from "@components/Settings";
 import { MinecraftLocations } from "@components/Settings/components/MinecraftLocations";
 import { VanillaTextureVersion } from "@components/Settings/components/VanillaTextureVersion";
@@ -126,8 +125,6 @@ import {
   useSelectSetPackOrder,
   useSelectSetDisabledPackOrder,
   useSelectSetOverride,
-  useSelectSetOutputDir,
-  useSelectSetPackFormat,
   useSelectIngestPacks,
   useSelectSetPackFormats,
   useSelectIngestAssets,
@@ -401,8 +398,6 @@ export default function MainRoute() {
   const setSelectedAsset = useSelectSetSelectedAsset();
   const setPackOrder = useSelectSetPackOrder();
   const setOverride = useSelectSetOverride();
-  const setOutputDir = useSelectSetOutputDir();
-  const setPackFormat = useSelectSetPackFormat();
   const ingestPacks = useSelectIngestPacks();
   const setPackFormats = useSelectSetPackFormats();
   const ingestAssets = useSelectIngestAssets();
@@ -534,18 +529,18 @@ export default function MainRoute() {
             // Step 2: Load colormap URLs (deferred as low-priority)
             const grassUrl = grassWinner
               ? await loadColormapUrl(
-                GRASS_COLORMAP_ASSET_ID,
-                grassWinner,
-                packsMap,
-              )
+                  GRASS_COLORMAP_ASSET_ID,
+                  grassWinner,
+                  packsMap,
+                )
               : null;
 
             const foliageUrl = foliageWinner
               ? await loadColormapUrl(
-                FOLIAGE_COLORMAP_ASSET_ID,
-                foliageWinner,
-                packsMap,
-              )
+                  FOLIAGE_COLORMAP_ASSET_ID,
+                  foliageWinner,
+                  packsMap,
+                )
               : null;
 
             // Update URLs and pack IDs in state
@@ -1298,14 +1293,14 @@ export default function MainRoute() {
           disabled2D={
             uiState.selectedAssetId
               ? !is2DOnlyTexture(uiState.selectedAssetId) &&
-              !isEntityTexture(uiState.selectedAssetId) &&
-              !isMinecraftItem(uiState.selectedAssetId)
+                !isEntityTexture(uiState.selectedAssetId) &&
+                !isMinecraftItem(uiState.selectedAssetId)
               : false
           }
           disabled3D={
             uiState.selectedAssetId
               ? is2DOnlyTexture(uiState.selectedAssetId) ||
-              isMinecraftItem(uiState.selectedAssetId)
+                isMinecraftItem(uiState.selectedAssetId)
               : false
           }
           disabledItem={

@@ -116,9 +116,9 @@ function TexturedModel({
     if (loadedTexture) {
       // eslint-disable-next-line react-hooks/immutability
       loadedTexture.magFilter = THREE.NearestFilter;
-      // eslint-disable-next-line react-hooks/immutability
+       
       loadedTexture.minFilter = THREE.NearestFilter;
-      // eslint-disable-next-line react-hooks/immutability
+       
       loadedTexture.colorSpace = THREE.SRGBColorSpace;
     }
   }, [loadedTexture]);
