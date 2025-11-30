@@ -85,6 +85,22 @@
 
 ---
 
+## CanvasTypeSelector
+
+**Purpose**: Floating mode selector (3D/2D/Item) positioned dynamically over canvas
+
+**useEffects**: 1 effect (via `useElementPosition` hook)
+
+**Hooks** (from `hooks/useElementPosition.ts`):
+
+- `useElementPosition`: Tracks element position with ResizeObserver and window resize events
+
+**Usage Count**: 1 usage (`src/routes/main.tsx`)
+
+**Child Components**: None
+
+---
+
 ## OptionsPanel
 
 **Purpose**: Tabbed options panel for asset-specific configuration based on asset type
@@ -119,22 +135,6 @@
 - `TextureVariantTab`: Texture variant selector  
 - `PackVariantsTab`: Resource pack variant chooser
 - `AdvancedTab`: Advanced debug information
-
----
-
-## CanvasTypeSelector
-
-**Purpose**: Floating mode selector (3D/2D/Item) positioned dynamically over canvas
-
-**useEffects**: 1 effect (via `useElementPosition` hook)
-
-**Hooks** (from `hooks/useElementPosition.ts`):
-
-- `useElementPosition`: Tracks element position with ResizeObserver and window resize events
-
-**Usage Count**: 1 usage (`src/routes/main.tsx`)
-
-**Child Components**: None
 
 ---
 
@@ -282,3 +282,83 @@
 **Child Components**:
 
 - `TextureThumbnail`: Individual variant thumbnail with tooltip
+
+---
+
+## VanillaTextureProgress
+
+**Purpose**: Progress bar for vanilla texture caching operation
+
+**useEffects**: None
+
+**Utilities**: None
+
+**Usage Count**: 1 usage (`src/routes/main.tsx`)
+
+**Child Components**: None
+
+---
+
+## VariantChooser
+
+**Purpose**: Pack variant selector with texture previews for overriding resource pack priority
+
+**useEffects**: 1 effect (load texture URLs for provider packs)
+
+**Utilities**: None
+
+**Usage Count**: 1 usage (OptionsPanel/PackVariantsTab)
+
+**Child Components**: None
+
+---
+
+## WindowControls
+
+**Purpose**: macOS-style window controls (close, minimize, maximize) for Tauri app
+
+**useEffects**: None
+
+**Utilities**: None
+
+**Usage Count**: 1 usage (`src/routes/main.tsx`)
+
+**Child Components**: None
+
+---
+
+## MinecraftCSSBlock
+
+**Purpose**: Renders 3D isometric Minecraft block previews using CSS transforms
+
+**useEffects**: 5 effects (**performance-critical** - not extracted)
+
+- Deferred 3D model loading with stagger/queue (transition optimization)
+- 2D fallback texture loading + eager 3D geometry preloading
+- 3D model processing when geometry ready
+- Foliage/grass tinting application (via hook)
+- Tint cache cleanup on unmount (via hook)
+
+**Utilities**:
+
+- `utilities.ts`: 5 block processing helpers
+- `tint-utilities.ts`: Grass/foliage tinting logic and color resolution
+
+**Hooks**:
+
+- `tint-hooks.ts`: `useBlockTinting` for all tinting logic and store subscriptions
+
+**Child Components**:
+
+- `Block2D`: 2D fallback texture rendering
+- `Block3D`: 3D isometric face rendering with tinting
+
+**Usage Count**: 1 usage (AssetCard for preview thumbnails)
+
+**Performance Optimizations**:
+
+- Selective subscriptions (only tinted blocks subscribe to colormap colors)
+- Memoized tint detection (caches grass/foliage needs)
+- Deferred 3D loading with requestIdleCallback + global transition queue
+- Web Worker for geometry processing (blockGeometryWorker)
+- Eager preloading (processes 3D in background while showing 2D)

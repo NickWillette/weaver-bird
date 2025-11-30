@@ -13,7 +13,7 @@ import {
   useSelectPack,
 } from "@state/selectors";
 import { useStore } from "@state/store";
-import MinecraftCSSBlock from "@components/MinecraftCSSBlock";
+import { MinecraftCSSBlock } from "@components/MinecraftCSSBlock";
 import {
   needsGrassTint,
   needsFoliageTint,
@@ -243,20 +243,20 @@ export const AssetCard = memo(
               </div>
             )
           ) : // Blocks display as 3D CSS cubes
-          isVisible ? (
-            <MinecraftCSSBlock
-              assetId={asset.id}
-              packId={winnerPackId || undefined}
-              alt={displayName}
-              size={75}
-              staggerIndex={staggerIndex}
-              onError={() => setImageError(true)}
-            />
-          ) : (
-            <div className={s.placeholder}>
-              <span className={s.placeholderIcon}>⏳</span>
-            </div>
-          )}
+            isVisible ? (
+              <MinecraftCSSBlock
+                assetId={asset.id}
+                packId={winnerPackId || undefined}
+                alt={displayName}
+                size={75}
+                staggerIndex={staggerIndex}
+                onError={() => setImageError(true)}
+              />
+            ) : (
+              <div className={s.placeholder}>
+                <span className={s.placeholderIcon}>⏳</span>
+              </div>
+            )}
           {isPenciled && (
             <div
               className={s.penciledIndicator}

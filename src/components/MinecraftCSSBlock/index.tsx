@@ -28,70 +28,28 @@ import { getVanillaTexturePath, getPackTexturePath } from "@lib/tauri";
 import {
   resolveBlockState,
   loadModelJson,
-  ModelElement,
+  type ModelElement,
 } from "@lib/tauri/blockModels";
 import { getBlockStateIdFromAssetId, normalizeAssetId } from "@lib/assetUtils";
 import { useStore } from "@state/store";
-import { getFoliageColorForBiome, rgbToCSS } from "@lib/biomeColors";
-import {
-  tintTexture,
-  clearTintCache,
-  type TintColor,
-} from "@lib/textureColorization";
 import { transitionQueue } from "@lib/transitionQueue";
 import { blockGeometryWorker } from "@lib/blockGeometryWorker";
 import { resolveTextureRef } from "@lib/utils/blockGeometry";
-import s from "./styles.module.scss";
-
-interface MinecraftCSSBlockProps {
-  /** Asset ID (texture ID like "minecraft:block/oak_planks") */
-  assetId: string;
-  /** ID of the winning pack for this asset */
-  packId?: string;
-  /** Alt text for accessibility */
-  alt?: string;
-  /** Size of the block in pixels (default 64) */
-  size?: number;
-  /** Index for staggering 3D model loading to prevent simultaneous transitions */
-  staggerIndex?: number;
-  /** Callback when textures fail to load */
-  onError?: () => void;
-}
-
-// Represents a rendered face with all data needed for CSS
-interface NormalizedUV {
-  u: number;
-  v: number;
-  width: number;
-  height: number;
-  flipX: 1 | -1;
-  flipY: 1 | -1;
-}
-
-interface RenderedFace {
-  type: "top" | "left" | "right";
-  textureUrl: string;
-  // Position in isometric space (pixels)
-  x: number;
-  y: number;
-  z: number;
-  // Size of the face (pixels)
-  width: number;
-  height: number;
-  // UV coordinates for texture clipping (0-1)
-  uv: NormalizedUV;
-  // Z-index for depth sorting
-  zIndex: number;
-  // Brightness for shading
-  brightness: number;
-  // Tint type to apply (grass or foliage)
-  tintType?: "grass" | "foliage";
-}
-
-// Represents a complete element with its faces
-interface RenderedElement {
-  faces: RenderedFace[];
-}
+import type {
+  MinecraftCSSBlockProps,
+  RenderedElement,
+  RenderedFace,
+} from "./types";
+import {
+  shouldUse2DItemIcon,
+  getItemAssetId,
+  getLeavesInventoryTextureId,
+  isSuitableFor3D,
+  createDefaultElement,
+} from "./utilities";
+import { useBlockTinting } from "./tint-hooks";
+import { Block2D } from "./components/Block2D";
+import { Block3D } from "./components/Block3D";
 
 /**
  * NOTE: Block geometry processing has been moved to a Web Worker.
@@ -100,142 +58,17 @@ interface RenderedElement {
  */
 
 /**
- * Checks if a block should use its 2D item icon instead of 3D block model
- * (e.g., doors, beds use pre-rendered 2D icons in inventory)
- */
-function shouldUse2DItemIcon(assetId: string): boolean {
-  const path = assetId.toLowerCase();
-
-  // Doors should use item icons (except trapdoors which are fine as 3D)
-  if (path.includes("door") && !path.includes("trapdoor")) {
-    return true;
-  }
-
-  // Beds should use item icons
-  if (path.includes("bed") && !path.includes("bedrock")) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Converts a block asset ID to its corresponding item asset ID
- * Example: "minecraft:block/oak_door" -> "minecraft:item/oak_door"
- */
-function getItemAssetId(blockAssetId: string): string {
-  // Extract namespace and block name
-  const match = blockAssetId.match(/^([^:]*:)?block\/(.+)$/);
-  if (!match) return blockAssetId;
-
-  const namespace = match[1] || "minecraft:";
-  let itemName = match[2];
-
-  // Remove block-specific suffixes like _top, _bottom, etc.
-  itemName = itemName.replace(/_(top|bottom|upper|lower|head|foot)$/, "");
-
-  return `${namespace}item/${itemName}`;
-}
-
-/**
- * For leaves blocks, try to get the colored inventory variant texture ID
- * Example: "minecraft:block/acacia_leaves" -> "minecraft:block/acacia_leaves_inventory"
- */
-function getLeavesInventoryTextureId(textureId: string): string {
-  if (textureId.includes("leaves") && !textureId.includes("_inventory")) {
-    // Try to add _inventory suffix (or _bushy_inventory for bushy variants)
-    if (textureId.includes("_bushy")) {
-      return textureId.replace("_bushy", "_bushy_inventory");
-    }
-    return `${textureId}_inventory`;
-  }
-  return textureId;
-}
-
-/**
- * Checks if a block model is suitable for 3D isometric rendering.
- * Returns false for cross-shaped models (plants, flowers), which should use 2D.
- */
-function isSuitableFor3D(elements: ModelElement[]): boolean {
-  if (elements.length === 0) return false;
-
-  // Check if any element has the faces we need for isometric view
-  let hasIsometricFaces = false;
-
-  for (const element of elements) {
-    const { faces } = element;
-    // We need at least up OR (south AND east) for a reasonable 3D render
-    if (faces.up || (faces.south && faces.east)) {
-      hasIsometricFaces = true;
-      break;
-    }
-  }
-
-  if (!hasIsometricFaces) return false;
-
-  // Check for cross-shaped models (typically have diagonal rotated elements)
-  // Cross models usually have elements rotated 45 degrees
-  for (const element of elements) {
-    if (element.rotation && Math.abs(element.rotation.angle) === 45) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-/**
- * Creates a default full-block element for simple blocks without elements array
- */
-function createDefaultElement(
-  textures: Record<string, string>,
-): ModelElement[] {
-  // Resolve default textures for each face
-  const allTexture =
-    textures.all || textures.particle || Object.values(textures)[0] || "";
-  const topTexture = textures.up || textures.top || textures.end || allTexture;
-  const southTexture =
-    textures.south || textures.north || textures.side || allTexture;
-  const eastTexture =
-    textures.east || textures.west || textures.side || allTexture;
-
-  return [
-    {
-      from: [0, 0, 0],
-      to: [16, 16, 16],
-      faces: {
-        up: {
-          texture: topTexture.startsWith("#")
-            ? topTexture
-            : `#${Object.keys(textures).find((k) => textures[k] === topTexture) || "all"}`,
-        },
-        south: {
-          texture: southTexture.startsWith("#")
-            ? southTexture
-            : `#${Object.keys(textures).find((k) => textures[k] === southTexture) || "all"}`,
-        },
-        east: {
-          texture: eastTexture.startsWith("#")
-            ? eastTexture
-            : `#${Object.keys(textures).find((k) => textures[k] === eastTexture) || "all"}`,
-        },
-      },
-    },
-  ];
-}
-
-/**
  * Renders a Minecraft-style isometric block using CSS transforms.
  * Parses block model elements for accurate complex block rendering.
  */
-export default function MinecraftCSSBlock({
+export const MinecraftCSSBlock = ({
   assetId,
   packId,
   alt = "Block",
   size = 48,
   staggerIndex = 0,
   onError,
-}: MinecraftCSSBlockProps) {
+}: MinecraftCSSBlockProps) => {
   const [renderedElements, setRenderedElements] = useState<RenderedElement[]>(
     [],
   );
@@ -244,14 +77,9 @@ export default function MinecraftCSSBlock({
   );
   const [error, setError] = useState(false);
 
-  // PERFORMANCE FIX: Use renderPhase instead of loading boolean
-  // This prevents loading shimmer from showing during 2D→3D transition
-  const [renderPhase, setRenderPhase] = useState<"initial" | "fallback" | "3d">(
-    "initial",
-  );
-
-  const [tintedTextures, setTintedTextures] = useState<Map<string, string>>(
-    new Map(),
+  const { tintedTextures, foliageColor } = useBlockTinting(
+    assetId,
+    renderedElements,
   );
 
   // OPTIMIZATION: Eager preloading strategy
@@ -265,67 +93,6 @@ export default function MinecraftCSSBlock({
   const packs = useStore((state) => state.packs);
   const packsDir = useStore((state) => state.packsDir);
   const pack = packId ? packs[packId] : null;
-
-  // OPTIMIZATION: Determine if this block uses tinting to avoid unnecessary subscriptions
-  const needsGrassTint = useMemo(() => {
-    return (
-      assetId.includes("grass") ||
-      assetId.includes("fern") ||
-      assetId.includes("tall_grass") ||
-      assetId.includes("sugar_cane")
-    );
-  }, [assetId]);
-
-  const needsFoliageTint = useMemo(() => {
-    return assetId.includes("leaves") || assetId.includes("vine");
-  }, [assetId]);
-
-  const needsAnyTint = needsGrassTint || needsFoliageTint;
-
-  // Get selected biome/colors for tinting - only subscribe if needed
-  const selectedBiomeId = useStore((state) =>
-    needsAnyTint ? state.selectedBiomeId : undefined,
-  );
-  const selectedGrassColor = useStore((state) =>
-    needsGrassTint ? state.selectedGrassColor : undefined,
-  );
-  const selectedFoliageColor = useStore((state) =>
-    needsFoliageTint ? state.selectedFoliageColor : undefined,
-  );
-
-  // Subscribe to colormap URLs only if block uses tinting
-  // This prevents non-tinted blocks from re-rendering on pack order changes
-  const grassColormapUrl = useStore((state) =>
-    needsGrassTint ? state.grassColormapUrl : undefined,
-  );
-  const foliageColormapUrl = useStore((state) =>
-    needsFoliageTint ? state.foliageColormapUrl : undefined,
-  );
-
-  // Prevent unused variable warnings
-  void grassColormapUrl;
-  void foliageColormapUrl;
-
-  // Compute grass tint color
-  const grassColor: TintColor | null = useMemo(() => {
-    if (selectedGrassColor) {
-      return selectedGrassColor;
-    }
-    // Default grass color if none selected
-    return { r: 127, g: 204, b: 25 };
-  }, [selectedGrassColor]);
-
-  // Compute foliage tint color
-  const foliageColor: TintColor | null = useMemo(() => {
-    if (selectedFoliageColor) {
-      return selectedFoliageColor;
-    }
-    if (selectedBiomeId) {
-      return getFoliageColorForBiome(selectedBiomeId);
-    }
-    // Default foliage color
-    return getFoliageColorForBiome("plains");
-  }, [selectedBiomeId, selectedFoliageColor]);
 
   // Scale factor: convert 16-unit Minecraft space to pixel size
   // 0.5 gives a good fill of the card while leaving padding for isometric projection
@@ -397,7 +164,6 @@ export default function MinecraftCSSBlock({
           setFallbackTextureUrl(textureUrl);
           setRenderedElements([]);
           setError(false);
-          setRenderPhase("fallback");
 
           // EAGER PRELOADING: Start processing 3D geometry in background immediately
           // This happens while showing 2D fallback, so geometry is ready when user switches tabs
@@ -419,7 +185,6 @@ export default function MinecraftCSSBlock({
         );
         if (mounted) {
           setError(true);
-          setRenderPhase("fallback");
           onError?.();
         }
       }
@@ -467,7 +232,6 @@ export default function MinecraftCSSBlock({
             setFallbackTextureUrl(textureUrl);
             setRenderedElements([]);
             setError(false);
-            setRenderPhase("fallback");
           }
           return;
         }
@@ -587,7 +351,6 @@ export default function MinecraftCSSBlock({
                   setFallbackTextureUrl(fallbackTexture);
                   setRenderedElements([]);
                   setError(false);
-                  setRenderPhase("fallback");
                 }
                 return;
               }
@@ -621,7 +384,6 @@ export default function MinecraftCSSBlock({
           setFallbackTextureUrl(null);
           setRenderedElements(rendered);
           setError(false);
-          setRenderPhase("3d");
         }
       } catch (err) {
         console.warn(
@@ -630,7 +392,6 @@ export default function MinecraftCSSBlock({
         );
         if (mounted) {
           setError(true);
-          setRenderPhase("fallback");
           onError?.();
         }
       }
@@ -643,94 +404,6 @@ export default function MinecraftCSSBlock({
     };
   }, [assetId, packId, pack, packsDir, scale, onError, geometryReady]);
 
-  // Apply foliage tinting to leaf textures
-  useEffect(() => {
-    if ((!grassColor && !foliageColor) || renderedElements.length === 0) {
-      setTintedTextures(new Map());
-      return;
-    }
-
-    let mounted = true;
-
-    const applyTinting = async () => {
-      const newTintedTextures = new Map<string, string>();
-
-      // Collect all unique texture URLs that need tinting, grouped by type
-      const grassTextures = new Set<string>();
-      const foliageTextures = new Set<string>();
-
-      for (const element of renderedElements) {
-        for (const face of element.faces) {
-          if (face.tintType === "grass" && face.textureUrl) {
-            grassTextures.add(face.textureUrl);
-          } else if (face.tintType === "foliage" && face.textureUrl) {
-            foliageTextures.add(face.textureUrl);
-          }
-        }
-      }
-
-      console.log(
-        "[MinecraftCSSBlock] Tinting",
-        grassTextures.size,
-        "grass textures with color",
-        grassColor,
-        "and",
-        foliageTextures.size,
-        "foliage textures with color",
-        foliageColor,
-      );
-
-      // Tint grass textures
-      for (const textureUrl of grassTextures) {
-        try {
-          const tintedUrl = await tintTexture(textureUrl, grassColor);
-          if (mounted) {
-            newTintedTextures.set(textureUrl, tintedUrl);
-          }
-        } catch (error) {
-          console.error(
-            "[MinecraftCSSBlock] Failed to tint grass texture:",
-            error,
-          );
-          newTintedTextures.set(textureUrl, textureUrl);
-        }
-      }
-
-      // Tint foliage textures
-      for (const textureUrl of foliageTextures) {
-        try {
-          const tintedUrl = await tintTexture(textureUrl, foliageColor);
-          if (mounted) {
-            newTintedTextures.set(textureUrl, tintedUrl);
-          }
-        } catch (error) {
-          console.error(
-            "[MinecraftCSSBlock] Failed to tint foliage texture:",
-            error,
-          );
-          newTintedTextures.set(textureUrl, textureUrl);
-        }
-      }
-
-      if (mounted) {
-        setTintedTextures(newTintedTextures);
-      }
-    };
-
-    applyTinting();
-
-    return () => {
-      mounted = false;
-    };
-  }, [grassColor, foliageColor, renderedElements]);
-
-  // Cleanup tint cache on unmount
-  useEffect(() => {
-    return () => {
-      clearTintCache();
-    };
-  }, []);
-
   // Collect and sort all faces by z-index for proper depth rendering
   const sortedFaces = useMemo(() => {
     const allFaces: RenderedFace[] = [];
@@ -740,37 +413,22 @@ export default function MinecraftCSSBlock({
     return allFaces.sort((a, b) => a.zIndex - b.zIndex);
   }, [renderedElements]);
 
-  // PERFORMANCE FIX: Only show loading shimmer on initial render
-  // Never show shimmer during 2D→3D transition (fallback already visible)
-  if (renderPhase === "initial") {
-    return (
-      <div className={s.blockContainer} style={{ width: size, height: size }}>
-        <div className={s.loading} />
-      </div>
-    );
-  }
-
   if (error) {
     return null;
   }
 
   // Render 2D fallback for cross/plant blocks OR while waiting to display 3D
-  // OPTIMIZATION: Geometry can be ready in background (geometryReady=true, renderedElements populated)
-  // but we keep showing 2D fallback until use3DModel=true to prevent premature transitions
   if (fallbackTextureUrl) {
     return (
-      <div className={s.blockContainer} style={{ width: size, height: size }}>
-        <img
-          src={fallbackTextureUrl}
-          alt={alt}
-          className={s.fallbackTexture}
-          onError={() => {
-            setError(true);
-            onError?.();
-          }}
-          draggable={false}
-        />
-      </div>
+      <Block2D
+        textureUrl={fallbackTextureUrl}
+        alt={alt}
+        size={size}
+        onError={() => {
+          setError(true);
+          onError?.();
+        }}
+      />
     );
   }
 
@@ -780,45 +438,16 @@ export default function MinecraftCSSBlock({
   }
 
   return (
-    <div className={s.blockContainer} style={{ width: size, height: size }}>
-      <div className={s.blockScene}>
-        {sortedFaces.map((face, index) => (
-          <div
-            key={index}
-            className={`${s.face} ${s[`face${face.type.charAt(0).toUpperCase()}${face.type.slice(1)}`]} ${face.tintType ? s[`${face.tintType}Tint`] : ""}`}
-            style={
-              {
-                transform: face.transform, // Pre-baked transform from worker
-                "--face-width": `${face.width}px`,
-                "--face-height": `${face.height}px`,
-                "--face-brightness": face.brightness,
-                "--uv-x": face.uv.u,
-                "--uv-y": face.uv.v,
-                "--uv-width": face.uv.width,
-                "--uv-height": face.uv.height,
-                "--uv-flip-x": face.uv.flipX,
-                "--uv-flip-y": face.uv.flipY,
-                "--foliage-color": rgbToCSS(foliageColor),
-                zIndex: face.zIndex,
-              } as React.CSSProperties
-            }
-          >
-            <img
-              src={
-                face.tintType && tintedTextures.has(face.textureUrl)
-                  ? tintedTextures.get(face.textureUrl)!
-                  : face.textureUrl
-              }
-              alt={`${alt} ${face.type}`}
-              onError={() => {
-                setError(true);
-                onError?.();
-              }}
-              draggable={false}
-            />
-          </div>
-        ))}
-      </div>
-    </div>
+    <Block3D
+      faces={sortedFaces}
+      tintedTextures={tintedTextures}
+      foliageColor={foliageColor}
+      alt={alt}
+      size={size}
+      onError={() => {
+        setError(true);
+        onError?.();
+      }}
+    />
   );
 }

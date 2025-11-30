@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useMemo } from "react";
-import s from "../components/MinecraftCSSBlock/styles.module.scss";
+import s from "./styles.module.scss";
 
 // Simplified version of the component for Storybook that doesn't require Tauri/store
 // Uses direct texture URLs instead of loading from file system
