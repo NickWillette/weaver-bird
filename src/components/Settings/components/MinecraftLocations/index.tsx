@@ -7,9 +7,9 @@ import {
   type LauncherInfo,
 } from "@lib/tauri";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import s from "./MinecraftLocations.module.scss";
+import s from "./styles.module.scss";
 
-export default function MinecraftLocations() {
+export const MinecraftLocations = () => {
   const [launchers, setLaunchers] = useState<LauncherInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();

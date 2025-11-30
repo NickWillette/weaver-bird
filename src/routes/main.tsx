@@ -51,10 +51,10 @@ import PreviewItem from "@components/PreviewItem";
 import { OptionsPanel } from "@components/OptionsPanel";
 import { SaveBar } from "@components/SaveBar";
 import { OutputSettings } from "@components/OutputSettings";
-import Settings from "@components/Settings";
-import MinecraftLocations from "@components/Settings/MinecraftLocations";
-import VanillaTextureVersion from "@components/Settings/VanillaTextureVersion";
-import TargetVersion from "@components/Settings/TargetVersion";
+import { Settings } from "@components/Settings";
+import { MinecraftLocations } from "@components/Settings/components/MinecraftLocations";
+import { VanillaTextureVersion } from "@components/Settings/components/VanillaTextureVersion";
+import { TargetVersion } from "@components/Settings/components/TargetVersion";
 import VanillaTextureProgress from "@components/VanillaTextureProgress";
 import { CanvasSettings } from "@components/CanvasSettings";
 import { BiomeSelector } from "@components/BiomeSelector";
@@ -1365,14 +1365,6 @@ export default function MainRoute() {
         minecraftTab={<MinecraftLocations />}
         vanillaVersionTab={<VanillaTextureVersion />}
         targetVersionTab={<TargetVersion />}
-        outputTab={
-          <OutputSettings
-            outputDir={uiState.outputDir}
-            packFormat={uiState.packFormat}
-            onOutputDirChange={setOutputDir}
-            onPackFormatChange={setPackFormat}
-          />
-        }
       />
 
       {/* Resize Handle */}

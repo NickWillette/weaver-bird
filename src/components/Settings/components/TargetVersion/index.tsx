@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { useStore } from "@state";
 import { getAllMinecraftVersions, getLatestMinecraftVersion } from "@lib/packFormatCompatibility";
 import { getCachedVanillaVersion } from "@lib/tauri";
-import s from "./VanillaTextureVersion.module.scss"; // Reuse existing styles
+import s from "./styles.module.scss";
 
-export default function TargetVersion() {
+export const TargetVersion = () => {
   const targetMinecraftVersion = useStore((state) => state.targetMinecraftVersion);
   const setTargetMinecraftVersion = useStore((state) => state.setTargetMinecraftVersion);
   const [vanillaVersion, setVanillaVersion] = useState<string | null>(null);

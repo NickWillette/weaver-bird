@@ -208,3 +208,55 @@
 **Usage Count**: 2 usages (PackList overlay + SortablePackItem)
 
 **Child Components**: None
+
+---
+
+## SaveBar
+
+**Purpose**: Save button with progress bar and status display for Weaver Nest build
+
+**useEffects**: None
+
+**Utilities**: None
+
+**Usage Count**: 1 usage (`src/routes/main.tsx`)
+
+**Child Components**:
+
+- `SaveIcon`: Inline SVG icon component
+
+---
+
+## SearchBar
+
+**Purpose**: Search input with autocomplete dropdown for assets and categories
+
+**useEffects**: 3 effects
+
+- Input value sync: triggers on external `value` change
+- Debounce search: triggers on `inputValue` change (300ms debounce)
+- Click outside handler: triggers on `open` state change
+
+**Utilities**: None (uses utilities from `@lib/searchUtils`)
+
+**Usage Count**: 1 usage (`src/routes/main.tsx`)
+
+**Child Components**: None
+
+---
+
+## Settings
+
+**Purpose**: Settings drawer with tabs for Minecraft locations, vanilla textures, and target version
+
+**useEffects**: None
+
+**Utilities**: None
+
+**Usage Count**: 1 usage (`src/routes/main.tsx`)
+
+**Child Components** (3 tabs):
+
+- `MinecraftLocations`: Minecraft launcher detection and path configuration
+- `VanillaTextureVersion`: Minecraft version selector for vanilla textures
+- `TargetVersion`: Target Minecraft version for pack compatibility

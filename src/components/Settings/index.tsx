@@ -1,4 +1,3 @@
-import { ReactNode } from "react";
 import {
   Drawer,
   DrawerContent,
@@ -8,25 +7,16 @@ import {
 } from "@/ui/components/Drawer";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/ui/components/tabs";
 import Button from "@/ui/components/buttons/Button";
+import type { SettingsProps } from "./types";
 import s from "./styles.module.scss";
 
-interface Props {
-  isOpen: boolean;
-  onClose: () => void;
-  minecraftTab: ReactNode;
-  vanillaVersionTab: ReactNode;
-  targetVersionTab: ReactNode;
-  outputTab: ReactNode;
-}
-
-export default function Settings({
+export const Settings = ({
   isOpen,
   onClose,
   minecraftTab,
   vanillaVersionTab,
   targetVersionTab,
-  outputTab,
-}: Props) {
+}: SettingsProps) => {
   const handleOpenChange = (open: boolean) => {
     if (!open) {
       onClose();
@@ -63,7 +53,6 @@ export default function Settings({
                 Vanilla Textures
               </TabsTrigger>
               <TabsTrigger value="target-version">Target Version</TabsTrigger>
-              <TabsTrigger value="output">Output Settings</TabsTrigger>
             </TabsList>
 
             <TabsContent value="minecraft">{minecraftTab}</TabsContent>
@@ -71,7 +60,6 @@ export default function Settings({
               {vanillaVersionTab}
             </TabsContent>
             <TabsContent value="target-version">{targetVersionTab}</TabsContent>
-            <TabsContent value="output">{outputTab}</TabsContent>
           </Tabs>
         </div>
       </DrawerContent>

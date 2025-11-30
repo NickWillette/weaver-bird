@@ -6,9 +6,9 @@ import {
   formatError,
   type MinecraftVersion,
 } from "@lib/tauri";
-import s from "./VanillaTextureVersion.module.scss";
+import s from "./styles.module.scss";
 
-export default function VanillaTextureVersion() {
+export const VanillaTextureVersion = () => {
   const [versions, setVersions] = useState<MinecraftVersion[]>([]);
   const [currentVersion, setCurrentVersion] = useState<string | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<string>("");
