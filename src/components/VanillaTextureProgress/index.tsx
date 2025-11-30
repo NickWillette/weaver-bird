@@ -1,19 +1,10 @@
+import type { VanillaTextureProgressProps } from "./types";
 import s from "./styles.module.scss";
 
-interface ProgressPayload {
-  current: number;
-  total: number;
-}
-
-interface VanillaTextureProgressProps {
-  progress: ProgressPayload | null;
-  isVisible: boolean;
-}
-
-export default function VanillaTextureProgress({
+export const VanillaTextureProgress = ({
   progress,
   isVisible,
-}: VanillaTextureProgressProps) {
+}: VanillaTextureProgressProps) => {
   if (!isVisible || !progress) {
     return null;
   }
@@ -39,4 +30,4 @@ export default function VanillaTextureProgress({
       </div>
     </div>
   );
-}
+};

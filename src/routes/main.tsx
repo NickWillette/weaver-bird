@@ -55,7 +55,7 @@ import { Settings } from "@components/Settings";
 import { MinecraftLocations } from "@components/Settings/components/MinecraftLocations";
 import { VanillaTextureVersion } from "@components/Settings/components/VanillaTextureVersion";
 import { TargetVersion } from "@components/Settings/components/TargetVersion";
-import VanillaTextureProgress from "@components/VanillaTextureProgress";
+import { VanillaTextureProgress } from "@components/VanillaTextureProgress";
 import { CanvasSettings } from "@components/CanvasSettings";
 import { BiomeSelector } from "@components/BiomeSelector";
 import WindowControls from "@components/WindowControls";
