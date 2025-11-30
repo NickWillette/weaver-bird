@@ -7,21 +7,15 @@ import {
   normalizeQuery,
   type SearchSuggestion,
 } from "@lib/searchUtils";
+import type { SearchBarProps } from "./types";
 import s from "./styles.module.scss";
 
-interface Props {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  debounceMs?: number;
-}
-
-export default function SearchBar({
+export const SearchBar = ({
   value,
   onChange,
   placeholder = "Search blocks, mobs, textures...",
   debounceMs = 300,
-}: Props) {
+}: SearchBarProps) => {
   // Local state for immediate input display
   const [inputValue, setInputValue] = useState(value);
   const [open, setOpen] = useState(false);

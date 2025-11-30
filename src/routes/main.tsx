@@ -43,7 +43,7 @@ import {
 import s from "./main.module.scss";
 
 import { PackList } from "@components/PackList";
-import SearchBar from "@components/SearchBar";
+import { SearchBar } from "@components/SearchBar";
 import AssetResults from "@components/AssetResults";
 import Preview3D from "@components/Preview3D";
 import Preview2D from "@components/Preview2D";
