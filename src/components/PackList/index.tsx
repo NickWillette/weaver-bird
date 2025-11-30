@@ -7,7 +7,7 @@ import {
 } from "@dnd-kit/react";
 import { move } from "@dnd-kit/helpers";
 import { minecraftTextToHTML } from "@/utils/minecraftColors";
-import ResourcePackCard from "@components/ResourcePackCard";
+import { ResourcePackCard } from "@components/ResourcePackCard";
 import Button from "@/ui/components/buttons/Button";
 import { Separator } from "@/ui/components/Separator/Separator";
 import { DroppableArea } from "./components/DroppableArea";
@@ -296,11 +296,11 @@ export const PackList = ({
                 metadata={
                   activeItem.size
                     ? [
-                      {
-                        label: "Size",
-                        value: formatPackSize(activeItem.size),
-                      },
-                    ]
+                        {
+                          label: "Size",
+                          value: formatPackSize(activeItem.size),
+                        },
+                      ]
                     : []
                 }
                 description={

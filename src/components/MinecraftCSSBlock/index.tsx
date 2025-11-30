@@ -254,8 +254,11 @@ export default function MinecraftCSSBlock({
     new Map(),
   );
 
-  // OPTIMIZATION: Defer 3D model loading to idle time for better initial page load
-  // Start with simple flat texture, upgrade to 3D model when browser is idle
+  // OPTIMIZATION: Eager preloading strategy
+  // - geometryReady: Set true when 3D geometry is processed and ready to display
+  // - use3DModel: Set true when we want to actually display the 3D model
+  // This allows us to process geometry in the background while showing 2D fallback
+  const [geometryReady, setGeometryReady] = useState(false);
   const [use3DModel, setUse3DModel] = useState(false);
 
   // Get pack info from store
@@ -364,6 +367,7 @@ export default function MinecraftCSSBlock({
 
   // PERFORMANCE FIX: Split into two separate effects to prevent double-loading
   // Effect 1: Load 2D fallback on mount (runs once per assetId change)
+  // OPTIMIZATION: Also start processing 3D geometry eagerly in the background
   useEffect(() => {
     let mounted = true;
 
@@ -394,6 +398,19 @@ export default function MinecraftCSSBlock({
           setRenderedElements([]);
           setError(false);
           setRenderPhase("fallback");
+
+          // EAGER PRELOADING: Start processing 3D geometry in background immediately
+          // This happens while showing 2D fallback, so geometry is ready when user switches tabs
+          const idleCallback =
+            window.requestIdleCallback || ((cb) => setTimeout(cb, 1));
+          idleCallback(
+            () => {
+              if (mounted) {
+                setGeometryReady(true);
+              }
+            },
+            { timeout: 100 },
+          ); // Short timeout to start processing quickly
         }
       } catch (err) {
         console.warn(
@@ -415,9 +432,10 @@ export default function MinecraftCSSBlock({
     };
   }, [assetId, packId, pack, packsDir, onError]);
 
-  // Effect 2: Load 3D model only when use3DModel becomes true
+  // Effect 2: Load 3D model when geometryReady becomes true (eager preloading)
+  // This processes geometry in the background, even before use3DModel is set
   useEffect(() => {
-    if (!use3DModel) return;
+    if (!geometryReady) return;
 
     let mounted = true;
 
@@ -623,7 +641,7 @@ export default function MinecraftCSSBlock({
     return () => {
       mounted = false;
     };
-  }, [assetId, packId, pack, packsDir, scale, onError, use3DModel]);
+  }, [assetId, packId, pack, packsDir, scale, onError, geometryReady]);
 
   // Apply foliage tinting to leaf textures
   useEffect(() => {
@@ -736,7 +754,9 @@ export default function MinecraftCSSBlock({
     return null;
   }
 
-  // Render 2D fallback for cross/plant blocks
+  // Render 2D fallback for cross/plant blocks OR while waiting to display 3D
+  // OPTIMIZATION: Geometry can be ready in background (geometryReady=true, renderedElements populated)
+  // but we keep showing 2D fallback until use3DModel=true to prevent premature transitions
   if (fallbackTextureUrl) {
     return (
       <div className={s.blockContainer} style={{ width: size, height: size }}>
@@ -754,7 +774,8 @@ export default function MinecraftCSSBlock({
     );
   }
 
-  if (sortedFaces.length === 0) {
+  // Only show 3D model when both ready AND user wants to see it
+  if (!use3DModel || sortedFaces.length === 0) {
     return null;
   }
 
