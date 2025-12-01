@@ -8,6 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "./store";
 import { AssetId, PackId, OverrideEntry, OverrideWirePayload } from "./types";
 import { assetMatchesQuery } from "@lib/searchUtils";
+import { shouldExcludeAsset } from "@lib/assetUtils";
 
 /**
  * Get providers for an asset, sorted by current pack order
@@ -135,19 +136,19 @@ export const useSelectFilteredAssets = () => {
 };
 
 /**
- * Get paginated assets based on current page and items per page
- * This selector filters first (by search query), then paginates the results
+ * Get filtered assets based on search query (NO PAGINATION)
+ * Pagination now happens in AssetResults component after grouping/filtering
  * Uses fuzzy matching that supports space-to-underscore conversion
  */
 export const useSelectPaginatedAssets = () => {
   const assets = useStore((state) => state.assets);
   const searchQuery = useStore((state) => state.searchQuery);
-  const currentPage = useStore((state) => state.currentPage);
-  const itemsPerPage = useStore((state) => state.itemsPerPage);
 
   return useMemo(() => {
-    // First, filter assets by search query
-    let filteredAssets = Object.values(assets);
+    // Filter assets by search query and exclude unwanted assets
+    let filteredAssets = Object.values(assets).filter(
+      (asset) => !shouldExcludeAsset(asset.id),
+    );
 
     if (searchQuery) {
       filteredAssets = filteredAssets.filter((asset) =>
@@ -155,25 +156,11 @@ export const useSelectPaginatedAssets = () => {
       );
     }
 
-    // Calculate pagination
-    const totalItems = filteredAssets.length;
-    const totalPages = Math.ceil(totalItems / itemsPerPage);
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-
-    // Slice the filtered results for current page
-    const paginatedAssets = filteredAssets.slice(startIndex, endIndex);
-
+    // Return all filtered assets - pagination happens after grouping
     return {
-      assets: paginatedAssets,
-      totalItems,
-      totalPages,
-      currentPage,
-      itemsPerPage,
-      hasNextPage: currentPage < totalPages,
-      hasPrevPage: currentPage > 1,
+      assets: filteredAssets,
     };
-  }, [assets, searchQuery, currentPage, itemsPerPage]);
+  }, [assets, searchQuery]);
 };
 
 /**

@@ -16,7 +16,9 @@
  *    - Prevents browser lockup when loading 50+ cards at once
  *    - IMPACT: Initial page load feels instant, cards appear progressively
  */
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
+import { Canvas } from "@react-three/fiber";
+import { View } from "@react-three/drei";
 import {
   beautifyAssetName,
   getBlockStateIdFromAssetId,
@@ -35,49 +37,41 @@ export default function AssetResults({
   assets,
   selectedId,
   onSelect,
-  totalItems,
-  displayRange,
+  onPaginationChange,
 }: Props) {
   const winners = useStore((state) => state.overrides);
   const providersByAsset = useStore((state) => state.providersByAsset);
   const packOrder = useStore((state) => state.packOrder);
   const disabledPackIds = useStore((state) => state.disabledPackIds);
+  const currentPage = useStore((state) => state.currentPage);
+  const itemsPerPage = useStore((state) => state.itemsPerPage);
   const disabledSet = useMemo(
     () => new Set(disabledPackIds),
     [disabledPackIds],
   );
+
+  // Ref for the container to handle events
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // OPTIMIZATION: Progressive rendering - stagger card mounting to avoid initial lag
   // Render cards in batches to prevent overwhelming the browser with 50+ MinecraftCSSBlocks at once
   const [renderCount, setRenderCount] = useState(12); // Start with first 12 cards
   const renderBatchSize = 12; // Render 12 more cards per batch
 
+  // State for grouped assets before pagination
+  const [allGroupedAssets, setAllGroupedAssets] = useState<
+    Array<{
+      id: string;
+      name: string;
+      variantCount: number;
+      allVariants: string[];
+    }>
+  >([]);
+
   // Reset render count when assets change (new search, pagination, etc.)
   useEffect(() => {
     setRenderCount(12);
-  }, [assets]);
-
-  // Progressively render more cards using requestIdleCallback for non-blocking updates
-  useEffect(() => {
-    if (renderCount >= assets.length) {
-      return; // All cards rendered
-    }
-
-    // Use requestIdleCallback to render next batch during browser idle time
-    const idleCallback =
-      window.requestIdleCallback || ((cb) => setTimeout(cb, 16));
-    const handle = idleCallback(() => {
-      setRenderCount((prev) => Math.min(prev + renderBatchSize, assets.length));
-    });
-
-    return () => {
-      if (window.cancelIdleCallback) {
-        window.cancelIdleCallback(handle);
-      } else {
-        clearTimeout(handle as unknown as number);
-      }
-    };
-  }, [renderCount, assets.length, renderBatchSize]);
+  }, [assets, currentPage]);
 
   // Helper to get winning pack for an asset - wrapped to use store state
   const getWinningPackForAsset = useCallback(
@@ -95,15 +89,6 @@ export default function AssetResults({
 
   // OPTIMIZATION: Group assets by variant using Web Worker to avoid blocking main thread
   // This runs in a background thread and saves ~30-50ms per operation
-  const [groupedAssets, setGroupedAssets] = useState<
-    Array<{
-      id: string;
-      name: string;
-      variantCount: number;
-      allVariants: string[];
-    }>
-  >([]);
-
   useEffect(() => {
     let mounted = true;
 
@@ -178,7 +163,8 @@ export default function AssetResults({
         };
       });
 
-      setGroupedAssets(displayAssets);
+      // Store ALL grouped assets (before pagination)
+      setAllGroupedAssets(displayAssets);
     };
 
     groupAssets();
@@ -188,6 +174,53 @@ export default function AssetResults({
     };
   }, [assets, getWinningPackForAsset]);
 
+  // Paginate AFTER grouping and pack filtering
+  const { groupedAssets, totalPages, hasNextPage, hasPrevPage } =
+    useMemo(() => {
+      const totalCards = allGroupedAssets.length;
+      const totalPages = Math.ceil(totalCards / itemsPerPage);
+      const startIndex = (currentPage - 1) * itemsPerPage;
+      const endIndex = startIndex + itemsPerPage;
+
+      const paginatedGroups = allGroupedAssets.slice(startIndex, endIndex);
+
+      return {
+        groupedAssets: paginatedGroups,
+        totalPages,
+        hasNextPage: currentPage < totalPages,
+        hasPrevPage: currentPage > 1,
+      };
+    }, [allGroupedAssets, currentPage, itemsPerPage]);
+
+  // Progressively render more cards using requestIdleCallback for non-blocking updates
+  useEffect(() => {
+    if (renderCount >= groupedAssets.length) {
+      return; // All cards rendered
+    }
+
+    // Use requestIdleCallback to render next batch during browser idle time
+    const idleCallback =
+      window.requestIdleCallback || ((cb) => setTimeout(cb, 16));
+    const handle = idleCallback(() => {
+      setRenderCount((prev) => Math.min(prev + renderBatchSize, groupedAssets.length));
+    });
+
+    return () => {
+      if (window.cancelIdleCallback) {
+        window.cancelIdleCallback(handle);
+      } else {
+        clearTimeout(handle as unknown as number);
+      }
+    };
+  }, [renderCount, groupedAssets.length, renderBatchSize]);
+
+  // Report pagination state to parent component
+  useEffect(() => {
+    if (onPaginationChange) {
+      onPaginationChange({ totalPages, hasNextPage, hasPrevPage });
+    }
+  }, [totalPages, hasNextPage, hasPrevPage, onPaginationChange]);
+
   // Create a stable callback that can be reused
   const handleSelectAsset = useCallback(
     (assetId: string) => {
@@ -196,23 +229,45 @@ export default function AssetResults({
     [onSelect],
   );
 
-  console.log(
-    "[AssetResults] Rendering",
-    assets.length,
-    "assets (",
+  // Calculate display range for current page
+  const displayRange = useMemo(() => {
+    if (allGroupedAssets.length === 0) return { start: 0, end: 0 };
+    const start = (currentPage - 1) * itemsPerPage + 1;
+    const end = Math.min(
+      start + groupedAssets.length - 1,
+      allGroupedAssets.length,
+    );
+    return { start, end };
+  }, [
+    currentPage,
+    itemsPerPage,
     groupedAssets.length,
-    "groups) with lazy loading",
-    totalItems ? `| Total: ${totalItems}` : "",
+    allGroupedAssets.length,
+  ]);
+
+  console.log(
+    "[AssetResults] Rendering page",
+    currentPage,
+    "with",
+    groupedAssets.length,
+    "cards | Total cards:",
+    allGroupedAssets.length,
   );
 
   if (assets.length === 0) {
     return (
       <div className={s.root}>
         <div className={s.emptyState}>
-          {totalItems === 0
-            ? "No assets found. Try searching for a block or texture."
-            : "No results on this page."}
+          No assets found. Try searching for a block or texture.
         </div>
+      </div>
+    );
+  }
+
+  if (groupedAssets.length === 0) {
+    return (
+      <div className={s.root}>
+        <div className={s.emptyState}>Loading assets...</div>
       </div>
     );
   }
@@ -222,12 +277,28 @@ export default function AssetResults({
   const hasMoreToRender = renderCount < groupedAssets.length;
 
   return (
-    <div className={s.root}>
-      {totalItems && displayRange && (
-        <div className={s.paginationInfo}>
-          Showing {displayRange.start}–{displayRange.end} of {totalItems} assets
-        </div>
-      )}
+    <div className={s.root} ref={containerRef}>
+      {/* Shared Canvas for 3D Views */}
+      <Canvas
+        className={s.canvas}
+        eventSource={containerRef}
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "100vw",
+          height: "100vh",
+          pointerEvents: "none",
+          zIndex: 1,
+        }}
+      >
+        <View.Port />
+      </Canvas>
+
+      <div className={s.paginationInfo}>
+        Showing {displayRange.start}–{displayRange.end} of{" "}
+        {allGroupedAssets.length} resource cards
+      </div>
       <div className={s.results}>
         {visibleGroupedAssets.map((group, index) => (
           <AssetCard
@@ -244,7 +315,7 @@ export default function AssetResults({
         ))}
         {hasMoreToRender && (
           <div className={s.loadingMore} key="loading-more">
-            Loading more assets...
+            Loading more cards...
           </div>
         )}
       </div>

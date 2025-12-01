@@ -80,7 +80,13 @@ export const TabDrawerContent: React.FC<TabDrawerContentProps> = ({
       data-transitioning={isTransitioning}
     >
       <DrawerClose className={s.closeButton}>×</DrawerClose>
-      <DrawerHeader>
+      <DrawerHeader
+        style={{
+          position: "relative",
+          zIndex: 10,
+          backgroundColor: "var(--color-bg-primary, white)",
+        }}
+      >
         <DrawerTitle>{label}</DrawerTitle>
       </DrawerHeader>
       {/* Apply view-transition-name for targeted animations */}

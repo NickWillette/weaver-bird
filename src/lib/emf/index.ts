@@ -78,6 +78,28 @@ export function getEntityInfoFromAssetId(assetId: string): {
     // Base entity (e.g., "cow", "chicken")
     return { variant: segments[0], parent: null };
   } else {
+    // Handle sign entities specially
+    // Pattern: signs/hanging/oak -> oak_hanging_sign
+    // Pattern: signs/oak -> oak_sign
+    // Pattern: signs/wall/oak -> oak_wall_sign
+    if (segments[0] === "signs") {
+      const woodType = segments[segments.length - 1]; // Last segment is wood type
+      let signType = "";
+
+      if (segments.length === 3) {
+        // signs/hanging/oak or signs/wall/oak
+        signType = `_${segments[1]}_sign`;
+      } else {
+        // signs/oak (regular standing sign)
+        signType = "_sign";
+      }
+
+      return {
+        variant: `${woodType}${signType}`,
+        parent: "signs",
+      };
+    }
+
     // Variant entity (e.g., "chicken/cold_chicken", "cow/red_mooshroom")
     const variant = segments[segments.length - 1];
 
@@ -103,13 +125,36 @@ export function getEntityTypeFromAssetId(assetId: string): string | null {
 }
 
 /**
+ * Get available JEM variants for an entity
+ *
+ * Returns known variant options for entities that have multiple model states.
+ * For example, hanging signs can be "wall" (default/base) or "ceiling_middle".
+ *
+ * @param assetId - Entity asset ID
+ * @returns Array of variant names, or empty array if no variants
+ */
+export function getEntityVariants(assetId: string): string[] {
+  const info = getEntityInfoFromAssetId(assetId);
+  if (!info) return [];
+
+  // Hanging signs have multiple attachment variants
+  if (info.variant.includes("_hanging_sign")) {
+    return ["wall", "ceiling", "ceiling_middle"];
+  }
+
+  // Other entities can be added here as we discover their variants
+  return [];
+}
+
+/**
  * Load an entity model from a resource pack or vanilla
  *
  * LOADING STRATEGY:
- * 1. Try variant-specific JEM (e.g., cold_chicken.jem, red_mooshroom.jem)
- * 2. If not found, try parent entity JEM (e.g., chicken.jem, mooshroom.jem)
- * 3. Check for version-specific variants based on pack format
- * 4. Fall back to vanilla JEM files
+ * 1. Try selected variant JEM if specified (e.g., hanging_sign/oak/ceiling_middle.jem)
+ * 2. Try variant-specific JEM (e.g., cold_chicken.jem, red_mooshroom.jem)
+ * 3. If not found, try parent entity JEM (e.g., chicken.jem, mooshroom.jem)
+ * 4. Check for version-specific variants based on pack format
+ * 5. Fall back to vanilla JEM files
  *
  * @param entityType - Entity type (e.g., "cow", "cold_chicken", "red_mooshroom")
  * @param packPath - Path to the resource pack
@@ -118,6 +163,7 @@ export function getEntityTypeFromAssetId(assetId: string): string | null {
  * @param entityVersionVariants - Map of entity -> available version folders (from scan)
  * @param parentEntity - Parent entity type for fallback (e.g., "chicken" for "cold_chicken")
  * @param packFormat - Pack format of the winning pack (for version matching)
+ * @param selectedVariant - User-selected entity variant (e.g., "ceiling_middle" for hanging signs)
  * @returns Parsed entity model with metadata, or null if not found
  */
 export async function loadEntityModel(
@@ -128,6 +174,7 @@ export async function loadEntityModel(
   _entityVersionVariants?: Record<string, string[]>,
   parentEntity?: string | null,
   packFormat?: number,
+  selectedVariant?: string,
 ): Promise<
   (ParsedEntityModel & { jemSource?: string; usedLegacyJem?: boolean }) | null
 > {
@@ -221,6 +268,18 @@ export async function loadEntityModel(
   };
 
   if (packPath) {
+    // STEP 0: Try selected variant if specified
+    if (selectedVariant) {
+      if (entityType.includes("_hanging_sign")) {
+        const woodType = entityType.replace("_hanging_sign", "");
+        const result = await tryLoadJem(
+          `${woodType}/${selectedVariant}_hanging_sign`,
+          `selected variant (${selectedVariant})`,
+        );
+        if (result) return result;
+      }
+    }
+
     // STEP 1: Try variant-specific JEM (e.g., cold_chicken.jem, red_mooshroom.jem)
     let result = await tryLoadJem(entityType, "variant");
     if (result) return result;
@@ -259,7 +318,18 @@ export async function loadEntityModel(
   }
 
   // STEP 4: Try vanilla JEM files
-  // Try variant first
+  // Try selected variant first if specified
+  if (selectedVariant) {
+    if (entityType.includes("_hanging_sign")) {
+      const woodType = entityType.replace("_hanging_sign", "");
+      const result = await tryLoadVanillaJem(
+        `${woodType}/${selectedVariant}_hanging_sign`,
+      );
+      if (result) return result;
+    }
+  }
+
+  // Try variant base
   let result = await tryLoadVanillaJem(entityType);
   if (result) return result;
 

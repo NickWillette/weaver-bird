@@ -189,6 +189,43 @@ export function isMinecraftItem(assetId: string): boolean {
 }
 
 /**
+ * Check if an asset is a sign texture
+ * Returns true for both regular signs and hanging signs
+ * Examples:
+ * - minecraft:block/oak_sign
+ * - minecraft:block/oak_hanging_sign
+ * - minecraft:gui/hanging_signs/oak
+ * - minecraft:gui/signs/oak
+ */
+export function isSignTexture(assetId: string): boolean {
+  const path = assetId.includes(":") ? assetId.split(":")[1] : assetId;
+
+  // Check for GUI sign textures (minecraft:gui/signs/*, minecraft:gui/hanging_signs/*)
+  if (path.startsWith("gui/signs/") || path.startsWith("gui/hanging_signs/")) {
+    return true;
+  }
+
+  // Check for block sign textures
+  if (path.startsWith("block/")) {
+    // Match sign patterns: oak_sign, birch_hanging_sign, etc.
+    // Signs end with "_sign" or "_hanging_sign"
+    return /_sign$|_hanging_sign$/.test(path);
+  }
+
+  return false;
+}
+
+/**
+ * Check if an asset is a hanging sign specifically
+ */
+export function isHangingSign(assetId: string): boolean {
+  const path = assetId.includes(":") ? assetId.split(":")[1] : assetId;
+  return (
+    path.includes("_hanging_sign") || path.startsWith("gui/hanging_signs/")
+  );
+}
+
+/**
  * Get the texture category from an asset ID
  * Returns the category path (e.g., "gui", "particle", "block", "item")
  */
@@ -541,6 +578,54 @@ export function applyNaturalBlockStateDefaults(
   }
 
   return result;
+}
+
+/**
+ * Check if an asset should be excluded from the asset list
+ * Filters out non-texture assets, metadata files, and special debug textures
+ */
+export function shouldExcludeAsset(assetId: string): boolean {
+  // Exclude empty/malformed asset IDs
+  if (!assetId || assetId === "minecraft:" || assetId === "minecraft:block/") {
+    return true;
+  }
+
+  // Exclude readme files
+  if (assetId.toLowerCase().includes("readme")) {
+    return true;
+  }
+
+  // Exclude colormap assets (now handled in Biome & Colormaps tab)
+  if (assetId.includes("colormap/")) {
+    return true;
+  }
+
+  // Exclude debug textures
+  if (assetId.includes("/debug")) {
+    return true;
+  }
+
+  // Exclude desktop.ini and other OS metadata files
+  if (assetId.toLowerCase().includes("desktop")) {
+    return true;
+  }
+
+  // Exclude common non-texture files that might appear in resource packs
+  const lowercaseId = assetId.toLowerCase();
+  const excludedExtensions = [
+    ".txt",
+    ".md",
+    ".json",
+    ".mcmeta",
+    ".ini",
+    ".ds_store",
+    "thumbs.db",
+  ];
+  if (excludedExtensions.some((ext) => lowercaseId.endsWith(ext))) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -972,9 +1057,10 @@ export function getBaseName(assetId: string): string {
   // Remove common structural suffixes (top/bottom, head/foot, etc.)
   // Also handles texture-specific suffixes that don't correspond to blockstates:
   // - bamboo_stalk, bamboo_large_leaves, bamboo_small_leaves -> bamboo
+  // - azalea_plant -> azalea
   // - chiseled_bookshelf_occupied, chiseled_bookshelf_empty -> chiseled_bookshelf
   name = name.replace(
-    /_(top|bottom|upper|lower|head|foot|side|front|back|left|right|inventory|bushy|stage\d+|stalk|large_leaves|small_leaves|singleleaf|occupied|empty|inner|base|round|pivot|overlay|moist|corner|flow|still|arm|inside|outside|eye|conditional|dead|compost|ready|bloom|hanging|particle|post|walls|tip|frustum|merge|middle|crafting|ejecting|ominous)\d*$/,
+    /_(top|bottom|upper|lower|head|foot|side|front|back|end|left|right|inventory|bushy|stage\d+|stalk|stem|plant|large_leaves|small_leaves|singleleaf|occupied|empty|inner|base|round|pivot|overlay|moist|corner|flow|still|arm|inside|outside|eye|conditional|dead|compost|ready|bloom|hanging|particle|post|walls|tip|frustum|merge|middle|crafting|ejecting|ominous)\d*$/,
     "",
   );
 
@@ -1035,8 +1121,12 @@ export function getVariantGroupKey(assetId: string): string {
   // Strip potted prefix/suffix to group with base plant
   // "block/potted_oak_sapling" -> "block/oak_sapling"
   // "block/oxeye_daisy_potted" -> "block/oxeye_daisy"
+  // "block/potted_azalea_bush" -> "block/azalea" (special case: azalea bush → azalea)
   if (path.includes("/potted_")) {
     path = path.replace("/potted_", "/");
+    // Special case: potted azalea_bush/flowering_azalea_bush → azalea/flowering_azalea
+    path = path.replace("/azalea_bush", "/azalea");
+    path = path.replace("/flowering_azalea_bush", "/flowering_azalea");
   } else if (path.endsWith("_potted")) {
     path = path.replace(/_potted$/, "");
   }
@@ -1066,28 +1156,24 @@ export function getVariantGroupKey(assetId: string): string {
   const pathPrefix = pathParts.slice(0, -1).join("/");
 
   // Remove comprehensive structural and texture-specific suffixes
-  // Loop to handle compound suffixes like "_side_overlay" -> strip both "_overlay" AND "_side"
+  // Loop to handle compound suffixes like "_front_honey" -> strip "_honey" then "_front"
   // This groups block states/faces on the same card (e.g., activator_rail + activator_rail_on)
   // Note: Variant counting logic separately determines what's a "texture variant"
   let changed = true;
   while (changed) {
     const before = blockName;
+    // Try structural suffixes first
     blockName = blockName.replace(
-      /_(top|bottom|upper|lower|head|foot|side|front|back|left|right|north|south|east|west|inventory|bushy|bushy_inventory|stage\d+|stalk|stem|large_leaves|small_leaves|singleleaf|occupied|empty|inner|base|round|pivot|overlay|snow|moist|corner|flow|still|arm|inside|outside|eye|conditional|dead|compost|ready|bloom|hanging|particle|post|walls|tip|frustum|merge|middle|crafting|ejecting|ominous)\d*$/,
+      /_(top|bottom|upper|lower|head|foot|side|front|back|end|left|right|north|south|east|west|inventory|bushy|bushy_inventory|stage\d+|stalk|stem|plant|large_leaves|small_leaves|singleleaf|occupied|empty|inner|base|round|pivot|overlay|snow|moist|corner|flow|still|arm|inside|outside|eye|conditional|dead|compost|ready|bloom|hanging|particle|post|walls|tip|frustum|merge|middle|crafting|ejecting|ominous)\d*$/,
       "",
     );
-    changed = blockName !== before;
-  }
-
-  // Remove block state suffixes (on/off, lit, powered, open/closed, etc.)
-  // Also loop for compound state suffixes
-  changed = true;
-  while (changed) {
-    const before = blockName;
-    blockName = blockName.replace(
-      /_(on|off|lit|unlit|powered|unpowered|open|closed|locked|unlocked|connected|disconnected|triggered|untriggered|enabled|disabled|active|inactive|extended|retracted|attached|detached|disarmed|unstable|tipped|filled|empty|honey|partial_tilt|full_tilt|level_\d+|age_\d+|bites_\d+|layers_\d+|delay_\d+|note_\d+|power_\d+|moisture_\d+|rotation_\d+|distance_\d+|charges_\d+|candles_\d+|pickles_\d+|eggs_\d+|hatch_\d+|dusted_\d+)$/,
-      "",
-    );
+    // If no structural suffix matched, try state suffixes
+    if (blockName === before) {
+      blockName = blockName.replace(
+        /_(on|off|lit|unlit|powered|unpowered|open|closed|locked|unlocked|connected|disconnected|triggered|untriggered|enabled|disabled|active|inactive|extended|retracted|attached|detached|disarmed|unstable|tipped|filled|empty|honey|partial_tilt|full_tilt|level_\d+|age_\d+|bites_\d+|layers_\d+|delay_\d+|note_\d+|power_\d+|moisture_\d+|rotation_\d+|distance_\d+|charges_\d+|candles_\d+|pickles_\d+|eggs_\d+|hatch_\d+|dusted_\d+)$/,
+        "",
+      );
+    }
     changed = blockName !== before;
   }
 

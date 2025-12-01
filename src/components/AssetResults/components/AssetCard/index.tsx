@@ -8,6 +8,11 @@ import {
   isMinecraftItem,
 } from "@lib/assetUtils";
 import {
+  isEntityTexture,
+  getEntityInfoFromAssetId,
+  loadEntityModel,
+} from "@lib/emf";
+import {
   useSelectWinner,
   useSelectIsPenciled,
   useSelectPack,
@@ -27,6 +32,9 @@ import {
 import type { AssetCardProps } from "./types";
 import s from "./styles.module.scss";
 
+import { View } from "@react-three/drei";
+import { EntityPreview } from "../EntityPreview";
+
 export const AssetCard = memo(
   function AssetCard({
     asset,
@@ -42,6 +50,11 @@ export const AssetCard = memo(
     const isColormap = isBiomeColormapAsset(asset.id);
     const is2DTexture = is2DOnlyTexture(asset.id);
     const isItem = isMinecraftItem(asset.id);
+    const isEntity = isEntityTexture(asset.id);
+
+    // Entity rendering state
+    const [jemModel, setJemModel] = useState<any>(null);
+    const [entityTextureUrl, setEntityTextureUrl] = useState<string | null>(null);
 
     // Get the winning pack for this asset
     const winnerPackId = useSelectWinner(asset.id);
@@ -206,6 +219,80 @@ export const AssetCard = memo(
       winnerPack,
     ]);
 
+    // Load entity model and texture when visible
+    useEffect(() => {
+      if (!isVisible || !isEntity) return;
+
+      let mounted = true;
+
+      const loadEntity = async () => {
+        try {
+          const normalizedAssetId = normalizeAssetId(asset.id);
+          const entityInfo = getEntityInfoFromAssetId(normalizedAssetId);
+
+          if (!entityInfo) {
+            console.warn(`[AssetCard] Could not extract entity info from ${asset.id}`);
+            return;
+          }
+
+          // Load JEM model
+          const model = await loadEntityModel(
+            entityInfo.variant,
+            winnerPack?.path,
+            winnerPack?.is_zip,
+            targetMinecraftVersion,
+            entityVersionVariants,
+            entityInfo.parent,
+            packFormat,
+          );
+
+          if (!model) {
+            console.warn(`[AssetCard] No JEM model found for entity ${entityInfo.variant}`);
+            return;
+          }
+
+          // Load entity texture
+          let texturePath: string;
+          if (winnerPackId && winnerPack) {
+            try {
+              texturePath = await getPackTexturePath(
+                winnerPack.path,
+                normalizedAssetId,
+                winnerPack.is_zip,
+              );
+            } catch {
+              texturePath = await getVanillaTexturePath(normalizedAssetId);
+            }
+          } else {
+            texturePath = await getVanillaTexturePath(normalizedAssetId);
+          }
+
+          if (mounted) {
+            const textureUrl = convertFileSrc(texturePath);
+            setJemModel(model);
+            setEntityTextureUrl(textureUrl);
+          }
+        } catch (error) {
+          console.error(`[AssetCard] Failed to load entity ${asset.id}:`, error);
+        }
+      };
+
+      loadEntity();
+
+      return () => {
+        mounted = false;
+      };
+    }, [
+      isVisible,
+      isEntity,
+      asset.id,
+      winnerPackId,
+      winnerPackPath,
+      targetMinecraftVersion,
+      entityVersionVariants,
+      packFormat,
+    ]);
+
     // Generate display name
     const displayName = useMemo(() => generateDisplayName(asset), [asset]);
 
@@ -242,16 +329,31 @@ export const AssetCard = memo(
                 <span className={s.placeholderIcon}>⏳</span>
               </div>
             )
-          ) : // Blocks display as 3D CSS cubes
+
+            // ... (existing imports)
+
+            // ... inside component ...
+
+          ) : // Blocks and entities display as 3D CSS cubes (or Three.js View for entities)
             isVisible ? (
-              <MinecraftCSSBlock
-                assetId={asset.id}
-                packId={winnerPackId || undefined}
-                alt={displayName}
-                size={75}
-                staggerIndex={staggerIndex}
-                onError={() => setImageError(true)}
-              />
+              isEntity ? (
+                <View style={{ width: "100%", height: "100%" }}>
+                  <EntityPreview
+                    jemModel={jemModel}
+                    textureUrl={entityTextureUrl}
+                  />
+                </View>
+              ) : (
+                <MinecraftCSSBlock
+                  assetId={asset.id}
+                  packId={winnerPackId || undefined}
+                  alt={displayName}
+                  size={75}
+                  staggerIndex={staggerIndex}
+                  onError={() => setImageError(true)}
+                  renderMode="block"
+                />
+              )
             ) : (
               <div className={s.placeholder}>
                 <span className={s.placeholderIcon}>⏳</span>

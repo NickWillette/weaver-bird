@@ -40,6 +40,7 @@ import type {
   RenderedElement,
   RenderedFace,
 } from "./types";
+import s from "./styles.module.scss";
 import {
   shouldUse2DItemIcon,
   getItemAssetId,
@@ -68,6 +69,9 @@ export const MinecraftCSSBlock = ({
   size = 48,
   staggerIndex = 0,
   onError,
+  renderMode = "block",
+  jemModel,
+  entityTextureUrl,
 }: MinecraftCSSBlockProps) => {
   const [renderedElements, setRenderedElements] = useState<RenderedElement[]>(
     [],
@@ -104,6 +108,7 @@ export const MinecraftCSSBlock = ({
   // QUEUE: Use global transition queue to ensure only 1-2 transitions per frame
   // This is especially important for Safari/WebKit which struggles with many 3D transforms at once
   useEffect(() => {
+    console.log(`[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`);
     const idleCallback =
       window.requestIdleCallback || ((cb) => setTimeout(cb, 100));
 
@@ -136,6 +141,14 @@ export const MinecraftCSSBlock = ({
   // Effect 1: Load 2D fallback on mount (runs once per assetId change)
   // OPTIMIZATION: Also start processing 3D geometry eagerly in the background
   useEffect(() => {
+    console.log(`[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`);
+    // If in entity mode, skip 2D fallback loading but ensure geometry is marked ready
+    // so that Effect 2 can proceed with loading the 3D entity model
+    if (renderMode === "entity") {
+      setGeometryReady(true);
+      return;
+    }
+
     let mounted = true;
 
     const loadSimpleTexture = async (textureId: string): Promise<string> => {
@@ -195,17 +208,49 @@ export const MinecraftCSSBlock = ({
     return () => {
       mounted = false;
     };
-  }, [assetId, packId, pack, packsDir, onError]);
+  }, [assetId, packId, pack, packsDir, onError, jemModel, entityTextureUrl, renderMode]);
 
   // Effect 2: Load 3D model when geometryReady becomes true (eager preloading)
   // This processes geometry in the background, even before use3DModel is set
   useEffect(() => {
+    console.log(`[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`);
     if (!geometryReady) return;
 
     let mounted = true;
 
     const load3DModel = async () => {
       try {
+        // ENTITY RENDERING MODE
+        if (renderMode === "entity") {
+          if (jemModel && entityTextureUrl) {
+            // Import entity geometry utilities
+            const { convertJEMModelToFaces } = await import(
+              "@lib/utils/entityGeometry"
+            );
+
+            // Convert JEM model to renderable faces
+            const renderedElements = convertJEMModelToFaces(
+              jemModel,
+              entityTextureUrl,
+              scale,
+            );
+
+            console.log(`[MinecraftCSSBlock] Entity converted: ${renderedElements.length} elements`);
+
+            if (mounted) {
+              setFallbackTextureUrl(null);
+              setRenderedElements(renderedElements);
+              setError(false);
+              // Force 3D model usage for entities immediately if we have the model
+              // This bypasses the idle callback delay for entities that are already loaded
+              setUse3DModel(true);
+            }
+          }
+          // If entity mode but no model yet, do nothing (wait for props update)
+          return;
+        }
+
+        // BLOCK RENDERING MODE (existing logic)
         const normalizedAssetId = normalizeAssetId(assetId);
 
         // Check if this block should use a 2D item icon instead of 3D model
@@ -417,18 +462,30 @@ export const MinecraftCSSBlock = ({
     return null;
   }
 
-  // Render 2D fallback for cross/plant blocks OR while waiting to display 3D
-  if (fallbackTextureUrl) {
+  // Render 2D fallback if 3D model is not ready or failed
+  if (!use3DModel || error || !renderedElements.length) {
+    if (renderMode === "entity" && jemModel) {
+      console.log(`[MinecraftCSSBlock] Fallback render: use3D=${use3DModel}, error=${error}, elements=${renderedElements.length}`);
+    }
+
+    if (fallbackTextureUrl) {
+      return (
+        <Block2D
+          textureUrl={fallbackTextureUrl}
+          alt={alt}
+          size={size}
+          onError={() => {
+            setError(true);
+            onError?.();
+          }}
+        />
+      );
+    }
+
     return (
-      <Block2D
-        textureUrl={fallbackTextureUrl}
-        alt={alt}
-        size={size}
-        onError={() => {
-          setError(true);
-          onError?.();
-        }}
-      />
+      <div className={s.placeholder}>
+        <span className={s.placeholderIcon}>⏳</span>
+      </div>
     );
   }
 
@@ -450,4 +507,4 @@ export const MinecraftCSSBlock = ({
       }}
     />
   );
-}
+};

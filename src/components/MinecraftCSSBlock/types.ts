@@ -11,6 +11,14 @@ export interface MinecraftCSSBlockProps {
     staggerIndex?: number;
     /** Callback when textures fail to load */
     onError?: () => void;
+
+    // Entity rendering support
+    /** Rendering mode: "block" (default) or "entity" */
+    renderMode?: "block" | "entity";
+    /** Parsed JEM entity model (required when renderMode is "entity") */
+    jemModel?: import("@lib/emf/jemLoader").ParsedEntityModel;
+    /** Entity texture URL (required when renderMode is "entity") */
+    entityTextureUrl?: string;
 }
 
 /** Represents a rendered face with all data needed for CSS */

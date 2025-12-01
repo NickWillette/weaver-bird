@@ -76,6 +76,12 @@ interface StoreActions {
   // 3D block display settings
   setShowPot: (show: boolean) => void;
 
+  // Sign text settings
+  setSignText: (text: string[]) => void;
+
+  // Entity variant selection
+  setEntityVariant: (variant: string | undefined) => void;
+
   // Entity model compatibility
   setUseLegacyCEM: (use: boolean) => void;
   setTargetMinecraftVersion: (version: string | null) => void;
@@ -130,6 +136,12 @@ const initialState: AppState = {
 
   // 3D block display settings
   showPot: true, // Show pot by default for potted plants
+
+  // Sign text settings
+  signText: ["", "", "", ""], // Default empty sign text
+
+  // Entity variant selection
+  entityVariant: undefined, // Default no variant selected (use base model)
 
   // Entity model compatibility
   useLegacyCEM: true, // Use legacy CEM by default for older packs
@@ -432,6 +444,20 @@ export const useStore = create<WeaverbirdStore>()(
     setShowPot: (show: boolean) => {
       set((state) => {
         state.showPot = show;
+      });
+    },
+
+    // Sign text settings
+    setSignText: (text: string[]) => {
+      set((state) => {
+        state.signText = text;
+      });
+    },
+
+    // Entity variant selection
+    setEntityVariant: (variant: string | undefined) => {
+      set((state) => {
+        state.entityVariant = variant;
       });
     },
 

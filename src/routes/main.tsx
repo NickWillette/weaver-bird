@@ -281,9 +281,17 @@ export default function MainRoute() {
   const packs = useSelectPacksInOrder();
   const disabledPacks = useSelectDisabledPacks();
   const disabledPackIds = useSelectDisabledPackIds();
-  const paginatedData = useSelectPaginatedAssets();
+  const filteredAssets = useSelectPaginatedAssets(); // Now returns all filtered assets (no pagination)
   const allAssets = useSelectAllAssets();
   const uiState = useSelectUIState();
+  const currentPage = useStore((state) => state.currentPage);
+
+  // Pagination info received from AssetResults component
+  const [paginationInfo, setPaginationInfo] = useState({
+    totalPages: 1,
+    hasNextPage: false,
+    hasPrevPage: false,
+  });
 
   // Get both grass and foliage colors from global state
   const selectedGrassColor = useSelectedGrassColor();
@@ -529,18 +537,18 @@ export default function MainRoute() {
             // Step 2: Load colormap URLs (deferred as low-priority)
             const grassUrl = grassWinner
               ? await loadColormapUrl(
-                  GRASS_COLORMAP_ASSET_ID,
-                  grassWinner,
-                  packsMap,
-                )
+                GRASS_COLORMAP_ASSET_ID,
+                grassWinner,
+                packsMap,
+              )
               : null;
 
             const foliageUrl = foliageWinner
               ? await loadColormapUrl(
-                  FOLIAGE_COLORMAP_ASSET_ID,
-                  foliageWinner,
-                  packsMap,
-                )
+                FOLIAGE_COLORMAP_ASSET_ID,
+                foliageWinner,
+                packsMap,
+              )
               : null;
 
             // Update URLs and pack IDs in state
@@ -676,24 +684,12 @@ export default function MainRoute() {
 
   const assetListItems = useMemo(
     () =>
-      paginatedData.assets.map((a: AssetRecord) => ({
+      filteredAssets.assets.map((a: AssetRecord) => ({
         id: a.id,
         name: a.id,
       })),
-    [paginatedData.assets],
+    [filteredAssets.assets],
   );
-
-  // Calculate display range for pagination info
-  const displayRange = useMemo(() => {
-    if (paginatedData.totalItems === 0) return { start: 0, end: 0 };
-    const start =
-      (paginatedData.currentPage - 1) * paginatedData.itemsPerPage + 1;
-    const end = Math.min(
-      start + paginatedData.assets.length - 1,
-      paginatedData.totalItems,
-    );
-    return { start, end };
-  }, [paginatedData]);
 
   // Handlers
   // OPTIMIZATION: Debounced pack reordering for smooth drag-and-drop
@@ -1028,7 +1024,15 @@ export default function MainRoute() {
                 height: "100%",
               }}
             >
-              <div style={{ padding: "var(--spacing-md)", paddingBottom: 0 }}>
+              <div
+                style={{
+                  padding: "var(--spacing-md)",
+                  paddingBottom: 0,
+                  position: "relative",
+                  zIndex: 10,
+                  backgroundColor: "var(--color-bg-primary, white)",
+                }}
+              >
                 <SearchBar
                   value={uiState.searchQuery}
                   onChange={setSearchQuery}
@@ -1040,33 +1044,36 @@ export default function MainRoute() {
                   assets={assetListItems}
                   selectedId={uiState.selectedAssetId}
                   onSelect={setSelectedAsset}
-                  totalItems={paginatedData.totalItems}
-                  displayRange={displayRange}
+                  onPaginationChange={setPaginationInfo}
                 />
               </div>
-              {paginatedData.totalPages > 1 && (
-                <div style={{ padding: "var(--spacing-md)", paddingTop: 0 }}>
+              {paginationInfo.totalPages > 1 && (
+                <div
+                  style={{
+                    padding: "var(--spacing-md)",
+                    paddingTop: 0,
+                    position: "relative",
+                    zIndex: 10,
+                    backgroundColor: "var(--color-bg-primary, white)",
+                  }}
+                >
                   <Pagination>
                     <PaginationContent>
                       <PaginationItem>
                         <PaginationPrevious
-                          onClick={() =>
-                            setCurrentPage(paginatedData.currentPage - 1)
-                          }
-                          disabled={!paginatedData.hasPrevPage}
+                          onClick={() => setCurrentPage(currentPage - 1)}
+                          disabled={!paginationInfo.hasPrevPage}
                         />
                       </PaginationItem>
                       {renderPageNumbers(
-                        paginatedData.currentPage,
-                        paginatedData.totalPages,
+                        currentPage,
+                        paginationInfo.totalPages,
                         setCurrentPage,
                       )}
                       <PaginationItem>
                         <PaginationNext
-                          onClick={() =>
-                            setCurrentPage(paginatedData.currentPage + 1)
-                          }
-                          disabled={!paginatedData.hasNextPage}
+                          onClick={() => setCurrentPage(currentPage + 1)}
+                          disabled={!paginationInfo.hasNextPage}
                         />
                       </PaginationItem>
                     </PaginationContent>
@@ -1189,8 +1196,8 @@ export default function MainRoute() {
       setSearchQuery,
       assetListItems,
       setSelectedAsset,
-      paginatedData,
-      displayRange,
+      paginationInfo,
+      currentPage,
       setCurrentPage,
       providers,
       handleSelectProvider,
@@ -1210,7 +1217,11 @@ export default function MainRoute() {
 
     // Override mode for special asset types
     let effectiveMode = canvasRenderMode;
-    if (is2DOnly && canvasRenderMode === "3D") {
+    // 2D-only textures (GUI, particles, etc.) can't be rendered as 3D or items
+    if (
+      is2DOnly &&
+      (canvasRenderMode === "3D" || canvasRenderMode === "Item")
+    ) {
       effectiveMode = "2D";
     }
     if (!uiState.selectedAssetId) {
@@ -1293,19 +1304,20 @@ export default function MainRoute() {
           disabled2D={
             uiState.selectedAssetId
               ? !is2DOnlyTexture(uiState.selectedAssetId) &&
-                !isEntityTexture(uiState.selectedAssetId) &&
-                !isMinecraftItem(uiState.selectedAssetId)
+              !isEntityTexture(uiState.selectedAssetId) &&
+              !isMinecraftItem(uiState.selectedAssetId)
               : false
           }
           disabled3D={
             uiState.selectedAssetId
               ? is2DOnlyTexture(uiState.selectedAssetId) ||
-                isMinecraftItem(uiState.selectedAssetId)
+              isMinecraftItem(uiState.selectedAssetId)
               : false
           }
           disabledItem={
             uiState.selectedAssetId
-              ? isEntityTexture(uiState.selectedAssetId)
+              ? isEntityTexture(uiState.selectedAssetId) ||
+              is2DOnlyTexture(uiState.selectedAssetId)
               : false
           }
         />

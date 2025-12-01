@@ -6,7 +6,7 @@
  * - Pot controls
  * - Biome color picker
  * - Block state variants
- * - Resource pack providers  
+ * - Resource pack providers
  * - Advanced debug info
  */
 
@@ -20,7 +20,10 @@ import {
   getVariantGroupKey,
   groupAssetsByVariant,
   isNumberedVariant,
+  isSignTexture,
+  isHangingSign,
 } from "@lib/assetUtils";
+import { getEntityVariants } from "@lib/emf";
 import {
   getBlockStateSchema,
   type BlockStateSchema,
@@ -34,7 +37,9 @@ import { DecoratedPotTab } from "./components/tabs/DecoratedPotTab";
 import { PaintingTab } from "./components/tabs/PaintingTab";
 import { ItemDisplayTab } from "./components/tabs/ItemDisplayTab";
 import { BlockStateTab } from "./components/tabs/BlockStateTab";
+import { EntityVariantTab } from "./components/tabs/EntityVariantTab";
 import { PotTab } from "./components/tabs/PotTab";
+import { SignOptionsTab } from "./components/tabs/SignOptionsTab";
 import { TextureVariantTab } from "./components/tabs/TextureVariantTab";
 import { PackVariantsTab } from "./components/tabs/PackVariantsTab";
 import { AdvancedTab } from "./components/tabs/AdvancedTab";
@@ -107,9 +112,9 @@ export const OptionsPanel = ({
 
     const filteredVariants = winnerPackId
       ? nonPottedVariants.filter((variantId) => {
-        const variantProviders = providersByAsset[variantId] ?? [];
-        return variantProviders.includes(winnerPackId);
-      })
+          const variantProviders = providersByAsset[variantId] ?? [];
+          return variantProviders.includes(winnerPackId);
+        })
       : nonPottedVariants;
 
     return filteredVariants.length > 1;
@@ -145,6 +150,8 @@ export const OptionsPanel = ({
   const isPotteryShardAsset = isPotteryShard(assetId);
   const isDecoratedPotAsset = isDecoratedPot(assetId);
   const isEntityDecoratedPotAsset = isEntityDecoratedPot(assetId);
+  const isSign = assetId ? isSignTexture(assetId) : false;
+  const isHangingSignAsset = assetId ? isHangingSign(assetId) : false;
 
   const packsDir = useSelectPacksDir();
   const blockStateAssetId =
@@ -153,7 +160,17 @@ export const OptionsPanel = ({
 
   //#region Load schema to determine available tabs
   useEffect(() => {
-    if (!assetId || isColormapSelection || !packsDir || !blockStateAssetId) {
+    // Skip schema loading for GUI textures and entity textures (they don't have blockstates)
+    const isGUITexture = assetId?.includes("gui/");
+    const isEntityTexture = assetId?.includes("entity/");
+    if (
+      !assetId ||
+      isColormapSelection ||
+      !packsDir ||
+      !blockStateAssetId ||
+      isGUITexture ||
+      isEntityTexture
+    ) {
       setSchema(null);
       return;
     }
@@ -226,7 +243,13 @@ export const OptionsPanel = ({
       const variantProviders = providersByAsset[id] ?? [];
       return variantProviders.length > 1;
     });
-  }, [isColormapSelection, assetId, providersByAsset, allAssets, providers.length]);
+  }, [
+    isColormapSelection,
+    assetId,
+    providersByAsset,
+    allAssets,
+    providers.length,
+  ]);
 
   const canBePotted = useMemo(() => {
     if (!assetId || isPlantPotted || allAssets.length === 0) return false;
@@ -237,14 +260,20 @@ export const OptionsPanel = ({
     return group.variantIds.some((id) => isPottedPlant(id));
   }, [assetId, isPlantPotted, allAssets]);
 
-  const shouldShowPotTab = !isColormapSelection && (isPlantPotted || canBePotted);
+  const shouldShowPotTab =
+    !isColormapSelection && (isPlantPotted || canBePotted);
   const shouldShowBlockStateTab =
     !isColormapSelection && !isItem && (schema?.properties.length ?? 0) > 0;
-  const shouldShowItemTab = isItem && !isPotteryShardAsset && !isEntityDecoratedPotAsset;
+  const shouldShowEntityVariantTab = assetId
+    ? getEntityVariants(assetId).length > 0
+    : false;
+  const shouldShowItemTab =
+    isItem && !isPotteryShardAsset && !isEntityDecoratedPotAsset;
   const shouldShowPaintingTab = isPaintingAsset && allAssets.length > 0;
   const shouldShowPotteryShardTab = isPotteryShardAsset;
   const shouldShowDecoratedPotTab = isDecoratedPotAsset && allAssets.length > 0;
   const shouldShowEntityDecoratedPotTab = isEntityDecoratedPotAsset;
+  const shouldShowSignTab = isSign;
 
   const defaultTab = getDefaultTab({
     shouldShowPotteryShardTab,
@@ -252,6 +281,7 @@ export const OptionsPanel = ({
     shouldShowDecoratedPotTab,
     shouldShowPaintingTab,
     shouldShowItemTab,
+    shouldShowSignTab,
     shouldShowBlockStateTab,
     shouldShowCompatibilityCheckbox,
   });
@@ -264,20 +294,10 @@ export const OptionsPanel = ({
     );
   }
 
+  // Colormap assets are now filtered out in selectors, so this is unreachable
+  // Keeping the check for safety in case assets slip through
   if (isColormapSelection) {
-    return (
-      <div className={s.root}>
-        <div className={s.emptyState}>
-          <p>
-            Colormap settings are now in the <strong>Biome & Colormaps</strong>{" "}
-            tab.
-          </p>
-          <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", opacity: 0.7 }}>
-            Look for the leaf icon on the left sidebar.
-          </p>
-        </div>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -299,8 +319,12 @@ export const OptionsPanel = ({
           {shouldShowItemTab && (
             <TabIcon icon="🗡️" label="Item Display" value="item" />
           )}
+          {shouldShowSignTab && <TabIcon icon="🪧" label="Sign" value="sign" />}
           {shouldShowBlockStateTab && (
             <TabIcon icon="⚙" label="Block State" value="block-state" />
+          )}
+          {shouldShowEntityVariantTab && (
+            <TabIcon icon="🔄" label="Entity Variant" value="entity-variant" />
           )}
           {shouldShowPotTab && <TabIcon icon="🌱" label="Pot" value="pot" />}
           {hasTextureVariants && onSelectVariant && (
@@ -348,6 +372,10 @@ export const OptionsPanel = ({
           <ItemDisplayTab itemDisplayMode={itemDisplayMode} />
         )}
 
+        {shouldShowSignTab && (
+          <SignOptionsTab isHangingSign={isHangingSignAsset} />
+        )}
+
         {shouldShowBlockStateTab && (
           <BlockStateTab
             assetId={assetId}
@@ -357,6 +385,8 @@ export const OptionsPanel = ({
             onSeedChange={handleSeedChange}
           />
         )}
+
+        {shouldShowEntityVariantTab && <EntityVariantTab assetId={assetId} />}
 
         {shouldShowPotTab && (
           <PotTab showPot={showPot} onShowPotChange={setShowPot} />

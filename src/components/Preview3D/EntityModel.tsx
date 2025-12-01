@@ -43,6 +43,9 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     (state) => state.targetMinecraftVersion,
   );
 
+  // Get selected entity variant from store
+  const selectedEntityVariant = useStore((state) => state.entityVariant);
+
   // State for entity version variants
   const [entityVersionVariants, setEntityVersionVariants] = useState<
     Record<string, string[]>
@@ -118,6 +121,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           entityVersionVariants,
           parentEntity,
           resolvedPack?.pack_format,
+          selectedEntityVariant,
         );
 
         if (!parsedModel) {
@@ -265,6 +269,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     packsDir,
     targetMinecraftVersion,
     entityVersionVariants,
+    selectedEntityVariant,
   ]);
 
   if (error) {

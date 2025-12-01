@@ -124,6 +124,12 @@ export interface UIState {
   // 3D block display settings
   showPot?: boolean; // Show pot for potted plants (default: true)
 
+  // Sign text settings
+  signText?: string[]; // Array of 4 lines of text for signs (default: ["", "", "", ""])
+
+  // Entity variant selection (like blockstate properties but for entity model variants)
+  entityVariant?: string; // Selected entity variant (e.g., "ceiling_middle" for hanging signs)
+
   // Entity model compatibility settings
   useLegacyCEM: boolean; // Use legacy CEM files for entities with compatibility issues (default: true)
   targetMinecraftVersion: string | null; // Target Minecraft version for compatibility (null = use current vanilla version)

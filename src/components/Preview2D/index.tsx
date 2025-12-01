@@ -10,7 +10,11 @@ import { OrbitControls, PerspectiveCamera, Text } from "@react-three/drei";
 import * as THREE from "three";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getVanillaTexturePath, getPackTexturePath } from "@lib/tauri";
-import { normalizeAssetId } from "@lib/assetUtils";
+import {
+  normalizeAssetId,
+  isSignTexture,
+  isHangingSign,
+} from "@lib/assetUtils";
 import { useSelectWinner, useSelectPack } from "@state/selectors";
 import { useStore } from "@state/store";
 import {
@@ -260,6 +264,69 @@ function UVOverlay({
 }
 
 /**
+ * SignText - Renders text overlay on sign textures
+ */
+function SignText({
+  lines,
+  aspectRatio,
+  isHanging,
+}: {
+  lines: string[];
+  aspectRatio: number;
+  isHanging: boolean;
+}) {
+  const width = aspectRatio >= 1 ? aspectRatio * 2 : 2;
+  const height = aspectRatio >= 1 ? 2 : 2 / aspectRatio;
+
+  // Font size adjustments - signs use smaller text
+  const fontSize = height * 0.08; // Smaller font relative to sign height
+
+  // Line spacing
+  const lineSpacing = fontSize * 1.3; // Space between lines
+
+  // Sign text positioning differs between regular and hanging signs
+  // Regular signs: text is centered in the middle section of the sign
+  // Hanging signs: text should be centered on the visible sign board portion
+  let startY: number;
+  if (isHanging) {
+    // Hanging signs: center text on the lower sign board area
+    const totalTextHeight = lineSpacing * 3; // 4 lines = 3 gaps
+    startY = totalTextHeight / 2 - height * 0.15; // Slightly below center
+  } else {
+    // Regular signs: center the text block
+    const totalTextHeight = lineSpacing * 3; // 4 lines = 3 gaps
+    startY = totalTextHeight / 2; // Center the text block
+  }
+
+  return (
+    <group position={[0, 0, 0.01]}>
+      {" "}
+      {/* Slightly in front of texture */}
+      {lines.map((line, index) => {
+        if (!line) return null; // Skip empty lines
+
+        const yPos = startY - index * lineSpacing;
+
+        return (
+          <Text
+            key={index}
+            position={[0, yPos, 0]}
+            fontSize={fontSize}
+            color="black"
+            anchorX="center"
+            anchorY="middle"
+            font="/src/assets/fonts/mac's Minecraft.ttf"
+            maxWidth={width * 0.8}
+          >
+            {line}
+          </Text>
+        );
+      })}
+    </group>
+  );
+}
+
+/**
  * TextureSprite - Renders a 2D texture as a sprite in 3D space
  * The sprite always faces the camera and maintains aspect ratio
  */
@@ -271,9 +338,9 @@ function TextureSprite({ texturePath, onTextureLoaded }: TextureSpriteProps) {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/immutability
     texture.magFilter = THREE.NearestFilter; // Pixelated look (Minecraft style)
-     
+
     texture.minFilter = THREE.NearestFilter;
-     
+
     texture.colorSpace = THREE.SRGBColorSpace;
   }, [texture]);
 
@@ -442,6 +509,7 @@ export default function Preview2D({ assetId }: Props) {
   const [error, setError] = useState(false);
   const showUVWrap = useStore((state) => state.canvas2DShowUVWrap);
   const showPixelGrid = useStore((state) => state.canvas2DShowPixelGrid);
+  const signText = useStore((state) => state.signText || ["", "", "", ""]);
   const [entityModel, setEntityModel] = useState<ParsedEntityModel | null>(
     null,
   );
@@ -457,6 +525,10 @@ export default function Preview2D({ assetId }: Props) {
   // Get the winning pack for this asset
   const winnerPackId = useSelectWinner(assetId || "");
   const winnerPack = useSelectPack(winnerPackId || "");
+
+  // Check if this is a sign texture
+  const isSign = assetId ? isSignTexture(assetId) : false;
+  const isHangingSignTexture = assetId ? isHangingSign(assetId) : false;
 
   // Check if this is an entity texture
   const isEntity = assetId ? isEntityTexture(assetId) : false;
@@ -626,6 +698,14 @@ export default function Preview2D({ assetId }: Props) {
           texturePath={texturePath}
           onTextureLoaded={handleTextureLoaded}
         />
+
+        {isSign && aspectRatio > 0 && (
+          <SignText
+            lines={signText}
+            aspectRatio={aspectRatio}
+            isHanging={isHangingSignTexture}
+          />
+        )}
 
         {showPixelGrid && textureWidth > 0 && textureHeight > 0 && (
           <PixelGrid

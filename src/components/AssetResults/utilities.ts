@@ -72,6 +72,40 @@ export function generateDisplayName(asset: AssetItem): string {
         return `${formattedPatternName} - Decorated Pot`;
     }
 
+    // Special handling for entity textures (signs, etc.)
+    if (path.startsWith("entity/")) {
+        // Remove entity/ prefix
+        const entityPath = path.replace("entity/", "");
+
+        // Handle different entity types
+        if (entityPath.startsWith("signs/")) {
+            // signs/hanging/birch -> Birch Hanging Sign
+            // signs/oak -> Oak Sign  
+            const parts = entityPath.replace("signs/", "").split("/");
+            let woodType = "";
+            let signType = "Sign";
+
+            if (parts.length === 2) {
+                // hanging/birch or wall/oak
+                signType = parts[0].charAt(0).toUpperCase() + parts[0].slice(1) + " Sign";
+                woodType = parts[1].charAt(0).toUpperCase() + parts[1].slice(1);
+            } else {
+                // oak (regular standing sign)
+                woodType = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
+            }
+
+            return `${woodType} ${signType}`;
+        }
+
+        // Generic entity handling: convert underscores to spaces, capitalize
+        const entityName = entityPath
+            .split("/").pop()! // Get last segment
+            .split("_")
+            .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(" ");
+        return entityName;
+    }
+
     return baseName;
 }
 
