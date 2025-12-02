@@ -11,6 +11,7 @@ export {
   jemToThreeJS,
   addDebugVisualization,
   logHierarchy,
+  mergeVariantTextures,
 } from "./jemLoader";
 export type {
   JEMFile,
@@ -21,9 +22,9 @@ export type {
   ParsedBox,
 } from "./jemLoader";
 
-// Import types for internal use in this file
+// Import types and functions for internal use in this file
 import type { JEMFile, ParsedEntityModel } from "./jemLoader";
-import { parseJEM as parseJEMImpl } from "./jemLoader";
+import { parseJEM as parseJEMImpl, mergeVariantTextures } from "./jemLoader";
 
 /**
  * Helper to check if an asset ID is an entity texture
@@ -110,6 +111,12 @@ export function getEntityInfoFromAssetId(assetId: string): {
       parent = "mooshroom";
     }
 
+    // Special handling for bamboo boats (rafts)
+    // Pattern: "boat/bamboo" should use raft.jem, not boat.jem
+    if (parent === "boat" && variant === "bamboo") {
+      return { variant: "raft", parent: null };
+    }
+
     return { variant, parent };
   }
 }
@@ -144,6 +151,20 @@ export function getEntityVariants(assetId: string): string[] {
 
   // Other entities can be added here as we discover their variants
   return [];
+}
+
+/**
+ * Normalize entity names to match JEM file naming conventions
+ * Handles cases where asset IDs don't match JEM file names
+ * e.g., "armorstand" -> "armor_stand"
+ */
+function normalizeEntityName(entityName: string): string {
+  const normalizations: Record<string, string> = {
+    "armorstand": "armor_stand",
+    // Add more as needed
+  };
+
+  return normalizations[entityName] || entityName;
 }
 
 /**
@@ -215,7 +236,31 @@ export async function loadEntityModel(
       // Validate the model - must have at least one part with at least one valid box
       const hasValidBoxes = parsed.parts.some((part) => part.boxes.length > 0);
       if (!hasValidBoxes) {
-        console.log(`[EMF] ✗ ${source} JEM has no valid boxes:`, jemName);
+        console.log(`[EMF] ✗ ${source} JEM has no valid boxes (likely texture-only variant):`, jemName);
+
+        // This is likely a texture-only variant (e.g., bed_foot.jem, sheep_wool_undercoat.jem)
+        // Try to load parent model and merge textures
+        if (parentEntity && packPath) {
+          console.log(`[EMF] Attempting to merge textures from ${jemName} with geometry from ${parentEntity}`);
+
+          // Recursively load parent model (but without a parent to avoid infinite loop)
+          const baseModel = await tryLoadJem(parentEntity, "parent for texture merge");
+
+          if (baseModel) {
+            // Merge variant textures with base geometry
+            const merged = mergeVariantTextures(baseModel, jemData);
+            console.log(`[EMF] ✓ Successfully merged ${jemName} textures with ${parentEntity} geometry`);
+
+            return {
+              ...merged,
+              texturePath: merged.texturePath || `entity/${entityType}`,
+              jemSource: `${jemName} (merged with ${parentEntity})`,
+              usedLegacyJem: false,
+            };
+          }
+        }
+
+        // No parent to merge with, this model is invalid
         return null;
       }
 
@@ -286,7 +331,8 @@ export async function loadEntityModel(
 
     // STEP 2: Try parent entity JEM if variant not found (e.g., chicken.jem for cold_chicken)
     if (parentEntity) {
-      result = await tryLoadJem(parentEntity, "parent");
+      const normalizedParent = normalizeEntityName(parentEntity);
+      result = await tryLoadJem(normalizedParent, "parent");
       if (result) return result;
     }
 
@@ -335,7 +381,8 @@ export async function loadEntityModel(
 
   // Try parent entity
   if (parentEntity) {
-    result = await tryLoadVanillaJem(parentEntity);
+    const normalizedParent = normalizeEntityName(parentEntity);
+    result = await tryLoadVanillaJem(normalizedParent);
     if (result) return result;
   }
 

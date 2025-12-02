@@ -179,6 +179,19 @@ pub fn get_vanilla_texture_path_impl(asset_id: String) -> Result<String, AppErro
         .map_err(|e| AppError::io(format!("Vanilla texture not found: {}", e)))
 }
 
+/// Get the path to a vanilla texture's .mcmeta file (if it exists)
+///
+/// # Arguments
+/// * `asset_id` - Asset ID like "minecraft:block/magma"
+///
+/// # Returns
+/// Absolute path to the .mcmeta file, or None if it doesn't exist
+pub fn get_vanilla_mcmeta_path_impl(asset_id: String) -> Result<Option<String>, AppError> {
+    vanilla_textures::get_vanilla_mcmeta_path(&asset_id)
+        .map(|opt| opt.map(|p| p.to_string_lossy().to_string()))
+        .map_err(|e| AppError::io(format!("Failed to check for .mcmeta file: {}", e)))
+}
+
 /// Get the path to a biome colormap file (grass or foliage)
 ///
 /// # Arguments

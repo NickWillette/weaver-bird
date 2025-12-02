@@ -13,6 +13,9 @@
 export function normalizeAssetId(assetId: string): string {
   let normalized = assetId;
 
+  // Remove .png extension (e.g., "seagrass.png" -> "seagrass")
+  normalized = normalized.replace(/\.png$/i, "");
+
   // Remove underscores before numbers (e.g., "acacia_planks_01" -> "acacia_planks01")
   normalized = normalized.replace(/_(\d+)/g, "$1");
 
@@ -157,7 +160,34 @@ export function is2DOnlyTexture(assetId: string): boolean {
     "effect/", // Effect textures
   ];
 
+  // Check if it's a path-based 2D texture
   return twoDOnlyPaths.some((prefix) => path.startsWith(prefix));
+}
+
+/**
+ * Check if a block should use 2D item texture for resource card thumbnail
+ * These blocks have 3D models but look better as 2D items in small previews
+ */
+export function shouldUseItemTextureForCard(assetId: string): boolean {
+  const path = assetId.includes(":") ? assetId.split(":")[1] : assetId;
+
+  // Cross-shaped plants render poorly in isometric CSS view
+  // Use 2D item texture for cards but allow 3D preview
+  const crossShapedPlants = [
+    "seagrass",
+    "tall_seagrass",
+    "tall_seagrass_top",
+    "tall_seagrass_bottom",
+    "kelp",
+    "kelp_plant",
+  ];
+
+  const blockName =
+    path
+      .split("/")
+      .pop()
+      ?.replace(/\.png$/i, "") || "";
+  return crossShapedPlants.includes(blockName);
 }
 
 /**
@@ -525,7 +555,10 @@ export function applyNaturalBlockStateDefaults(
     name.includes("peony") ||
     name.includes("lilac") ||
     name.includes("rose_bush") ||
-    name.includes("sunflower");
+    name.includes("sunflower") ||
+    name.includes("tall_seagrass") ||
+    name.includes("tall_grass") ||
+    name.includes("large_fern");
 
   if (!result.half && hasHalf) {
     result.half = "bottom";

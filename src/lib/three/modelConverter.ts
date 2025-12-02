@@ -509,16 +509,34 @@ async function createFaceMaterials(
           );
         }
 
-        // Use MeshStandardMaterial to support shadows while keeping flat look
-        materials[faceIndex] = new THREE.MeshStandardMaterial({
-          map: texture,
-          color: materialColor ?? 0xffffff, // Tint color (default to white if no tint)
-          transparent: true,
-          alphaTest: 0.1, // Discard transparent pixels (including magenta if it has alpha)
-          roughness: 0.8,
-          metalness: 0.2,
-          flatShading: false, // Keep smooth for correct texture appearance
-        });
+        // Check if texture is animated and needs shader material
+        const { getAnimationMaterial } = await import(
+          "@lib/three/textureLoader"
+        );
+        const animMaterial = getAnimationMaterial(texture);
+
+        if (animMaterial) {
+          // Use custom shader material for animated texture with interpolation
+          // Apply tint color if needed
+          if (materialColor) {
+            // TODO: Add color tinting support to shader
+            console.warn(
+              "[modelConverter] Color tinting not yet supported for interpolated animated textures",
+            );
+          }
+          materials[faceIndex] = animMaterial;
+        } else {
+          // Use MeshStandardMaterial to support shadows while keeping flat look
+          materials[faceIndex] = new THREE.MeshStandardMaterial({
+            map: texture,
+            color: materialColor ?? 0xffffff, // Tint color (default to white if no tint)
+            transparent: true,
+            alphaTest: 0.1, // Discard transparent pixels (including magenta if it has alpha)
+            roughness: 0.8,
+            metalness: 0.2,
+            flatShading: false, // Keep smooth for correct texture appearance
+          });
+        }
       } else {
         console.warn(
           `[modelConverter] ✗ Texture loader returned null for ${textureId}`,

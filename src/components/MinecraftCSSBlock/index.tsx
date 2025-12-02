@@ -108,7 +108,9 @@ export const MinecraftCSSBlock = ({
   // QUEUE: Use global transition queue to ensure only 1-2 transitions per frame
   // This is especially important for Safari/WebKit which struggles with many 3D transforms at once
   useEffect(() => {
-    console.log(`[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`);
+    console.log(
+      `[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`,
+    );
     const idleCallback =
       window.requestIdleCallback || ((cb) => setTimeout(cb, 100));
 
@@ -141,7 +143,9 @@ export const MinecraftCSSBlock = ({
   // Effect 1: Load 2D fallback on mount (runs once per assetId change)
   // OPTIMIZATION: Also start processing 3D geometry eagerly in the background
   useEffect(() => {
-    console.log(`[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`);
+    console.log(
+      `[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`,
+    );
     // If in entity mode, skip 2D fallback loading but ensure geometry is marked ready
     // so that Effect 2 can proceed with loading the 3D entity model
     if (renderMode === "entity") {
@@ -208,12 +212,23 @@ export const MinecraftCSSBlock = ({
     return () => {
       mounted = false;
     };
-  }, [assetId, packId, pack, packsDir, onError, jemModel, entityTextureUrl, renderMode]);
+  }, [
+    assetId,
+    packId,
+    pack,
+    packsDir,
+    onError,
+    jemModel,
+    entityTextureUrl,
+    renderMode,
+  ]);
 
   // Effect 2: Load 3D model when geometryReady becomes true (eager preloading)
   // This processes geometry in the background, even before use3DModel is set
   useEffect(() => {
-    console.log(`[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`);
+    console.log(
+      `[MinecraftCSSBlock] useEffect: assetId=${assetId}, staggerIndex=${staggerIndex}`,
+    );
     if (!geometryReady) return;
 
     let mounted = true;
@@ -235,7 +250,9 @@ export const MinecraftCSSBlock = ({
               scale,
             );
 
-            console.log(`[MinecraftCSSBlock] Entity converted: ${renderedElements.length} elements`);
+            console.log(
+              `[MinecraftCSSBlock] Entity converted: ${renderedElements.length} elements`,
+            );
 
             if (mounted) {
               setFallbackTextureUrl(null);
@@ -416,6 +433,29 @@ export const MinecraftCSSBlock = ({
           elements = createDefaultElement(textures);
         }
 
+        // Parse animation info for all loaded textures
+        // This checks which textures are animated and gets their frame counts
+        const animationInfo: Record<string, { frameCount: number }> = {};
+        const animationPromises = Array.from(textureUrls.entries()).map(
+          async ([textureId, textureUrl]) => {
+            try {
+              const { parseAnimationTexture } = await import(
+                "@lib/utils/animationTexture"
+              );
+              const info = await parseAnimationTexture(textureUrl);
+              if (info.isAnimated) {
+                animationInfo[textureUrl] = { frameCount: info.frameCount };
+              }
+            } catch (error) {
+              console.debug(
+                `[MinecraftCSSBlock] Failed to parse animation for ${textureId}:`,
+                error,
+              );
+            }
+          },
+        );
+        await Promise.all(animationPromises);
+
         // Process elements into renderable faces using Web Worker
         // This offloads the CPU-intensive geometry calculation to a background thread
         const rendered = await blockGeometryWorker.processElements(
@@ -423,6 +463,7 @@ export const MinecraftCSSBlock = ({
           textures,
           textureUrls,
           scale,
+          animationInfo,
         );
 
         if (mounted) {
@@ -465,7 +506,9 @@ export const MinecraftCSSBlock = ({
   // Render 2D fallback if 3D model is not ready or failed
   if (!use3DModel || error || !renderedElements.length) {
     if (renderMode === "entity" && jemModel) {
-      console.log(`[MinecraftCSSBlock] Fallback render: use3D=${use3DModel}, error=${error}, elements=${renderedElements.length}`);
+      console.log(
+        `[MinecraftCSSBlock] Fallback render: use3D=${use3DModel}, error=${error}, elements=${renderedElements.length}`,
+      );
     }
 
     if (fallbackTextureUrl) {

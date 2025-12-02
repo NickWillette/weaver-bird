@@ -17,8 +17,6 @@
  *    - IMPACT: Initial page load feels instant, cards appear progressively
  */
 import { useEffect, useState, useMemo, useCallback, useRef } from "react";
-import { Canvas } from "@react-three/fiber";
-import { View } from "@react-three/drei";
 import {
   beautifyAssetName,
   getBlockStateIdFromAssetId,
@@ -278,22 +276,6 @@ export default function AssetResults({
 
   return (
     <div className={s.root} ref={containerRef}>
-      {/* Shared Canvas for 3D Views */}
-      <Canvas
-        className={s.canvas}
-        eventSource={containerRef}
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100vw",
-          height: "100vh",
-          pointerEvents: "none",
-          zIndex: 1,
-        }}
-      >
-        <View.Port />
-      </Canvas>
 
       <div className={s.paginationInfo}>
         Showing {displayRange.start}–{displayRange.end} of{" "}

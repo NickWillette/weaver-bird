@@ -56,7 +56,23 @@ export function EntityPreview({ jemModel, textureUrl }: Props) {
         }
     });
 
-    if (!group) {
+    const boundsRef = useRef<any>(null);
+    const [framesToFit, setFramesToFit] = useState(120); // 2 seconds at 60fps for drawer animation
+
+    // Force bounds refresh when group changes
+    useEffect(() => {
+        setFramesToFit(120);
+    }, [group]);
+
+    // Aggressively fit bounds for the first few frames to ensure layout is caught up
+    useFrame(() => {
+        if (framesToFit > 0 && boundsRef.current) {
+            boundsRef.current.refresh().fit();
+            setFramesToFit((f) => f - 1);
+        }
+    });
+
+    if (!group || !jemModel) {
         // Render a placeholder box if model failed to load
         return (
             <>
@@ -82,7 +98,8 @@ export function EntityPreview({ jemModel, textureUrl }: Props) {
             <PerspectiveCamera makeDefault position={[0, 5, 10]} fov={50} />
 
             {/* Bounds will auto-fit the model to the view */}
-            <Bounds fit clip observe margin={1.2}>
+            {/* @ts-ignore - Bounds ref type definition is missing in this version of drei */}
+            <Bounds ref={boundsRef} fit clip observe margin={1.2}>
                 <group ref={groupRef}>
                     <primitive object={group} />
                 </group>

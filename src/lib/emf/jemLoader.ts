@@ -139,6 +139,118 @@ export function parseJEM(jemData: JEMFile): ParsedEntityModel {
 }
 
 /**
+ * Merge geometry from base model with textures from variant model
+ * 
+ * Use case: Variant JEMs that only define texture offsets but no coordinates
+ * (e.g., bed_foot.jem uses bed.jem geometry, sheep_wool_undercoat.jem uses sheep.jem geometry)
+ * 
+ * Strategy:
+ * 1. For each part in the base model, check if variant has a matching part
+ * 2. If match found, use base geometry (from/to) but variant UVs (texture offsets)
+ * 3. This allows variants to change textures without redefining coordinates
+ * 
+ * @param baseModel - Base model with complete geometry (e.g., from bed.jem)
+ * @param variantJemData - Variant JEM with texture overrides (e.g., from bed_foot.jem)
+ * @returns Merged model with base geometry + variant textures
+ */
+export function mergeVariantTextures(
+  baseModel: ParsedEntityModel,
+  variantJemData: JEMFile
+): ParsedEntityModel {
+  // console.log('[JEM Merger] Merging variant textures with base geometry');
+
+  // Parse variant to extract part names and texture info
+  // Note: parseJEM will skip boxes without coordinates, but we still get part structure
+  const variantParsed = parseJEM(variantJemData);
+
+  // Build a map of variant parts by name for quick lookup
+  const variantPartMap = new Map<string, ParsedPart>();
+  for (const part of variantParsed.parts) {
+    variantPartMap.set(part.name, part);
+  }
+
+  // Helper to merge a single part recursively
+  const mergePart = (basePart: ParsedPart): ParsedPart => {
+    const variantPart = variantPartMap.get(basePart.name);
+
+    // If no variant override, return base part as-is
+    if (!variantPart) {
+      // console.log(`[JEM Merger] No variant override for part: ${basePart.name}`);
+      return {
+        ...basePart,
+        children: basePart.children.map(child => mergePart(child))
+      };
+    }
+
+    // console.log(`[JEM Merger] Merging textures for part: ${basePart.name}`);
+
+    // Merge boxes: use base geometry but try to get variant UVs
+    // For texture-only variants, we need to get UVs from the raw JEM data
+    // because parseJEM skipped boxes without coordinates
+    const mergedBoxes: ParsedBox[] = basePart.boxes.map((baseBox, boxIdx) => {
+      // Try to find matching box in variant's RAW data
+      const rawVariantModel = variantJemData.models?.find(m =>
+        (m.part === basePart.name || m.id === basePart.name)
+      );
+
+      const rawVariantBox = rawVariantModel?.boxes?.[boxIdx];
+
+      if (rawVariantBox) {
+        // Calculate UVs from variant's texture offset
+        // We need to recalculate UVs using the variant's textureOffset
+        let variantUV: ParsedBox['uv'];
+
+        if (rawVariantBox.uvNorth || rawVariantBox.uvEast ||
+          rawVariantBox.uvSouth || rawVariantBox.uvWest ||
+          rawVariantBox.uvUp || rawVariantBox.uvDown) {
+          // Per-face UV mode
+          variantUV = {
+            east: rawVariantBox.uvEast || baseBox.uv.east,
+            west: rawVariantBox.uvWest || baseBox.uv.west,
+            up: rawVariantBox.uvUp || baseBox.uv.up,
+            down: rawVariantBox.uvDown || baseBox.uv.down,
+            south: rawVariantBox.uvSouth || baseBox.uv.south,
+            north: rawVariantBox.uvNorth || baseBox.uv.north,
+          };
+        } else if (rawVariantBox.textureOffset) {
+          // Box UV mode - recalculate from texture offset
+          const [u, v] = rawVariantBox.textureOffset;
+          const width = baseBox.to[0] - baseBox.from[0];
+          const height = baseBox.to[1] - baseBox.from[1];
+          const depth = baseBox.to[2] - baseBox.from[2];
+          variantUV = calculateBoxUV(u, v, width, height, depth);
+        } else {
+          // No UV override, use base
+          variantUV = baseBox.uv;
+        }
+
+        return {
+          ...baseBox,
+          uv: variantUV,
+        };
+      }
+
+      // No variant box data, use base
+      return baseBox;
+    });
+
+    return {
+      ...basePart,
+      boxes: mergedBoxes,
+      children: basePart.children.map(child => mergePart(child))
+    };
+  };
+
+  // Merge all parts
+  const mergedParts = baseModel.parts.map(part => mergePart(part));
+
+  return {
+    ...baseModel,
+    parts: mergedParts,
+  };
+}
+
+/**
  * Parse a model part and its children recursively
  *
  * @param part - The raw JEM model part
@@ -261,9 +373,7 @@ function parseBox(
   ];
 
   // Calculate UV coordinates
-  // Note: Per-box texture size support could be added here if needed
   let uv: ParsedBox["uv"];
-
   if (
     box.uvNorth ||
     box.uvEast ||
@@ -272,22 +382,29 @@ function parseBox(
     box.uvUp ||
     box.uvDown
   ) {
-    // Per-face UV mode (explicit UVs provided)
+    // Use per-face UV if provided
     uv = {
+      north: box.uvNorth || [0, 0, 0, 0],
       east: box.uvEast || [0, 0, 0, 0],
+      south: box.uvSouth || [0, 0, 0, 0],
       west: box.uvWest || [0, 0, 0, 0],
       up: box.uvUp || [0, 0, 0, 0],
       down: box.uvDown || [0, 0, 0, 0],
-      south: box.uvSouth || [0, 0, 0, 0],
-      north: box.uvNorth || [0, 0, 0, 0],
     };
   } else if (box.textureOffset) {
     // Box UV mode - calculate from texture offset
     const [u, v] = box.textureOffset;
     uv = calculateBoxUV(u, v, width, height, depth);
   } else {
-    // No UV info - use default at origin
-    uv = calculateBoxUV(0, 0, width, height, depth);
+    // No texture information
+    uv = {
+      north: [0, 0, 1, 1],
+      east: [0, 0, 1, 1],
+      south: [0, 0, 1, 1],
+      west: [0, 0, 1, 1],
+      up: [0, 0, 1, 1],
+      down: [0, 0, 1, 1],
+    };
   }
 
   return {
@@ -406,6 +523,10 @@ function convertPart(
 
   // Apply rotation (degrees to radians)
   // JEM rotations are applied as-is
+  // IMPORTANT: Set Euler order to 'ZYX' to match JEM specification
+  // Default 'XYZ' order does not match JEM's expected rotation behavior
+  // console.log(`[jemLoader] Part: ${part.name}, Rotation: [${part.rotation.join(', ')}]`);
+  group.rotation.order = 'ZYX';
   group.rotation.set(
     THREE.MathUtils.degToRad(part.rotation[0]),
     THREE.MathUtils.degToRad(part.rotation[1]),
@@ -424,7 +545,6 @@ function convertPart(
       part.origin,
       textureSize,
       texture,
-      part.rotation,
     );
     if (mesh) {
       group.add(mesh);
@@ -465,7 +585,6 @@ function createBoxMesh(
   partOrigin: [number, number, number],
   textureSize: [number, number],
   texture: THREE.Texture | null,
-  rotation: [number, number, number],
 ): THREE.Mesh | null {
   const { from, to } = box;
 
@@ -520,22 +639,21 @@ function createBoxMesh(
       box.uv,
       textureSize,
       box.mirror,
-      rotation,
     );
   }
 
   // Create material
   const material = texture
     ? new THREE.MeshStandardMaterial({
-        map: texture,
-        transparent: true,
-        alphaTest: 0.1,
-        side: THREE.DoubleSide,
-      })
+      map: texture,
+      transparent: true,
+      alphaTest: 0.1,
+      side: THREE.DoubleSide,
+    })
     : new THREE.MeshStandardMaterial({
-        color: 0x8b4513,
-        side: THREE.DoubleSide,
-      });
+      color: 0x8b4513,
+      side: THREE.DoubleSide,
+    });
 
   const mesh = new THREE.Mesh(geometry, material);
 
@@ -578,7 +696,6 @@ function applyUVs(
   uv: ParsedBox["uv"],
   textureSize: [number, number],
   mirror: boolean,
-  rotation: [number, number, number],
 ): void {
   const [texWidth, texHeight] = textureSize;
   const uvAttr = geometry.attributes.uv;
@@ -586,53 +703,14 @@ function applyUVs(
 
   // Map face names to Three.js box face indices
   // Three.js order: [right(+X), left(-X), top(+Y), bottom(-Y), front(+Z), back(-Z)]
-
-  // Check if we need to remap faces due to rotation
-  // When rotated -90° on X axis, the geometry orientation changes:
-  // - up (+Y) becomes north (+Z after rotation)
-  // - north (+Z) becomes down (-Y after rotation)
-  // - down (-Y) becomes south (-Z after rotation)
-  // - south (-Z) becomes up (+Y after rotation)
-  const rotX = rotation[0];
-  const hasXRotation = Math.abs(rotX) > 89 && Math.abs(rotX) < 91; // Check for ±90°
-
-  let faceConfigs: { name: keyof typeof uv; index: number; flipZ?: boolean }[];
-
-  if (hasXRotation) {
-    // Remap faces for 90° X rotation
-    if (rotX < 0) {
-      // -90° X rotation: The up face becomes the north face after rotation
-      // Since up face needs Z-flip, the rotated north also needs it
-      faceConfigs = [
-        { name: "east", index: 0 }, // right face (+X) - unchanged
-        { name: "west", index: 1 }, // left face (-X) - unchanged
-        { name: "up", index: 2, flipZ: true }, // top face (+Y) gets up UV with Z-flip
-        { name: "down", index: 3 }, // bottom face (-Y) gets down UV
-        { name: "south", index: 4 }, // front face (+Z) gets south UV
-        { name: "north", index: 5 }, // back face (-Z) gets north UV
-      ];
-    } else {
-      // +90° rotation: up→south, south→down, down→north, north→up
-      faceConfigs = [
-        { name: "east", index: 0 }, // right face (+X) - unchanged
-        { name: "west", index: 1 }, // left face (-X) - unchanged
-        { name: "north", index: 2 }, // top face (+Y) gets north UV
-        { name: "south", index: 3 }, // bottom face (-Y) gets south UV
-        { name: "down", index: 4 }, // front face (+Z) gets down UV
-        { name: "up", index: 5, flipZ: true }, // back face (-Z) gets up UV with Z-flip
-      ];
-    }
-  } else {
-    // No rotation or different rotation - use standard mapping
-    faceConfigs = [
-      { name: "east", index: 0 }, // right face (+X)
-      { name: "west", index: 1 }, // left face (-X)
-      { name: "up", index: 2, flipZ: true }, // top face (+Y) needs Z-flip
-      { name: "down", index: 3 }, // bottom face (-Y)
-      { name: "south", index: 4 }, // front face (+Z)
-      { name: "north", index: 5 }, // back face (-Z)
-    ];
-  }
+  const faceConfigs: { name: keyof typeof uv; index: number; flipZ?: boolean }[] = [
+    { name: "east", index: 0 }, // right face (+X)
+    { name: "west", index: 1 }, // left face (-X)
+    { name: "up", index: 2, flipZ: true }, // top face (+Y) needs Z-flip
+    { name: "down", index: 3 }, // bottom face (-Y)
+    { name: "south", index: 4 }, // front face (+Z)
+    { name: "north", index: 5 }, // back face (-Z)
+  ];
 
   for (const config of faceConfigs) {
     const faceUV = uv[config.name];
@@ -774,8 +852,8 @@ export function logHierarchy(group: THREE.Object3D, indent = 0): void {
 
   console.log(
     `${prefix}${group.name || "(unnamed)"} ` +
-      `pos:[${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}] ` +
-      `rot:[${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}°]`,
+    `pos:[${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}] ` +
+    `rot:[${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}°]`,
   );
 
   for (const child of group.children) {

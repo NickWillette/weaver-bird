@@ -93,9 +93,7 @@ function normalizeUV(
   frameCount: number = 1,
 ): NormalizedUV {
   if (!uv) {
-    // For animated textures with default UVs, scale height to show only first frame
-    const height = frameCount > 1 ? 1 / frameCount : 1;
-    return { u: 0, v: 0, width: 1, height, flipX: 1, flipY: 1 };
+    return { u: 0, v: 0, width: 1, height: 1, flipX: 1, flipY: 1 };
   }
 
   const rawU1 = uv[0] / 16;
@@ -115,19 +113,22 @@ function normalizeUV(
 
   // For animated textures, scale V coordinates to show only first frame
   // Animation frames stack vertically, so we need to:
-  // 1. Keep V position the same (starts at 0 for top frame)
-  // 2. Scale height by 1/frameCount to show only first frame
+  // 1. Scale V position and height by 1/frameCount
+  // 2. This shows only the top frame of the animation
+  let adjustedV1 = rawV1;
+  let adjustedV2 = rawV2;
   let adjustedHeight = height;
 
   if (frameCount > 1) {
-    // Scale height to first frame only
-    // Don't scale V position - it stays at the top (0)
+    // Scale V coordinates to first frame
+    adjustedV1 = rawV1 / frameCount;
+    adjustedV2 = rawV2 / frameCount;
     adjustedHeight = height / frameCount;
   }
 
   return {
     u: widthDelta >= 0 ? rawU1 : rawU2,
-    v: heightDelta >= 0 ? rawV1 : rawV2,
+    v: heightDelta >= 0 ? adjustedV1 : adjustedV2,
     width,
     height: adjustedHeight,
     flipX: 1,
@@ -358,7 +359,7 @@ function processSimpleCube(
         z: bottomOffset.z,
         width: UNIT * scale,
         height: UNIT * scale,
-        uv: normalizeUV(face.uv, animationInfo?.[textureUrl]?.frameCount ?? 1),
+        uv: normalizeUV(face.uv),
         zIndex: -20, // Bottom
         brightness: 0.5,
         tintType,
@@ -392,7 +393,7 @@ function processSimpleCube(
         z: southOffset.z,
         width: UNIT * scale,
         height: UNIT * scale,
-        uv: normalizeUV(face.uv, animationInfo?.[textureUrl]?.frameCount ?? 1),
+        uv: normalizeUV(face.uv),
         zIndex: 80, // Center Y (8) * 10
         brightness: 0.8,
         tintType,
@@ -426,7 +427,7 @@ function processSimpleCube(
         z: northOffset.z,
         width: UNIT * scale,
         height: UNIT * scale,
-        uv: normalizeUV(face.uv, animationInfo?.[textureUrl]?.frameCount ?? 1),
+        uv: normalizeUV(face.uv),
         zIndex: 70,
         brightness: 0.8,
         tintType,
@@ -460,7 +461,7 @@ function processSimpleCube(
         z: eastOffset.z,
         width: UNIT * scale,
         height: UNIT * scale,
-        uv: normalizeUV(face.uv, animationInfo?.[textureUrl]?.frameCount ?? 1),
+        uv: normalizeUV(face.uv),
         zIndex: 81, // Center Y (8) * 10 + 1
         brightness: 0.6,
         tintType,
@@ -494,7 +495,7 @@ function processSimpleCube(
         z: westOffset.z,
         width: UNIT * scale,
         height: UNIT * scale,
-        uv: normalizeUV(face.uv, animationInfo?.[textureUrl]?.frameCount ?? 1),
+        uv: normalizeUV(face.uv),
         zIndex: 71,
         brightness: 0.6,
         tintType,
@@ -520,7 +521,6 @@ function processElements(
   textures: Record<string, string>,
   textureUrls: Map<string, string>,
   scale: number,
-  animationInfo?: Record<string, { frameCount: number }>,
 ): RenderedElement[] {
   const renderedElements: RenderedElement[] = [];
   const blockCenter = { x: 8, y: 8, z: 8 };
@@ -540,13 +540,7 @@ function processElements(
 
       if (isFullCube) {
         // Fast path for full cubes - hardcoded offsets, no complex calculations
-        return processSimpleCube(
-          element,
-          textures,
-          textureUrls,
-          scale,
-          animationInfo,
-        );
+        return processSimpleCube(element, textures, textureUrls, scale);
       }
     }
   }
@@ -595,10 +589,7 @@ function processElements(
           z: offsets.top.z,
           width: width * scale,
           height: depth * scale,
-          uv: normalizeUV(
-            face.uv,
-            animationInfo?.[textureUrl]?.frameCount ?? 1,
-          ),
+          uv: normalizeUV(face.uv),
           zIndex: Math.round(centerY * 10 + 100),
           brightness: 1.0,
           tintType,
@@ -632,10 +623,7 @@ function processElements(
           z: offsets.left.z,
           width: width * scale,
           height: height * scale,
-          uv: normalizeUV(
-            face.uv,
-            animationInfo?.[textureUrl]?.frameCount ?? 1,
-          ),
+          uv: normalizeUV(face.uv),
           zIndex: Math.round(centerY * 10 + 50),
           brightness: 0.8,
           tintType,
@@ -676,10 +664,7 @@ function processElements(
           z: northZ,
           width: width * scale,
           height: height * scale,
-          uv: normalizeUV(
-            face.uv,
-            animationInfo?.[textureUrl]?.frameCount ?? 1,
-          ),
+          uv: normalizeUV(face.uv),
           zIndex: Math.round(centerY * 10 + 40),
           brightness: 0.8,
           tintType,
@@ -708,10 +693,7 @@ function processElements(
           z: offsets.right.z,
           width: depth * scale,
           height: height * scale,
-          uv: normalizeUV(
-            face.uv,
-            animationInfo?.[textureUrl]?.frameCount ?? 1,
-          ),
+          uv: normalizeUV(face.uv),
           zIndex: Math.round(centerY * 10),
           brightness: 0.6,
           tintType,
@@ -752,10 +734,7 @@ function processElements(
           z: westZ,
           width: depth * scale,
           height: height * scale,
-          uv: normalizeUV(
-            face.uv,
-            animationInfo?.[textureUrl]?.frameCount ?? 1,
-          ),
+          uv: normalizeUV(face.uv),
           zIndex: Math.round(centerY * 10 - 10),
           brightness: 0.6,
           tintType,
@@ -803,10 +782,7 @@ function processElements(
           z: downZ,
           width: width * scale,
           height: depth * scale,
-          uv: normalizeUV(
-            face.uv,
-            animationInfo?.[textureUrl]?.frameCount ?? 1,
-          ),
+          uv: normalizeUV(face.uv),
           zIndex: Math.round((centerY - height / 2) * 10 - 100),
           brightness: 0.5,
           tintType,
@@ -825,8 +801,7 @@ function processElements(
 
 // Worker message handler
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
-  const { id, elements, textures, textureUrls, scale, animationInfo } =
-    event.data;
+  const { id, elements, textures, textureUrls, scale } = event.data;
 
   try {
     // Convert serialized object back to Map
@@ -838,7 +813,6 @@ self.onmessage = (event: MessageEvent<WorkerRequest>) => {
       textures,
       textureUrlsMap,
       scale,
-      animationInfo,
     );
 
     // Send result back to main thread

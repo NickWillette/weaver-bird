@@ -353,9 +353,9 @@ pub fn extract_vanilla_textures_with_progress(
 
         let file_path = file.name().to_string();
 
-        // Extract textures (PNG), models (JSON), and blockstates (JSON)
+        // Extract textures (PNG), animation metadata (PNG.MCMETA), models (JSON), and blockstates (JSON)
         let should_extract = (file_path.starts_with("assets/minecraft/textures/")
-            && file_path.ends_with(".png"))
+            && (file_path.ends_with(".png") || file_path.ends_with(".png.mcmeta")))
             || (file_path.starts_with("assets/minecraft/models/") && file_path.ends_with(".json"))
             || (file_path.starts_with("assets/minecraft/blockstates/")
                 && file_path.ends_with(".json"));
@@ -470,6 +470,28 @@ pub fn get_vanilla_texture_path(asset_id: &str) -> Result<PathBuf> {
         Ok(full_path)
     } else {
         Err(anyhow!("Vanilla texture not found: {}", asset_id))
+    }
+}
+
+/// Get the path to a vanilla texture's .mcmeta file by asset ID
+/// Example: "minecraft:block/magma" -> cache_dir/assets/minecraft/textures/block/magma.png.mcmeta
+/// Returns None if the .mcmeta file doesn't exist (not all textures have animation metadata)
+pub fn get_vanilla_mcmeta_path(asset_id: &str) -> Result<Option<PathBuf>> {
+    let cache_dir = get_vanilla_cache_dir()?;
+
+    // Parse asset ID: "minecraft:block/magma" -> "block/magma"
+    let texture_path = asset_id.strip_prefix("minecraft:").unwrap_or(asset_id);
+
+    // .mcmeta files are named like the texture with .mcmeta appended
+    let mcmeta_path = cache_dir.join(format!(
+        "assets/minecraft/textures/{}.png.mcmeta",
+        texture_path
+    ));
+
+    if mcmeta_path.exists() {
+        Ok(Some(mcmeta_path))
+    } else {
+        Ok(None)
     }
 }
 

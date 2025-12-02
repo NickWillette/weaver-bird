@@ -86,6 +86,7 @@ class BlockGeometryWorkerManager {
    * @param textures - Texture variable mappings
    * @param textureUrls - Map of texture IDs to URLs
    * @param scale - Scale factor for rendering
+   * @param animationInfo - Optional animation frame counts for textures
    * @returns Promise that resolves with rendered elements
    */
   async processElements(
@@ -93,6 +94,7 @@ class BlockGeometryWorkerManager {
     textures: Record<string, string>,
     textureUrls: Map<string, string>,
     scale: number,
+    animationInfo?: Record<string, { frameCount: number }>,
   ): Promise<RenderedElement[]> {
     if (!this.worker) {
       throw new Error(
@@ -100,7 +102,7 @@ class BlockGeometryWorkerManager {
       );
     }
 
-    const {worker} = this;
+    const { worker } = this;
 
     return new Promise((resolve) => {
       const id = `request_${++this.requestCounter}`;
@@ -116,6 +118,7 @@ class BlockGeometryWorkerManager {
         textures,
         textureUrls: textureUrlsObj,
         scale,
+        animationInfo,
       };
 
       worker.postMessage(request);

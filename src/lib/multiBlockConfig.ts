@@ -27,7 +27,8 @@ export function getMultiBlockParts(
     .toLowerCase();
 
   let halfProp = getHalfProperty(blockProps);
-  const isDoor = canonicalPath.includes("door") && !canonicalPath.includes("trapdoor");
+  const isDoor =
+    canonicalPath.includes("door") && !canonicalPath.includes("trapdoor");
   const isTrapdoor = canonicalPath.includes("trapdoor");
 
   // Trapdoors are single-block items - they should NOT be treated as multi-blocks
@@ -72,9 +73,7 @@ export function getMultiBlockParts(
   // if the block explicitly has the half property set
   if (halfProp && !isDoor) {
     const facing =
-      blockProps.facing ||
-      blockProps.horizontal_facing ||
-      blockProps.axis;
+      blockProps.facing || blockProps.horizontal_facing || blockProps.axis;
 
     const commonOverrides: Record<string, string> = {};
     if (facing) commonOverrides.facing = facing;
@@ -118,7 +117,8 @@ export function getMultiBlockParts(
     canonicalPath.includes("tall_grass") ||
     canonicalPath.includes("large_fern") ||
     canonicalPath.includes("rose_bush") ||
-    canonicalPath.includes("peony")
+    canonicalPath.includes("peony") ||
+    canonicalPath.includes("tall_seagrass")
   ) {
     return [
       { offset: [0, 0, 0], overrides: { half: "lower" } },

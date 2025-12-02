@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import {
   OrbitControls,
   PerspectiveCamera,
@@ -17,7 +17,18 @@ import {
   groupAssetsByVariant,
 } from "@lib/assetUtils";
 import { getMultiBlockParts, type MultiBlockPart } from "@lib/multiBlockConfig";
+import { updateAnimatedTextures } from "@lib/three/textureLoader";
 import s from "./styles.module.scss";
+
+/**
+ * Component that updates animated textures every frame
+ */
+function AnimationUpdater() {
+  useFrame(() => {
+    updateAnimatedTextures(performance.now());
+  });
+  return null;
+}
 
 interface Props {
   assetId?: string;
@@ -134,6 +145,9 @@ export default function Preview3D({
             maxDistance={5}
             target={[0, 0, 0]}
           />
+
+          {/* Update animated textures every frame */}
+          <AnimationUpdater />
 
           {/* Minecraft-style lighting - ambient + directional for face differentiation */}
           <ambientLight intensity={1.0} />

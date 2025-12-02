@@ -6,6 +6,7 @@ import {
   normalizeAssetId,
   is2DOnlyTexture,
   isMinecraftItem,
+  shouldUseItemTextureForCard,
 } from "@lib/assetUtils";
 import {
   isEntityTexture,
@@ -32,8 +33,30 @@ import {
 import type { AssetCardProps } from "./types";
 import s from "./styles.module.scss";
 
-import { View } from "@react-three/drei";
 import { EntityPreview } from "../EntityPreview";
+import { Canvas } from "@react-three/fiber";
+
+// ViewContainer component with dedicated Canvas for entity rendering
+function ViewContainer({
+  jemModel,
+  textureUrl,
+}: {
+  jemModel: any;
+  textureUrl: string | null;
+}) {
+  // Use dedicated Canvas per entity instead of shared View portal
+  if (!jemModel) return null;
+
+  return (
+    <Canvas
+      style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }}
+      gl={{ alpha: true, antialias: true }}
+      camera={{ position: [0, 5, 10], fov: 50 }}
+    >
+      <EntityPreview jemModel={jemModel} textureUrl={textureUrl} />
+    </Canvas>
+  );
+}
 
 export const AssetCard = memo(
   function AssetCard({
@@ -51,10 +74,13 @@ export const AssetCard = memo(
     const is2DTexture = is2DOnlyTexture(asset.id);
     const isItem = isMinecraftItem(asset.id);
     const isEntity = isEntityTexture(asset.id);
+    const useItemTextureForCard = shouldUseItemTextureForCard(asset.id);
 
     // Entity rendering state
     const [jemModel, setJemModel] = useState<any>(null);
-    const [entityTextureUrl, setEntityTextureUrl] = useState<string | null>(null);
+    const [entityTextureUrl, setEntityTextureUrl] = useState<string | null>(
+      null,
+    );
 
     // Get the winning pack for this asset
     const winnerPackId = useSelectWinner(asset.id);
@@ -133,11 +159,8 @@ export const AssetCard = memo(
 
       const observer = new IntersectionObserver(
         ([entry]) => {
-          if (entry.isIntersecting) {
-            setIsVisible(true);
-            // Once visible, stop observing (lazy load only once)
-            observer.disconnect();
-          }
+          // Continuously track visibility for proper scroll behavior
+          setIsVisible(entry.isIntersecting);
         },
         { rootMargin: "200px" }, // Start loading 200px before visible
       );
@@ -157,7 +180,11 @@ export const AssetCard = memo(
     }, [winnerPack]);
 
     useEffect(() => {
-      if (!isVisible || (!isColormap && !is2DTexture && !isItem)) return;
+      if (
+        !isVisible ||
+        (!isColormap && !is2DTexture && !isItem && !useItemTextureForCard)
+      )
+        return;
 
       let mounted = true;
 
@@ -165,7 +192,20 @@ export const AssetCard = memo(
         try {
           let texturePath: string;
           // Normalize asset ID to fix trailing underscores and other issues
-          const normalizedAssetId = normalizeAssetId(asset.id);
+          let normalizedAssetId = normalizeAssetId(asset.id);
+
+          // For cross-shaped plants, use the item texture instead of block texture
+          if (shouldUseItemTextureForCard(normalizedAssetId)) {
+            normalizedAssetId = normalizedAssetId.replace(
+              /^(minecraft:)block\//,
+              "$1item/",
+            );
+            // Tall seagrass drops regular seagrass when sheared, so use seagrass item texture
+            normalizedAssetId = normalizedAssetId.replace(
+              /tall_seagrass(_top|_bottom)?$/,
+              "seagrass",
+            );
+          }
 
           // Priority: 1. Pack texture (if exists), 2. Vanilla texture (fallback)
           if (winnerPackId && winnerPack) {
@@ -213,6 +253,7 @@ export const AssetCard = memo(
       isColormap,
       is2DTexture,
       isItem,
+      useItemTextureForCard,
       asset.id,
       winnerPackId,
       winnerPackPath,
@@ -231,7 +272,9 @@ export const AssetCard = memo(
           const entityInfo = getEntityInfoFromAssetId(normalizedAssetId);
 
           if (!entityInfo) {
-            console.warn(`[AssetCard] Could not extract entity info from ${asset.id}`);
+            console.warn(
+              `[AssetCard] Could not extract entity info from ${asset.id}`,
+            );
             return;
           }
 
@@ -247,7 +290,9 @@ export const AssetCard = memo(
           );
 
           if (!model) {
-            console.warn(`[AssetCard] No JEM model found for entity ${entityInfo.variant}`);
+            console.warn(
+              `[AssetCard] No JEM model found for entity ${entityInfo.variant}`,
+            );
             return;
           }
 
@@ -273,7 +318,10 @@ export const AssetCard = memo(
             setEntityTextureUrl(textureUrl);
           }
         } catch (error) {
-          console.error(`[AssetCard] Failed to load entity ${asset.id}:`, error);
+          console.error(
+            `[AssetCard] Failed to load entity ${asset.id}:`,
+            error,
+          );
         }
       };
 
@@ -287,7 +335,6 @@ export const AssetCard = memo(
       isEntity,
       asset.id,
       winnerPackId,
-      winnerPackPath,
       targetMinecraftVersion,
       entityVersionVariants,
       packFormat,
@@ -303,14 +350,14 @@ export const AssetCard = memo(
         onClick={onSelect}
       >
         <div className={s.imageContainer}>
-          {isColormap || is2DTexture || isItem ? (
-            // Colormaps, 2D textures, and items display as flat images
+          {isColormap || is2DTexture || isItem || useItemTextureForCard ? (
+            // Colormaps, 2D textures, items, and cross-shaped plants display as flat images
             imageSrc && !imageError ? (
               <img
                 src={imageSrc}
                 alt={displayName}
                 className={
-                  isItem
+                  isItem || useItemTextureForCard
                     ? s.itemTexture
                     : is2DTexture
                       ? s.texture2D
@@ -321,7 +368,11 @@ export const AssetCard = memo(
             ) : imageError ? (
               <div className={s.placeholder}>
                 <span className={s.placeholderIcon}>
-                  {isItem ? "⚔️" : is2DTexture ? "🖼️" : "🎨"}
+                  {isItem || useItemTextureForCard
+                    ? "⚔️"
+                    : is2DTexture
+                      ? "🖼️"
+                      : "🎨"}
                 </span>
               </div>
             ) : (
@@ -329,36 +380,34 @@ export const AssetCard = memo(
                 <span className={s.placeholderIcon}>⏳</span>
               </div>
             )
+          ) : // ... (existing imports)
 
-            // ... (existing imports)
+          // ... inside component ...
 
-            // ... inside component ...
-
-          ) : // Blocks and entities display as 3D CSS cubes (or Three.js View for entities)
-            isVisible ? (
-              isEntity ? (
-                <View style={{ width: "100%", height: "100%" }}>
-                  <EntityPreview
-                    jemModel={jemModel}
-                    textureUrl={entityTextureUrl}
-                  />
-                </View>
-              ) : (
-                <MinecraftCSSBlock
-                  assetId={asset.id}
-                  packId={winnerPackId || undefined}
-                  alt={displayName}
-                  size={75}
-                  staggerIndex={staggerIndex}
-                  onError={() => setImageError(true)}
-                  renderMode="block"
-                />
-              )
+          // Blocks and entities display as 3D CSS cubes (or Three.js View for entities)
+          isVisible ? (
+            isEntity ? (
+              <ViewContainer
+                key={`entity-${asset.id}`}
+                jemModel={jemModel}
+                textureUrl={entityTextureUrl}
+              />
             ) : (
-              <div className={s.placeholder}>
-                <span className={s.placeholderIcon}>⏳</span>
-              </div>
-            )}
+              <MinecraftCSSBlock
+                assetId={asset.id}
+                packId={winnerPackId || undefined}
+                alt={displayName}
+                size={75}
+                staggerIndex={staggerIndex}
+                onError={() => setImageError(true)}
+                renderMode="block"
+              />
+            )
+          ) : (
+            <div className={s.placeholder}>
+              <span className={s.placeholderIcon}>⏳</span>
+            </div>
+          )}
           {isPenciled && (
             <div
               className={s.penciledIndicator}
