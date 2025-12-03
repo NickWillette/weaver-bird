@@ -623,6 +623,29 @@ export function shouldExcludeAsset(assetId: string): boolean {
     return true;
   }
 
+  // Exclude invalid entity paths (e.g., "minecraft:entity/" with no entity name)
+  if (assetId.includes("entity/")) {
+    const match = assetId.match(/entity\/(.+)/);
+    if (!match || !match[1] || match[1].trim() === "") {
+      return true;
+    }
+  }
+
+  // Similar validation for chest and shulker_box paths
+  if (assetId.includes("chest/")) {
+    const match = assetId.match(/chest\/(.+)/);
+    if (!match || !match[1] || match[1].trim() === "") {
+      return true;
+    }
+  }
+
+  if (assetId.includes("shulker_box/")) {
+    const match = assetId.match(/shulker_box\/(.+)/);
+    if (!match || !match[1] || match[1].trim() === "") {
+      return true;
+    }
+  }
+
   // Exclude readme files
   if (assetId.toLowerCase().includes("readme")) {
     return true;

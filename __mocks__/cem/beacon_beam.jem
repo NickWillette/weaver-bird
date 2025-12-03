@@ -1,0 +1,49 @@
+{
+  "textureSize": [16, 16],
+  "models": [
+    {
+      "part": "beam",
+      "id": "beam",
+      "translate": [0, 0, 0],
+      "boxes": [
+        {
+          "coordinates": [-4, 0, -4, 8, 64, 8],
+          "textureOffset": [0, 0],
+          "uvNorth": [0, 0, 16, 16],
+          "uvEast": [0, 0, 16, 16],
+          "uvSouth": [0, 0, 16, 16],
+          "uvWest": [0, 0, 16, 16],
+          "uvUp": [0, 0, 8, 8],
+          "uvDown": [0, 0, 8, 8]
+        }
+      ],
+      "animations": [
+        {
+          "this.ry": "time * 2"
+        }
+      ]
+    },
+    {
+      "part": "beam_outer",
+      "id": "beam_outer",
+      "translate": [0, 0, 0],
+      "boxes": [
+        {
+          "coordinates": [-5, 0, -5, 10, 64, 10],
+          "textureOffset": [0, 0],
+          "uvNorth": [0, 0, 16, 16],
+          "uvEast": [0, 0, 16, 16],
+          "uvSouth": [0, 0, 16, 16],
+          "uvWest": [0, 0, 16, 16],
+          "uvUp": [0, 0, 10, 10],
+          "uvDown": [0, 0, 10, 10]
+        }
+      ],
+      "animations": [
+        {
+          "this.ry": "time * -1.5"
+        }
+      ]
+    }
+  ]
+}

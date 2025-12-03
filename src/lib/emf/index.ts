@@ -28,13 +28,39 @@ import { parseJEM as parseJEMImpl, mergeVariantTextures } from "./jemLoader";
 
 /**
  * Helper to check if an asset ID is an entity texture
+ * Rejects invalid/empty entity paths like "minecraft:entity/"
  */
 export function isEntityTexture(assetId: string): boolean {
-  return (
-    assetId.includes("entity/") ||
-    assetId.includes("chest/") ||
-    assetId.includes("shulker_box/")
-  );
+  // Check for entity path
+  if (assetId.includes("entity/")) {
+    // Extract the part after "entity/"
+    const match = assetId.match(/entity\/(.+)/);
+    // Reject if there's nothing after "entity/" or if it's just whitespace
+    if (!match || !match[1] || match[1].trim() === "") {
+      return false;
+    }
+
+    return true;
+  }
+
+  // Also validate chest and shulker_box paths
+  if (assetId.includes("chest/")) {
+    const match = assetId.match(/chest\/(.+)/);
+    if (!match || !match[1] || match[1].trim() === "") {
+      return false;
+    }
+    return true;
+  }
+
+  if (assetId.includes("shulker_box/")) {
+    const match = assetId.match(/shulker_box\/(.+)/);
+    if (!match || !match[1] || match[1].trim() === "") {
+      return false;
+    }
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -156,11 +182,12 @@ export function getEntityVariants(assetId: string): string[] {
 /**
  * Normalize entity names to match JEM file naming conventions
  * Handles cases where asset IDs don't match JEM file names
- * e.g., "armorstand" -> "armor_stand"
+ * e.g., "armorstand" -> "armor_stand", "polarbear" -> "polar_bear"
  */
 function normalizeEntityName(entityName: string): string {
   const normalizations: Record<string, string> = {
     "armorstand": "armor_stand",
+    "polarbear": "polar_bear",
     // Add more as needed
   };
 
@@ -199,9 +226,12 @@ export async function loadEntityModel(
 ): Promise<
   (ParsedEntityModel & { jemSource?: string; usedLegacyJem?: boolean }) | null
 > {
+  // Normalize entity type to handle naming differences (e.g., "polarbear" -> "polar_bear")
+  const normalizedEntityType = normalizeEntityName(entityType);
+
   console.log(
     "[EMF] Loading entity model:",
-    entityType,
+    normalizedEntityType,
     "parent:",
     parentEntity,
     "packFormat:",
@@ -326,7 +356,7 @@ export async function loadEntityModel(
     }
 
     // STEP 1: Try variant-specific JEM (e.g., cold_chicken.jem, red_mooshroom.jem)
-    let result = await tryLoadJem(entityType, "variant");
+    let result = await tryLoadJem(normalizedEntityType, "variant");
     if (result) return result;
 
     // STEP 2: Try parent entity JEM if variant not found (e.g., chicken.jem for cold_chicken)
@@ -352,7 +382,7 @@ export async function loadEntityModel(
       }
 
       if (legacyVersion) {
-        const versionedName = `${parentEntity || entityType}_${legacyVersion}`;
+        const versionedName = `${parentEntity || normalizedEntityType}_${legacyVersion}`;
 
         result = await tryLoadJem(versionedName, "legacy versioned");
         if (result) {
@@ -366,8 +396,8 @@ export async function loadEntityModel(
   // STEP 4: Try vanilla JEM files
   // Try selected variant first if specified
   if (selectedVariant) {
-    if (entityType.includes("_hanging_sign")) {
-      const woodType = entityType.replace("_hanging_sign", "");
+    if (normalizedEntityType.includes("_hanging_sign")) {
+      const woodType = normalizedEntityType.replace("_hanging_sign", "");
       const result = await tryLoadVanillaJem(
         `${woodType}/${selectedVariant}_hanging_sign`,
       );
@@ -376,7 +406,7 @@ export async function loadEntityModel(
   }
 
   // Try variant base
-  let result = await tryLoadVanillaJem(entityType);
+  let result = await tryLoadVanillaJem(normalizedEntityType);
   if (result) return result;
 
   // Try parent entity
@@ -386,6 +416,6 @@ export async function loadEntityModel(
     if (result) return result;
   }
 
-  console.log(`[EMF] No JEM found for ${entityType}`);
+  console.log(`[EMF] No JEM found for ${normalizedEntityType}`);
   return null;
 }

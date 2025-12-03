@@ -27,23 +27,23 @@
     @include tokens.shadow-sm;
     @include tokens.rotate-slight;
 
-    // Zone-specific styling
-    &[data-zone="left"] {
+    // Zone-specific styling (but not when dragging)
+    &[data-zone="left"]:not(.dragging) {
         border-left: none !important;
         border-radius: 0 12px 12px 0;
     }
 
-    &[data-zone="right"] {
+    &[data-zone="right"]:not(.dragging) {
         border-right: none !important;
         border-radius: 12px 0 0 12px;
     }
 
-    &[data-zone="top"] {
+    &[data-zone="top"]:not(.dragging) {
         border-top: none !important;
         border-radius: 0 0 12px 12px;
     }
 
-    &[data-zone="bottom"] {
+    &[data-zone="bottom"]:not(.dragging) {
         border-bottom: none !important;
         border-radius: 12px 12px 0 0;
     }
@@ -80,4 +80,10 @@
     // Reset to square when dragging
     border-radius: 12px !important;
     @include tokens.border-standard;
+
+    // Restore all borders that were removed by zone-specific styling
+    border-top: 2px solid var(--color-ink) !important;
+    border-right: 2px solid var(--color-ink) !important;
+    border-bottom: 2px solid var(--color-ink) !important;
+    border-left: 2px solid var(--color-ink) !important;
 }
