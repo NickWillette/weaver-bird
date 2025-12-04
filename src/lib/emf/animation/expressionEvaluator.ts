@@ -12,6 +12,7 @@ import type {
   AnimationContext,
   ParsedExpression,
 } from "./types";
+import { getEntityStateValue } from "./types";
 import { isConstantExpression } from "./expressionParser";
 
 // ============================================================================
@@ -145,15 +146,9 @@ function resolveVariable(name: string, context: AnimationContext): number {
   }
 
   // Entity state variable
-  const state = context.entityState as unknown as Record<string, unknown>;
-  if (name in state) {
-    const value = state[name];
-    if (typeof value === "boolean") {
-      return value ? 1 : 0;
-    }
-    if (typeof value === "number") {
-      return value;
-    }
+  const stateValue = getEntityStateValue(context.entityState, name);
+  if (stateValue !== undefined) {
+    return stateValue;
   }
 
   // Check if it's a constant we might have missed

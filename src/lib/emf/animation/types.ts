@@ -6,6 +6,26 @@
  */
 
 // ============================================================================
+// Animation Constants
+// ============================================================================
+
+/** Minimum animation playback speed */
+export const MIN_ANIMATION_SPEED = 0.1;
+
+/** Maximum animation playback speed */
+export const MAX_ANIMATION_SPEED = 3.0;
+
+/** Default animation playback speed */
+export const DEFAULT_ANIMATION_SPEED = 1.0;
+
+/**
+ * Clamp animation speed to valid range.
+ */
+export function clampAnimationSpeed(speed: number): number {
+  return Math.max(MIN_ANIMATION_SPEED, Math.min(MAX_ANIMATION_SPEED, speed));
+}
+
+// ============================================================================
 // Token Types
 // ============================================================================
 
@@ -328,4 +348,31 @@ export function createAnimationContext(): AnimationContext {
     boneValues: {},
     randomCache: new Map(),
   };
+}
+
+/**
+ * Type-safe lookup of entity state values by name.
+ * Returns the value as a number (booleans are converted to 0/1).
+ * Returns undefined if the property doesn't exist.
+ */
+export function getEntityStateValue(
+  state: EntityState,
+  name: string
+): number | undefined {
+  // Use keyof to ensure type safety
+  if (!(name in state)) {
+    return undefined;
+  }
+
+  const value = state[name as keyof EntityState];
+
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+
+  if (typeof value === "number") {
+    return value;
+  }
+
+  return undefined;
 }

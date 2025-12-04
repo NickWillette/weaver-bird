@@ -6,7 +6,7 @@
  */
 
 import type { EntityState, AnimationContext } from "./types";
-import { DEFAULT_ENTITY_STATE, createAnimationContext } from "./types";
+import { DEFAULT_ENTITY_STATE, createAnimationContext, clampAnimationSpeed } from "./types";
 
 // ============================================================================
 // Entity State Management
@@ -513,7 +513,7 @@ export class AnimationStateController {
    * Set playback speed multiplier.
    */
   setSpeed(speed: number) {
-    this.speed = Math.max(0.1, Math.min(3.0, speed));
+    this.speed = clampAnimationSpeed(speed);
   }
 
   /**

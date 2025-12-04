@@ -249,14 +249,6 @@ class Parser {
     return this.tokens[this.pos];
   }
 
-  // @ts-expect-error - Kept for potential future use in lookahead parsing
-  private peek(offset: number = 0): Token {
-    const idx = this.pos + offset;
-    return idx < this.tokens.length
-      ? this.tokens[idx]
-      : { type: "EOF", value: "", position: -1 };
-  }
-
   private advance(): Token {
     const token = this.current();
     if (token.type !== "EOF") {

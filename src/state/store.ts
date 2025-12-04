@@ -6,6 +6,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { AppState, PackId, AssetId, PackMeta, AssetRecord } from "./types";
+import { clampAnimationSpeed } from "@lib/emf/animation/types";
 
 interface StoreActions {
   // Pack management
@@ -511,8 +512,7 @@ export const useStore = create<WeaverbirdStore>()(
 
     setAnimationSpeed: (speed: number) => {
       set((state) => {
-        // Clamp speed between 0.1 and 3.0
-        state.animationSpeed = Math.max(0.1, Math.min(3.0, speed));
+        state.animationSpeed = clampAnimationSpeed(speed);
       });
     },
 

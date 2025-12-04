@@ -13,7 +13,7 @@ import type {
   ParsedExpression,
   BoneTransform,
 } from "./types";
-import { createAnimationContext, DEFAULT_ENTITY_STATE } from "./types";
+import { createAnimationContext, DEFAULT_ENTITY_STATE, clampAnimationSpeed } from "./types";
 import { compileExpression } from "./expressionParser";
 import { safeEvaluate } from "./expressionEvaluator";
 import {
@@ -285,7 +285,7 @@ export class AnimationEngine {
    * Set playback speed multiplier.
    */
   setSpeed(speed: number): void {
-    this.speed = Math.max(0.1, Math.min(3.0, speed));
+    this.speed = clampAnimationSpeed(speed);
   }
 
   /**
