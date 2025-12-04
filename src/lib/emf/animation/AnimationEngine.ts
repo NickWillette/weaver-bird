@@ -407,7 +407,10 @@ export class AnimationEngine {
 
   /**
    * Apply vanilla-style fallback animations when no CEM animations are present.
-   * Uses standard bone naming conventions (head, body, left_arm, right_arm, etc.)
+   * Handles different entity types with their specific bone naming conventions:
+   * - Humanoids: left_arm, right_arm, left_leg, right_leg
+   * - Quadrupeds/Creeper: leg1, leg2, leg3, leg4
+   * - Flying entities: left_wing, right_wing
    */
   private applyVanillaFallback(): void {
     const state = this.context.entityState;
@@ -423,34 +426,21 @@ export class AnimationEngine {
       head.rotation.x = (base?.rotation.x ?? 0) + pitchRad;
     }
 
-    // Arm/leg swing based on limb_swing and limb_speed
+    // Calculate swing amount for walking animation
     const swingAmount = Math.sin(state.limb_swing * 0.6662) * 1.4 * state.limb_speed;
 
-    const rightArm = this.bones.get("right_arm");
-    if (rightArm) {
-      const base = this.baseTransforms.get("right_arm");
-      rightArm.rotation.x = (base?.rotation.x ?? 0) + swingAmount;
+    // Try humanoid limbs first (zombie, piglin, skeleton, etc.)
+    const hasHumanoidLimbs = this.applyHumanoidLimbs(swingAmount);
+
+    // If no humanoid limbs, try quadruped legs (creeper, pig, cow, etc.)
+    if (!hasHumanoidLimbs) {
+      this.applyQuadrupedLegs(swingAmount);
     }
 
-    const leftArm = this.bones.get("left_arm");
-    if (leftArm) {
-      const base = this.baseTransforms.get("left_arm");
-      leftArm.rotation.x = (base?.rotation.x ?? 0) - swingAmount;
-    }
+    // Apply wing flapping for flying entities (allay, bat, parrot, etc.)
+    this.applyWingFlap(state);
 
-    const rightLeg = this.bones.get("right_leg");
-    if (rightLeg) {
-      const base = this.baseTransforms.get("right_leg");
-      rightLeg.rotation.x = (base?.rotation.x ?? 0) - swingAmount;
-    }
-
-    const leftLeg = this.bones.get("left_leg");
-    if (leftLeg) {
-      const base = this.baseTransforms.get("left_leg");
-      leftLeg.rotation.x = (base?.rotation.x ?? 0) + swingAmount;
-    }
-
-    // Hurt animation - red tint would need material support, just wobble instead
+    // Hurt animation - wobble the body
     if (state.hurt_time > 0) {
       const hurtWobble = Math.sin(state.hurt_time * 0.5) * 0.3;
       const body = this.bones.get("body");
@@ -469,6 +459,140 @@ export class AnimationEngine {
         const base = this.baseTransforms.get("body");
         body.rotation.x = (base?.rotation.x ?? 0) + deathAngle;
       }
+    }
+  }
+
+  /**
+   * Apply humanoid limb animations (arms and legs).
+   * @returns true if humanoid limbs were found and animated
+   */
+  private applyHumanoidLimbs(swingAmount: number): boolean {
+    let foundAny = false;
+
+    // Arms swing opposite to legs
+    const rightArm = this.bones.get("right_arm");
+    if (rightArm) {
+      const base = this.baseTransforms.get("right_arm");
+      rightArm.rotation.x = (base?.rotation.x ?? 0) + swingAmount;
+      foundAny = true;
+    }
+
+    const leftArm = this.bones.get("left_arm");
+    if (leftArm) {
+      const base = this.baseTransforms.get("left_arm");
+      leftArm.rotation.x = (base?.rotation.x ?? 0) - swingAmount;
+      foundAny = true;
+    }
+
+    // Legs swing opposite to each other
+    const rightLeg = this.bones.get("right_leg");
+    if (rightLeg) {
+      const base = this.baseTransforms.get("right_leg");
+      rightLeg.rotation.x = (base?.rotation.x ?? 0) - swingAmount;
+      foundAny = true;
+    }
+
+    const leftLeg = this.bones.get("left_leg");
+    if (leftLeg) {
+      const base = this.baseTransforms.get("left_leg");
+      leftLeg.rotation.x = (base?.rotation.x ?? 0) + swingAmount;
+      foundAny = true;
+    }
+
+    return foundAny;
+  }
+
+  /**
+   * Apply quadruped leg animations (leg1-leg4 pattern).
+   * Used by creeper, pig, cow, sheep, and other 4-legged entities.
+   * leg1/leg3 are typically front legs, leg2/leg4 are back legs (or vice versa)
+   */
+  private applyQuadrupedLegs(swingAmount: number): void {
+    // Front legs (or diagonal pair) swing one direction
+    const leg1 = this.bones.get("leg1");
+    if (leg1) {
+      const base = this.baseTransforms.get("leg1");
+      leg1.rotation.x = (base?.rotation.x ?? 0) + swingAmount;
+    }
+
+    const leg3 = this.bones.get("leg3");
+    if (leg3) {
+      const base = this.baseTransforms.get("leg3");
+      leg3.rotation.x = (base?.rotation.x ?? 0) + swingAmount;
+    }
+
+    // Back legs (or other diagonal pair) swing opposite direction
+    const leg2 = this.bones.get("leg2");
+    if (leg2) {
+      const base = this.baseTransforms.get("leg2");
+      leg2.rotation.x = (base?.rotation.x ?? 0) - swingAmount;
+    }
+
+    const leg4 = this.bones.get("leg4");
+    if (leg4) {
+      const base = this.baseTransforms.get("leg4");
+      leg4.rotation.x = (base?.rotation.x ?? 0) - swingAmount;
+    }
+
+    // Also try directional naming (used by horse, cat)
+    // front_left_leg, front_right_leg, back_left_leg, back_right_leg
+    const frontLeftLeg = this.bones.get("front_left_leg");
+    if (frontLeftLeg) {
+      const base = this.baseTransforms.get("front_left_leg");
+      frontLeftLeg.rotation.x = (base?.rotation.x ?? 0) + swingAmount;
+    }
+
+    const frontRightLeg = this.bones.get("front_right_leg");
+    if (frontRightLeg) {
+      const base = this.baseTransforms.get("front_right_leg");
+      frontRightLeg.rotation.x = (base?.rotation.x ?? 0) - swingAmount;
+    }
+
+    const backLeftLeg = this.bones.get("back_left_leg");
+    if (backLeftLeg) {
+      const base = this.baseTransforms.get("back_left_leg");
+      backLeftLeg.rotation.x = (base?.rotation.x ?? 0) - swingAmount;
+    }
+
+    const backRightLeg = this.bones.get("back_right_leg");
+    if (backRightLeg) {
+      const base = this.baseTransforms.get("back_right_leg");
+      backRightLeg.rotation.x = (base?.rotation.x ?? 0) + swingAmount;
+    }
+  }
+
+  /**
+   * Apply wing flapping animation for flying entities.
+   * Uses the age variable for continuous flapping when moving.
+   */
+  private applyWingFlap(state: EntityState): void {
+    // Only flap wings when moving (limb_speed > 0) or always for flying entities
+    const flapSpeed = state.limb_speed > 0 ? 10 : 3; // Faster when moving
+    const flapAmount = Math.sin(state.age * flapSpeed) * 0.5;
+
+    const leftWing = this.bones.get("left_wing");
+    if (leftWing) {
+      const base = this.baseTransforms.get("left_wing");
+      leftWing.rotation.z = (base?.rotation.z ?? 0) - flapAmount;
+    }
+
+    const rightWing = this.bones.get("right_wing");
+    if (rightWing) {
+      const base = this.baseTransforms.get("right_wing");
+      rightWing.rotation.z = (base?.rotation.z ?? 0) + flapAmount;
+    }
+
+    // Handle outer wings (bat has outer_left_wing, outer_right_wing)
+    const outerLeftWing = this.bones.get("outer_left_wing");
+    if (outerLeftWing) {
+      const base = this.baseTransforms.get("outer_left_wing");
+      outerLeftWing.rotation.z = (base?.rotation.z ?? 0) - flapAmount * 0.5;
+    }
+
+    const outerRightWing = this.bones.get("outer_right_wing");
+    if (outerRightWing) {
+      const base = this.baseTransforms.get("outer_right_wing");
+      outerRightWing.rotation.z = (base?.rotation.z ?? 0) + flapAmount * 0.5;
     }
   }
 
