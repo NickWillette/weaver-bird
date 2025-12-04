@@ -484,11 +484,12 @@ export function astToString(node: ASTNode, indent: number = 0): string {
     case "BinaryOp":
       return `${pad}BinaryOp(${node.operator})\n${astToString(node.left, indent + 1)}\n${astToString(node.right, indent + 1)}`;
 
-    case "FunctionCall":
+    case "FunctionCall": {
       const argsStr = node.args
         .map((a) => astToString(a, indent + 1))
         .join("\n");
       return `${pad}FunctionCall(${node.name})\n${argsStr}`;
+    }
 
     default:
       return `${pad}Unknown`;

@@ -77,6 +77,9 @@ export class AnimationEngine {
   /** Whether the engine has been initialized */
   private initialized: boolean = false;
 
+  /** Set of bone names that have been warned about (to avoid spam) */
+  private warnedMissingBones: Set<string> = new Set();
+
   /**
    * Create a new animation engine.
    *
@@ -384,7 +387,12 @@ export class AnimationEngine {
 
     // Evaluate animations and apply to bones
     if (this.animationLayers.length > 0) {
-      this.evaluateAndApply();
+      try {
+        this.evaluateAndApply();
+      } catch (error) {
+        // Log error but don't crash - animation will just skip this frame
+        console.error("[AnimationEngine] Error during animation evaluation:", error);
+      }
       return true;
     }
 
@@ -444,6 +452,13 @@ export class AnimationEngine {
       if (bone) {
         const base = this.baseTransforms.get(boneName);
         applyBoneTransform(bone, transform, base);
+      } else if (!this.warnedMissingBones.has(boneName)) {
+        // Warn once per missing bone to avoid log spam
+        console.warn(
+          `[AnimationEngine] Animation references missing bone: "${boneName}". ` +
+          `Available bones: ${Array.from(this.bones.keys()).join(", ")}`
+        );
+        this.warnedMissingBones.add(boneName);
       }
     }
   }
@@ -483,6 +498,7 @@ export class AnimationEngine {
     this.animationLayers = [];
     this.bones.clear();
     this.baseTransforms.clear();
+    this.warnedMissingBones.clear();
     this.activePreset = null;
     this.isPlaying = false;
     this.initialized = false;
