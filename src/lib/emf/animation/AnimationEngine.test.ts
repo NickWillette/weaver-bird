@@ -2,12 +2,12 @@
  * Tests for Animation Engine and JEM integration
  */
 
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import * as THREE from "three";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { parseJEM, jemToThreeJS, type JEMFile } from "../jemLoader";
-import { AnimationEngine, createAnimationEngine } from "./AnimationEngine";
+import { parseJEM, type JEMFile } from "../jemLoader";
+import { createAnimationEngine } from "./AnimationEngine";
 import { ANIMATION_PRESETS, getPresetById } from "./entityState";
 
 // Load a test JEM file with animations (from Fresh Animations pack)

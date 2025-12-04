@@ -87,6 +87,13 @@ interface StoreActions {
   setTargetMinecraftVersion: (version: string | null) => void;
   setEntityVersionVariants: (variants: Record<string, string[]>) => void;
 
+  // Entity animation
+  setAnimationPreset: (preset: string | null) => void;
+  setAnimationPlaying: (playing: boolean) => void;
+  setAnimationSpeed: (speed: number) => void;
+  setEntityHeadYaw: (yaw: number) => void;
+  setEntityHeadPitch: (pitch: number) => void;
+
   // Reset
   reset: () => void;
 }
@@ -147,6 +154,13 @@ const initialState: AppState = {
   useLegacyCEM: true, // Use legacy CEM by default for older packs
   targetMinecraftVersion: null, // Default to current vanilla version
   entityVersionVariants: {}, // Will be loaded when packs are scanned
+
+  // Entity animation settings
+  animationPreset: null, // No animation by default
+  animationPlaying: false, // Not playing by default
+  animationSpeed: 1.0, // Normal speed
+  entityHeadYaw: 0, // Looking forward
+  entityHeadPitch: 0, // Looking forward
 };
 
 export const useStore = create<WeaverbirdStore>()(
@@ -477,6 +491,42 @@ export const useStore = create<WeaverbirdStore>()(
     setEntityVersionVariants: (variants: Record<string, string[]>) => {
       set((state) => {
         state.entityVersionVariants = variants;
+      });
+    },
+
+    // Entity animation
+    setAnimationPreset: (preset: string | null) => {
+      set((state) => {
+        state.animationPreset = preset;
+        // Auto-play when preset is selected
+        state.animationPlaying = preset !== null;
+      });
+    },
+
+    setAnimationPlaying: (playing: boolean) => {
+      set((state) => {
+        state.animationPlaying = playing;
+      });
+    },
+
+    setAnimationSpeed: (speed: number) => {
+      set((state) => {
+        // Clamp speed between 0.1 and 3.0
+        state.animationSpeed = Math.max(0.1, Math.min(3.0, speed));
+      });
+    },
+
+    setEntityHeadYaw: (yaw: number) => {
+      set((state) => {
+        // Normalize to -180 to 180 range
+        state.entityHeadYaw = ((yaw + 180) % 360) - 180;
+      });
+    },
+
+    setEntityHeadPitch: (pitch: number) => {
+      set((state) => {
+        // Clamp pitch to -90 to 90 (can't look further than straight up/down)
+        state.entityHeadPitch = Math.max(-90, Math.min(90, pitch));
       });
     },
 

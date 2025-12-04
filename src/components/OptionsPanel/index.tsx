@@ -22,6 +22,7 @@ import {
   isNumberedVariant,
   isSignTexture,
   isHangingSign,
+  isEntityTexture,
 } from "@lib/assetUtils";
 import { getEntityVariants } from "@lib/emf";
 import {
@@ -38,6 +39,7 @@ import { PaintingTab } from "./components/tabs/PaintingTab";
 import { ItemDisplayTab } from "./components/tabs/ItemDisplayTab";
 import { BlockStateTab } from "./components/tabs/BlockStateTab";
 import { EntityVariantTab } from "./components/tabs/EntityVariantTab";
+import { AnimationsTab } from "./components/tabs/AnimationsTab";
 import { PotTab } from "./components/tabs/PotTab";
 import { SignOptionsTab } from "./components/tabs/SignOptionsTab";
 import { TextureVariantTab } from "./components/tabs/TextureVariantTab";
@@ -267,6 +269,7 @@ export const OptionsPanel = ({
   const shouldShowEntityVariantTab = assetId
     ? getEntityVariants(assetId).length > 0
     : false;
+  const shouldShowAnimationsTab = assetId ? isEntityTexture(assetId) : false;
   const shouldShowItemTab =
     isItem && !isPotteryShardAsset && !isEntityDecoratedPotAsset;
   const shouldShowPaintingTab = isPaintingAsset && allAssets.length > 0;
@@ -325,6 +328,9 @@ export const OptionsPanel = ({
           )}
           {shouldShowEntityVariantTab && (
             <TabIcon icon="🔄" label="Entity Variant" value="entity-variant" />
+          )}
+          {shouldShowAnimationsTab && (
+            <TabIcon icon="🎬" label="Animations" value="animations" />
           )}
           {shouldShowPotTab && <TabIcon icon="🌱" label="Pot" value="pot" />}
           {hasTextureVariants && onSelectVariant && (
@@ -387,6 +393,8 @@ export const OptionsPanel = ({
         )}
 
         {shouldShowEntityVariantTab && <EntityVariantTab assetId={assetId} />}
+
+        {shouldShowAnimationsTab && <AnimationsTab />}
 
         {shouldShowPotTab && (
           <PotTab showPot={showPot} onShowPotChange={setShowPot} />

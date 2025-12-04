@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import * as THREE from "three";
+import { useFrame } from "@react-three/fiber";
 import {
   useSelectWinner,
   useSelectPack,
@@ -14,6 +15,11 @@ import {
 import { loadPackTexture, loadVanillaTexture } from "@lib/three/textureLoader";
 import { useStore } from "@state/store";
 import { getEntityVersionVariants } from "@lib/tauri";
+import {
+  createAnimationEngine,
+  type AnimationEngine as AnimationEngineType,
+} from "@lib/emf/animation/AnimationEngine";
+import type { AnimationLayer } from "@lib/emf/jemLoader";
 
 interface Props {
   assetId: string;
@@ -32,6 +38,12 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Animation state
+  const animationEngineRef = useRef<AnimationEngineType | null>(null);
+  const [animationLayers, setAnimationLayers] = useState<
+    AnimationLayer[] | undefined
+  >(undefined);
+
   // Get the winning pack for this entity texture
   const storeWinnerPackId = useSelectWinner(assetId);
   const storeWinnerPack = useSelectPack(storeWinnerPackId || "");
@@ -45,6 +57,13 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
 
   // Get selected entity variant from store
   const selectedEntityVariant = useStore((state) => state.entityVariant);
+
+  // Get animation state from store
+  const animationPreset = useStore((state) => state.animationPreset);
+  const animationPlaying = useStore((state) => state.animationPlaying);
+  const animationSpeed = useStore((state) => state.animationSpeed);
+  const entityHeadYaw = useStore((state) => state.entityHeadYaw);
+  const entityHeadPitch = useStore((state) => state.entityHeadPitch);
 
   // State for entity version variants
   const [entityVersionVariants, setEntityVersionVariants] = useState<
@@ -193,6 +212,16 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
         // Position the model - entity models sit on the ground plane
         group.position.y = 0;
 
+        // Store animation layers from parsed model
+        if (parsedModel.animations && parsedModel.animations.length > 0) {
+          console.log(
+            `[EntityModel] Found ${parsedModel.animations.length} animation layers`,
+          );
+          setAnimationLayers(parsedModel.animations);
+        } else {
+          setAnimationLayers(undefined);
+        }
+
         setEntityGroup(group);
         setLoading(false);
         console.log("=== [EntityModel] Entity Model Load Complete ===");
@@ -271,6 +300,66 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     entityVersionVariants,
     selectedEntityVariant,
   ]);
+
+  // Create animation engine when entity group or animation layers change
+  useEffect(() => {
+    if (!entityGroup) {
+      animationEngineRef.current = null;
+      return;
+    }
+
+    console.log("[EntityModel] Creating animation engine");
+    const engine = createAnimationEngine(entityGroup, animationLayers);
+    animationEngineRef.current = engine;
+
+    // Set initial preset if one is selected
+    if (animationPreset) {
+      engine.setPreset(animationPreset, animationPlaying);
+    }
+    engine.setSpeed(animationSpeed);
+    engine.setHeadOrientation(entityHeadYaw, entityHeadPitch);
+
+    return () => {
+      console.log("[EntityModel] Cleaning up animation engine");
+      animationEngineRef.current?.reset();
+      animationEngineRef.current = null;
+    };
+    // Only recreate engine when model changes, not when animation settings change
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityGroup, animationLayers]);
+
+  // Sync animation preset changes to engine
+  useEffect(() => {
+    const engine = animationEngineRef.current;
+    if (!engine) return;
+
+    engine.setPreset(animationPreset, animationPlaying);
+  }, [animationPreset, animationPlaying]);
+
+  // Sync animation speed changes to engine
+  useEffect(() => {
+    const engine = animationEngineRef.current;
+    if (!engine) return;
+
+    engine.setSpeed(animationSpeed);
+  }, [animationSpeed]);
+
+  // Sync head orientation changes to engine
+  useEffect(() => {
+    const engine = animationEngineRef.current;
+    if (!engine) return;
+
+    engine.setHeadOrientation(entityHeadYaw, entityHeadPitch);
+  }, [entityHeadYaw, entityHeadPitch]);
+
+  // Animation frame update
+  useFrame((_, delta) => {
+    const engine = animationEngineRef.current;
+    if (!engine) return;
+
+    // Tick the animation engine
+    engine.tick(delta);
+  });
 
   if (error) {
     console.error("[EntityModel] Rendering error state:", error);
