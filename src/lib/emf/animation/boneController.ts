@@ -11,6 +11,13 @@ import type { BoneTransform } from "./types";
 // Pixels per Three.js unit (matches jemLoader.ts)
 const PIXELS_PER_UNIT = 16;
 
+// Debug flag - set to true to enable extensive logging
+export const DEBUG_ANIMATIONS = true;
+
+// Track which bones we've logged to avoid spam
+const loggedBones = new Set<string>();
+let frameCount = 0;
+
 /**
  * Map of bone names to their Three.js Object3D references.
  */
@@ -48,6 +55,16 @@ export function buildBoneMap(root: THREE.Group): BoneMap {
     }
   });
 
+  if (DEBUG_ANIMATIONS) {
+    console.log("[BoneController] Built bone map with", bones.size, "bones:");
+    for (const [name, bone] of bones) {
+      const parentName = bone.parent?.name || "(root)";
+      console.log(
+        `  - ${name}: pos=[${bone.position.x.toFixed(3)}, ${bone.position.y.toFixed(3)}, ${bone.position.z.toFixed(3)}], parent=${parentName}`
+      );
+    }
+  }
+
   return bones;
 }
 
@@ -68,6 +85,15 @@ export function storeBaseTransforms(bones: BoneMap): BaseTransformMap {
       scale: bone.scale.clone(),
       visible: bone.visible,
     });
+  }
+
+  if (DEBUG_ANIMATIONS) {
+    console.log("[BoneController] Stored base transforms:");
+    for (const [name, base] of baseTransforms) {
+      console.log(
+        `  - ${name}: base_pos=[${base.position.x.toFixed(3)}, ${base.position.y.toFixed(3)}, ${base.position.z.toFixed(3)}]`
+      );
+    }
   }
 
   return baseTransforms;
@@ -133,19 +159,51 @@ export function applyBoneTransform(
   baseTransform?: BaseTransforms
 ): void {
   const base = baseTransform;
+  const boneName = bone.name;
+
+  // Log detailed transform info (only first few frames per bone to avoid spam)
+  const shouldLog = DEBUG_ANIMATIONS && !loggedBones.has(boneName);
+  if (shouldLog && (transforms.tx !== undefined || transforms.ty !== undefined || transforms.tz !== undefined)) {
+    frameCount++;
+    if (frameCount <= 50) { // Only log first 50 transforms
+      console.log(`[BoneController] Applying transform to "${boneName}":`);
+      console.log(`  Animation values: tx=${transforms.tx?.toFixed(3)}, ty=${transforms.ty?.toFixed(3)}, tz=${transforms.tz?.toFixed(3)}`);
+      console.log(`  Base position: [${base?.position.x.toFixed(3)}, ${base?.position.y.toFixed(3)}, ${base?.position.z.toFixed(3)}]`);
+      console.log(`  Current position: [${bone.position.x.toFixed(3)}, ${bone.position.y.toFixed(3)}, ${bone.position.z.toFixed(3)}]`);
+    }
+    if (frameCount === 5) {
+      loggedBones.add(boneName); // Stop logging this bone after 5 frames
+    }
+  }
 
   // Apply translations (ABSOLUTE translate values, negated to get position)
   // CEM animations provide the new "translate" value for the bone.
   // Since translate is negated to get position (as in jemLoader), we negate here too.
   // Example: ty=-4 means translate y=-4, so position y = -(-4)/16 = 0.25
   if (transforms.tx !== undefined) {
-    bone.position.x = -transforms.tx / PIXELS_PER_UNIT;
+    const newX = -transforms.tx / PIXELS_PER_UNIT;
+    if (shouldLog && frameCount <= 50) {
+      console.log(`  Setting position.x: -${transforms.tx.toFixed(3)}/16 = ${newX.toFixed(3)}`);
+    }
+    bone.position.x = newX;
   }
   if (transforms.ty !== undefined) {
-    bone.position.y = -transforms.ty / PIXELS_PER_UNIT;
+    const newY = -transforms.ty / PIXELS_PER_UNIT;
+    if (shouldLog && frameCount <= 50) {
+      console.log(`  Setting position.y: -${transforms.ty.toFixed(3)}/16 = ${newY.toFixed(3)}`);
+    }
+    bone.position.y = newY;
   }
   if (transforms.tz !== undefined) {
-    bone.position.z = -transforms.tz / PIXELS_PER_UNIT;
+    const newZ = -transforms.tz / PIXELS_PER_UNIT;
+    if (shouldLog && frameCount <= 50) {
+      console.log(`  Setting position.z: -${transforms.tz.toFixed(3)}/16 = ${newZ.toFixed(3)}`);
+    }
+    bone.position.z = newZ;
+  }
+
+  if (shouldLog && frameCount <= 50) {
+    console.log(`  Final position: [${bone.position.x.toFixed(3)}, ${bone.position.y.toFixed(3)}, ${bone.position.z.toFixed(3)}]`);
   }
 
   // Apply rotations (in radians, ADDED to base rotation)

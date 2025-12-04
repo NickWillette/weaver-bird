@@ -26,6 +26,7 @@ import {
   isBoneTransformProperty,
   applyBoneTransform,
   createBoneTransform,
+  DEBUG_ANIMATIONS,
 } from "./boneController";
 import type { AnimationPreset } from "./entityState";
 import { getPresetById } from "./entityState";
@@ -596,12 +597,36 @@ export class AnimationEngine {
     }
   }
 
+  /** Track if we've logged animation summary */
+  private hasLoggedAnimationSummary = false;
+
+  /** Frame counter for debug logging */
+  private debugFrameCount = 0;
+
   /**
    * Evaluate all animation expressions and apply to bones.
    */
   private evaluateAndApply(): void {
     // Accumulated transforms per bone
     const boneTransforms: Map<string, BoneTransform> = new Map();
+
+    // Log animation summary once
+    if (DEBUG_ANIMATIONS && !this.hasLoggedAnimationSummary) {
+      console.log("[AnimationEngine] Animation layers summary:");
+      for (let i = 0; i < this.animationLayers.length; i++) {
+        const layer = this.animationLayers[i];
+        console.log(`  Layer ${i}: ${layer.length} expressions`);
+        for (const anim of layer) {
+          if (anim.targetType === "bone" && (anim.propertyName === "tx" || anim.propertyName === "ty" || anim.propertyName === "tz")) {
+            console.log(`    - ${anim.targetName}.${anim.propertyName} (translation)`);
+          }
+        }
+      }
+      this.hasLoggedAnimationSummary = true;
+    }
+
+    this.debugFrameCount++;
+    const shouldLogThisFrame = DEBUG_ANIMATIONS && this.debugFrameCount <= 3;
 
     // Process each layer in order
     for (const layer of this.animationLayers) {
@@ -632,6 +657,11 @@ export class AnimationEngine {
               const partial = createBoneTransform(animation.propertyName, value);
               Object.assign(transform, partial);
 
+              // Log translation values
+              if (shouldLogThisFrame && (animation.propertyName === "tx" || animation.propertyName === "ty" || animation.propertyName === "tz")) {
+                console.log(`[AnimationEngine] Frame ${this.debugFrameCount}: ${animation.targetName}.${animation.propertyName} = ${value.toFixed(3)}`);
+              }
+
               // Also store in context for expression references
               if (!this.context.boneValues[animation.targetName]) {
                 this.context.boneValues[animation.targetName] = {};
@@ -639,6 +669,16 @@ export class AnimationEngine {
               this.context.boneValues[animation.targetName][animation.propertyName] = value;
             }
             break;
+        }
+      }
+    }
+
+    // Log final transforms before applying
+    if (shouldLogThisFrame) {
+      console.log(`[AnimationEngine] Frame ${this.debugFrameCount}: Accumulated transforms for ${boneTransforms.size} bones`);
+      for (const [boneName, transform] of boneTransforms) {
+        if (transform.tx !== undefined || transform.ty !== undefined || transform.tz !== undefined) {
+          console.log(`  ${boneName}: tx=${transform.tx?.toFixed(3)}, ty=${transform.ty?.toFixed(3)}, tz=${transform.tz?.toFixed(3)}`);
         }
       }
     }
