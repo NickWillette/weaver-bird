@@ -111,18 +111,21 @@ export function resetAllBones(
  * Apply animation transforms to a bone.
  *
  * CEM animations use:
- * - tx, ty, tz: Translation offset in pixels (ADDED to base position)
+ * - tx, ty, tz: Translation as ABSOLUTE translate values (negated to get position)
  * - rx, ry, rz: Rotation in radians (ADDED to base rotation)
  * - sx, sy, sz: Scale factors (MULTIPLIED with base scale)
  * - visible: Visibility flag
  *
- * All transforms are RELATIVE to the bone's rest pose (base transforms).
- * This matches OptiFine CEM behavior where animations modify the model,
- * not replace it entirely.
+ * IMPORTANT: Translation values in CEM animations represent the new "translate"
+ * value for the bone, NOT an offset. Since jemLoader negates translate to get
+ * the origin/position, we must also negate animation translations.
+ *
+ * Example: If animation has ty=-4, this means "set translate to -4", which
+ * becomes position y = -(-4)/16 = 0.25 in Three.js units.
  *
  * @param bone The Three.js object to transform
  * @param transforms The transforms to apply
- * @param baseTransform Optional base transform for relative positioning
+ * @param baseTransform Optional base transform for relative rotations/scales
  */
 export function applyBoneTransform(
   bone: THREE.Object3D,
@@ -131,22 +134,22 @@ export function applyBoneTransform(
 ): void {
   const base = baseTransform;
 
-  // Apply translations (in pixels, converted to Three.js units)
-  // CEM animations provide OFFSETS from the bone's rest position
-  // Example: If model has translate:[0,-6,0] and animation has ty:-4,
-  // the final position is base + offset = 0.375 + (-0.25) = 0.125
+  // Apply translations (ABSOLUTE translate values, negated to get position)
+  // CEM animations provide the new "translate" value for the bone.
+  // Since translate is negated to get position (as in jemLoader), we negate here too.
+  // Example: ty=-4 means translate y=-4, so position y = -(-4)/16 = 0.25
   if (transforms.tx !== undefined) {
-    bone.position.x = (base?.position.x ?? 0) + transforms.tx / PIXELS_PER_UNIT;
+    bone.position.x = -transforms.tx / PIXELS_PER_UNIT;
   }
   if (transforms.ty !== undefined) {
-    bone.position.y = (base?.position.y ?? 0) + transforms.ty / PIXELS_PER_UNIT;
+    bone.position.y = -transforms.ty / PIXELS_PER_UNIT;
   }
   if (transforms.tz !== undefined) {
-    bone.position.z = (base?.position.z ?? 0) + transforms.tz / PIXELS_PER_UNIT;
+    bone.position.z = -transforms.tz / PIXELS_PER_UNIT;
   }
 
   // Apply rotations (in radians, ADDED to base rotation)
-  // CEM animations are offsets from the model's rest pose
+  // CEM rotations are offsets from the model's rest pose
   if (transforms.rx !== undefined) {
     bone.rotation.x = (base?.rotation.x ?? 0) + transforms.rx;
   }
