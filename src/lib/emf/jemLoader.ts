@@ -304,11 +304,25 @@ function parseModelPart(
   // Using id first ensures each gets a unique name in the bone map.
   const name = part.id || part.part || "unnamed";
 
+  // Parse invertAxis - determines which axes need to be negated
+  // When Blockbench exports to JEM with invertAxis: 'xy', it means
+  // the X and Y coordinates were inverted during export and need
+  // to be inverted back during import.
+  const invertAxis = part.invertAxis || "";
+  const invertX = invertAxis.includes("x");
+  const invertY = invertAxis.includes("y");
+  const invertZ = invertAxis.includes("z");
+
   // Get the translate (pivot point)
   // For submodels at depth >= 1, add parent's origin to make absolute
-  const translate: [number, number, number] = part.translate
+  let translate: [number, number, number] = part.translate
     ? [...part.translate]
     : [0, 0, 0];
+
+  // Apply invertAxis to translate
+  if (invertX) translate[0] = -translate[0];
+  if (invertY) translate[1] = -translate[1];
+  if (invertZ) translate[2] = -translate[2];
 
   // Submodels have relative translates - convert to absolute
   if (parentOrigin) {
@@ -317,8 +331,8 @@ function parseModelPart(
     translate[2] += parentOrigin[2];
   }
 
-  // CRITICAL: Origin equals translate (the pivot point position)
-  // We do NOT negate - that would invert the Y axis and make models upside-down.
+  // CRITICAL: Origin equals the transformed translate (the pivot point position)
+  // We do NOT negate globally - invertAxis handles axis-specific inversion.
   // The translate value IS the position where the group should be placed.
   const origin: [number, number, number] = [
     translate[0],
@@ -333,11 +347,11 @@ function parseModelPart(
   const scale = part.scale ?? 1.0;
   const mirrorUV = part.mirrorTexture?.includes("u") ?? false;
 
-  // Parse boxes
+  // Parse boxes with invertAxis info
   const boxes: ParsedBox[] = [];
   if (part.boxes) {
     for (const box of part.boxes) {
-      const parsed = parseBox(box, textureSize, mirrorUV);
+      const parsed = parseBox(box, textureSize, mirrorUV, invertX, invertY, invertZ);
       if (parsed) {
         boxes.push(parsed);
       }
@@ -348,8 +362,6 @@ function parseModelPart(
   const children: ParsedPart[] = [];
 
   if (part.submodel) {
-    // Pass the NEGATED origin (which equals the original translate with sign flip)
-    // But for submodel coordinate calculation, we need the original translate
     const child = parseModelPart(part.submodel, textureSize, translate);
     children.push(child);
   }
@@ -375,13 +387,17 @@ function parseModelPart(
 /**
  * Parse a box definition
  *
- * Box coordinates in JEM are ABSOLUTE in world space.
+ * Box coordinates in JEM are relative to the part's pivot point.
  * [x, y, z, width, height, depth] where (x,y,z) is the minimum corner.
+ * invertAxis flags indicate which axes need to be negated.
  */
 function parseBox(
   box: JEMBox,
   _textureSize: [number, number],
   partMirrorUV: boolean,
+  invertX: boolean = false,
+  invertY: boolean = false,
+  invertZ: boolean = false,
 ): ParsedBox | null {
   // Default coordinates if not specified
   let x = 0,
@@ -397,6 +413,18 @@ function parseBox(
     // No coordinates - can't create box
     console.warn("[JEM Parser] Box missing coordinates, skipping");
     return null;
+  }
+
+  // Apply invertAxis to box coordinates
+  // When an axis is inverted, we negate the position and flip the direction
+  if (invertX) {
+    x = -x - width;
+  }
+  if (invertY) {
+    y = -y - height;
+  }
+  if (invertZ) {
+    z = -z - depth;
   }
 
   const inflate = box.sizeAdd || 0;
