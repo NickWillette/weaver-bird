@@ -44,6 +44,10 @@ export interface JEMModelPart {
   submodel?: JEMModelPart;
   submodels?: JEMModelPart[];
   animations?: Record<string, string | number>[];
+  /** External model reference (JPM file path) - not currently supported */
+  model?: string;
+  /** Whether this is an attachment reference */
+  attach?: boolean | string;
 }
 
 /** Box geometry definition */
@@ -129,6 +133,16 @@ export function parseJEM(jemData: JEMFile): ParsedEntityModel {
 
   if (jemData.models) {
     for (const modelPart of jemData.models) {
+      // Skip external model references (parts with "model" property but no geometry)
+      // These reference external .jpm files which we don't currently support.
+      // They often have the same "part" name as a real part, causing collisions.
+      // Example: {"part":"body","model":"piglin_body.jpm","attach":"true"}
+      // should be skipped when there's already a {"part":"body","id":"body",...} with real geometry.
+      if (modelPart.model && !modelPart.boxes && !modelPart.submodel && !modelPart.submodels) {
+        console.log(`[JEM Parser] Skipping external model reference: ${modelPart.part || modelPart.id} -> ${modelPart.model}`);
+        continue;
+      }
+
       const parsed = parseModelPart(modelPart, textureSize, null);
       if (parsed) {
         parts.push(parsed);
