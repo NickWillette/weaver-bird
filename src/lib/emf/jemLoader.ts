@@ -611,7 +611,7 @@ function convertPart(
  */
 function createBoxMesh(
   box: ParsedBox,
-  partOrigin: [number, number, number],
+  _partOrigin: [number, number, number],
   textureSize: [number, number],
   texture: THREE.Texture | null,
 ): THREE.Mesh | null {
@@ -686,17 +686,22 @@ function createBoxMesh(
 
   const mesh = new THREE.Mesh(geometry, material);
 
-  // Calculate box center in absolute coordinates
+  // Calculate box center in LOCAL coordinates (relative to part's translate)
   const centerX = (from[0] + to[0]) / 2;
   const centerY = (from[1] + to[1]) / 2;
   const centerZ = (from[2] + to[2]) / 2;
 
-  // Position RELATIVE to part origin (this is the key fix!)
-  // Blockbench does: from[i] -= element.origin[i]
+  // Position mesh relative to group.
+  // Box coords are LOCAL to the part (relative to part's translate).
+  // Group is at origin/16 where origin = -translate.
+  // World position = translate + center, in Three.js = -(translate + center)/16
+  // Group position = origin/16 = -translate/16
+  // Mesh position = worldPos - groupPos = -(translate + center)/16 - (-translate/16)
+  //               = -translate/16 - center/16 + translate/16 = -center/16
   mesh.position.set(
-    (centerX - partOrigin[0]) / PIXELS_PER_UNIT,
-    (centerY - partOrigin[1]) / PIXELS_PER_UNIT,
-    (centerZ - partOrigin[2]) / PIXELS_PER_UNIT,
+    -centerX / PIXELS_PER_UNIT,
+    -centerY / PIXELS_PER_UNIT,
+    -centerZ / PIXELS_PER_UNIT,
   );
 
   mesh.castShadow = true;
