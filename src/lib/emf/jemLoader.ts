@@ -312,21 +312,15 @@ function parseModelPart(
   // CRITICAL: Blockbench negates translate to get origin
   // See: group.origin.V3_multiply(-1) in optifine_jem.js
   // This is done REGARDLESS of invertAxis (invertAxis is export metadata only)
+  //
+  // IMPORTANT: We do NOT adjust child origins based on parent.
+  // Three.js hierarchy handles parent-child positioning naturally.
+  // Each group just uses its own origin = -translate.
   const origin: [number, number, number] = [
     -rawTranslate[0],
     -rawTranslate[1],
     -rawTranslate[2],
   ];
-
-  // For submodels (depth >= 1), Blockbench adds parent.origin to translate BEFORE negating:
-  //   subsub.translate += p_group.origin;
-  //   group.origin = -subsub.translate;
-  // This means: child.origin = -(child.translate + parent.origin) = -child.translate - parent.origin
-  if (parentOrigin) {
-    origin[0] -= parentOrigin[0];
-    origin[1] -= parentOrigin[1];
-    origin[2] -= parentOrigin[2];
-  }
 
   const rotation: [number, number, number] = part.rotate
     ? [...part.rotate]
@@ -596,20 +590,21 @@ function convertPart(
   for (const child of part.children) {
     const childGroup = convertPart(child, textureSize, texture);
 
-    // Child origins are ABSOLUTE (computed during parsing by adding parent translate).
-    // Parent group is positioned at parent.origin in world space.
-    // To place child at its correct absolute position, compute LOCAL offset:
-    //   childLocalPos = childAbsoluteOrigin - parentAbsoluteOrigin
+    // Child local position is simply child.origin (converted to Three.js units).
+    // Three.js automatically handles parent-child transforms:
+    //   child.world = parent.world + child.local
     //
-    // Example for allay:
-    //   body.origin = [0, 6, 0] → body at world [0, 0.375, 0]
-    //   head2.origin = [0, 0, 0] (absolute) → should be at world [0, 0, 0]
-    //   head2 local pos = [0, 0, 0] - [0, 6, 0] = [0, -6, 0] → [0, -0.375, 0] in Three.js
-    //   head2 world = body world + head2 local = [0, 0.375, 0] + [0, -0.375, 0] = [0, 0, 0] ✓
+    // Example for piglin:
+    //   headwear.origin = [0, 24, -0.25] → headwear.position = [0, 1.5, -0.016]
+    //   head2.origin = [0, -24, 0] → head2.local = [0, -1.5, 0]
+    //   head2.world = headwear.position + head2.local = [0, 1.5, -0.016] + [0, -1.5, 0] = [0, 0, -0.016] ✓
+    //
+    // DO NOT subtract parent.origin - that would double-count the parent offset
+    // since Three.js hierarchy already applies parent transforms to children.
     childGroup.position.set(
-      (child.origin[0] - part.origin[0]) / PIXELS_PER_UNIT,
-      (child.origin[1] - part.origin[1]) / PIXELS_PER_UNIT,
-      (child.origin[2] - part.origin[2]) / PIXELS_PER_UNIT,
+      child.origin[0] / PIXELS_PER_UNIT,
+      child.origin[1] / PIXELS_PER_UNIT,
+      child.origin[2] / PIXELS_PER_UNIT,
     );
 
     group.add(childGroup);
