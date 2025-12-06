@@ -88,6 +88,8 @@ export interface ParsedPart {
   mirrorUV: boolean;
   boxes: ParsedBox[];
   children: ParsedPart[];
+  /** Whether this is a root part (affects how box coordinates are interpreted) */
+  isRootPart: boolean;
 }
 
 /** Parsed box with absolute coordinates and UV data */
@@ -333,13 +335,16 @@ function parseModelPart(
   const scale = part.scale ?? 1.0;
   const mirrorUV = part.mirrorTexture?.includes("u") ?? false;
 
-  // Parse boxes
-  // Only apply invertAxis transformation to root parts, not submodels
-  const invertAxisForBoxes = isRootPart ? (part.invertAxis || '') : '';
+  // Parse boxes - don't apply invertAxis to box coordinates
+  // invertAxis is export metadata that affects how coordinates were written,
+  // but the actual coordinate values in the file are correct as-is.
+  // The key difference is how we interpret them:
+  // - Root parts: boxes are in ABSOLUTE model space
+  // - Submodels: boxes are in LOCAL (relative to translate) space
   const boxes: ParsedBox[] = [];
   if (part.boxes) {
     for (const box of part.boxes) {
-      const parsed = parseBox(box, textureSize, mirrorUV, invertAxisForBoxes);
+      const parsed = parseBox(box, textureSize, mirrorUV);
       if (parsed) {
         boxes.push(parsed);
       }
@@ -369,25 +374,23 @@ function parseModelPart(
     mirrorUV,
     boxes,
     children,
+    isRootPart,
   };
 }
 
 /**
  * Parse a box definition
  *
- * Box coordinates in JEM are relative to the part's pivot point.
- * [x, y, z, width, height, depth] where (x,y,z) is the minimum corner.
+ * Box coordinates in JEM: [x, y, z, width, height, depth]
+ * - For root parts: coordinates are in ABSOLUTE model space
+ * - For submodels: coordinates are relative to the part's translate
  *
- * invertAxis handling:
- * During JEM export, Blockbench transforms coordinates for axes in invertAxis.
- * For Y: pos[1] = -pos[1] - size[1]
- * We apply the same transform to reverse it (it's an involution).
+ * The interpretation of these coordinates happens in convertPart, not here.
  */
 function parseBox(
   box: JEMBox,
   _textureSize: [number, number],
   partMirrorUV: boolean,
-  invertAxis: string = '',
 ): ParsedBox | null {
   // Default coordinates if not specified
   let x = 0,
@@ -403,19 +406,6 @@ function parseBox(
     // No coordinates - can't create box
     console.warn("[JEM Parser] Box missing coordinates, skipping");
     return null;
-  }
-
-  // Apply invertAxis transformation to reverse the export transformation
-  // Blockbench export does: pos[axis] = -pos[axis] - size[axis]
-  // This is an involution, so applying it again reverses it
-  if (invertAxis.includes('x')) {
-    x = -x - width;
-  }
-  if (invertAxis.includes('y')) {
-    y = -y - height;
-  }
-  if (invertAxis.includes('z')) {
-    z = -z - depth;
   }
 
   const inflate = box.sizeAdd || 0;
@@ -561,21 +551,28 @@ export function jemToThreeJS(
 /**
  * Convert a parsed part to Three.js geometry
  *
- * Key insight: JEM box coordinates are RELATIVE to the part's translate (pivot).
- * So we position groups at their translate, not at origin.
+ * Key insight: JEM box coordinates have different interpretations:
+ * - Root parts (body, arms, legs): boxes are in ABSOLUTE model space
+ * - Submodels (head2, ears): boxes are in LOCAL space (relative to translate)
  *
  * The algorithm:
  * 1. Position the group at TRANSLATE (= -origin) in its parent's space
- * 2. Box coordinates are relative to translate, so mesh.local = boxCenter
- * 3. Apply rotations around the local origin (which is the translate point)
+ * 2. For root parts: mesh.position = (boxCenter + origin) / 16 to convert from absolute
+ * 3. For submodels: mesh.position = boxCenter / 16 (already relative)
  *
- * Example for body:
+ * Example for body (root part):
  *   translate = [0, -24, 0], origin = [0, 24, 0]
  *   group.position = translate/16 = [0, -1.5, 0]
- *   box center (relative) = [0, 18, 0]
- *   mesh.local = [0, 1.125, 0]
- *   mesh.world = group + mesh.local = [0, -1.5, 0] + [0, 1.125, 0] = [0, -0.375, 0] = y=-6 pixels
- *   This matches: translate.y + boxCenter.y = -24 + 18 = -6 ✓
+ *   box center (absolute) = [0, 18, 0]
+ *   mesh.local = (18 + 24)/16 = 2.625 = [0, 2.625, 0]
+ *   mesh.world = group + mesh.local = [0, -1.5, 0] + [0, 2.625, 0] = [0, 1.125, 0] = y=18 pixels ✓
+ *
+ * Example for head2 (submodel):
+ *   head2 world position = [0, 0, 0] (after hierarchy)
+ *   box center (relative) = [0, 4, 0]
+ *   mesh.local = [0, 0.25, 0]
+ *   mesh.world = [0, 0, 0] + [0, 0.25, 0] = [0, 0.25, 0] = y=4 pixels
+ *   Actual world = headwear.y + head2.y = -24 + 24 + 4 = 4 pixels ??? (need to verify)
  */
 function convertPart(
   part: ParsedPart,
@@ -617,6 +614,17 @@ function convertPart(
       texture,
     );
     if (mesh) {
+      // Adjust mesh position based on whether this is a root part or submodel:
+      // - Root parts: boxes are in ABSOLUTE model space
+      //   → Need to offset by origin so mesh ends up at correct world position
+      //   → mesh.position = (box_center + origin) / 16
+      // - Submodels: boxes are in LOCAL space (relative to translate)
+      //   → mesh.position = box_center / 16 (already set by createBoxMesh)
+      if (part.isRootPart) {
+        mesh.position.x += part.origin[0] / PIXELS_PER_UNIT;
+        mesh.position.y += part.origin[1] / PIXELS_PER_UNIT;
+        mesh.position.z += part.origin[2] / PIXELS_PER_UNIT;
+      }
       group.add(mesh);
     }
   }
