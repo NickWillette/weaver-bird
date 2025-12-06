@@ -290,10 +290,19 @@ export function mergeVariantTextures(
  *
  * @param part - The raw JEM model part
  * @param textureSize - Default texture size [width, height]
+ * @param isRootPart - Whether this is a root part (not a submodel)
+ *
+ * invertAxis handling:
+ * - invertAxis is export metadata from Blockbench indicating which axes were inverted
+ * - During JEM export, Blockbench transforms box coordinates: pos[axis] = -pos[axis] - size[axis]
+ * - We reverse this transformation, but ONLY for root parts
+ * - Submodels don't need the transformation because their coordinates are already
+ *   in the correct "child-relative" space
  */
 function parseModelPart(
   part: JEMModelPart,
   textureSize: [number, number],
+  isRootPart: boolean = true,
 ): ParsedPart {
   // IMPORTANT: Prefer id over part to avoid name collisions.
   // JEM files can have multiple entries with the same "part" but different "id"s:
@@ -307,29 +316,15 @@ function parseModelPart(
     ? [...part.translate]
     : [0, 0, 0];
 
-  // Compute origin following Blockbench's JEM import logic:
-  // 1. Start with translate
-  // 2. Negate all axes (origin = -translate)
-  // 3. If invertAxis is specified, flip those axes AGAIN
-  //
-  // The net effect of invertAxis="xy" is that X and Y keep their original
-  // translate values (not negated), while Z is negated.
-  //
-  // Example with body: translate=[0,-24,0], invertAxis="xy"
-  //   Step 2: origin = [0, 24, 0]
-  //   Step 3: flip x,y → [0, -24, 0]
-  // Result: origin = [0, -24, 0], so group positioned at [0, 24, 0] / 16 = [0, 1.5, 0]
-  let origin: [number, number, number] = [
+  // Origin = -translate
+  // Note: invertAxis is export metadata that indicates which axes were inverted
+  // during Blockbench export. We're not applying it here yet - need to understand
+  // the exact transformation order better.
+  const origin: [number, number, number] = [
     -rawTranslate[0],
     -rawTranslate[1],
     -rawTranslate[2],
   ];
-
-  // Apply invertAxis - flip specified axes again
-  const invertAxis = part.invertAxis || '';
-  if (invertAxis.includes('x')) origin[0] = -origin[0];
-  if (invertAxis.includes('y')) origin[1] = -origin[1];
-  if (invertAxis.includes('z')) origin[2] = -origin[2];
 
   const rotation: [number, number, number] = part.rotate
     ? [...part.rotate]
@@ -338,28 +333,30 @@ function parseModelPart(
   const scale = part.scale ?? 1.0;
   const mirrorUV = part.mirrorTexture?.includes("u") ?? false;
 
-  // Parse boxes with invertAxis for coordinate transformation
+  // Parse boxes
+  // Only apply invertAxis transformation to root parts, not submodels
+  const invertAxisForBoxes = isRootPart ? (part.invertAxis || '') : '';
   const boxes: ParsedBox[] = [];
   if (part.boxes) {
     for (const box of part.boxes) {
-      const parsed = parseBox(box, textureSize, mirrorUV, invertAxis);
+      const parsed = parseBox(box, textureSize, mirrorUV, invertAxisForBoxes);
       if (parsed) {
         boxes.push(parsed);
       }
     }
   }
 
-  // Parse children (submodels)
+  // Parse children (submodels) - these are NOT root parts
   const children: ParsedPart[] = [];
 
   if (part.submodel) {
-    const child = parseModelPart(part.submodel, textureSize);
+    const child = parseModelPart(part.submodel, textureSize, false);
     children.push(child);
   }
 
   if (part.submodels) {
     for (const submodel of part.submodels) {
-      const child = parseModelPart(submodel, textureSize);
+      const child = parseModelPart(submodel, textureSize, false);
       children.push(child);
     }
   }
