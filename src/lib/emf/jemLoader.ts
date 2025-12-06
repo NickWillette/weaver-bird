@@ -123,7 +123,7 @@ export function parseJEM(jemData: JEMFile): ParsedEntityModel {
 
   if (jemData.models) {
     for (const modelPart of jemData.models) {
-      const parsed = parseModelPart(modelPart, textureSize, null);
+      const parsed = parseModelPart(modelPart, textureSize);
       if (parsed) {
         parts.push(parsed);
       }
@@ -253,37 +253,37 @@ export function mergeVariantTextures(
 /**
  * Parse a model part and its children recursively
  *
+ * IMPORTANT: JEM box coordinates are RELATIVE to the part's translate (pivot point).
+ * We store translate as-is from JEM (no accumulation) and position groups accordingly.
+ *
  * @param part - The raw JEM model part
  * @param textureSize - Default texture size [width, height]
- * @param parentOrigin - Parent's origin for submodel coordinate adjustment
  */
 function parseModelPart(
   part: JEMModelPart,
   textureSize: [number, number],
-  parentOrigin: [number, number, number] | null,
 ): ParsedPart {
   const name = part.part || part.id || "unnamed";
 
-  // Get the translate (pivot point)
-  // For submodels at depth >= 1, add parent's origin to make absolute
-  const translate: [number, number, number] = part.translate
+  // Get the translate (pivot point) from JEM - use as-is, no accumulation
+  // For top-level parts: this is the pivot in world space
+  // For submodels: this is relative to parent's translate
+  const rawTranslate: [number, number, number] = part.translate
     ? [...part.translate]
     : [0, 0, 0];
 
-  // Submodels have relative translates - convert to absolute
-  if (parentOrigin) {
-    translate[0] += parentOrigin[0];
-    translate[1] += parentOrigin[1];
-    translate[2] += parentOrigin[2];
-  }
-
-  // CRITICAL: Negate translate to get origin (Blockbench line 276)
-  // This is the key transformation that makes everything work
+  // Store origin = -translate for internal use
+  // We'll use this to position groups at translate (= -origin) in convertPart
+  // Box coordinates are RELATIVE to translate, so no origin adjustment needed
   const origin: [number, number, number] = [
-    -translate[0],
-    -translate[1],
-    -translate[2],
+    -rawTranslate[0],
+    -rawTranslate[1],
+    -rawTranslate[2],
   ];
+
+  if (DEBUG_POSITIONING) {
+    console.log(`[JEM Parser] Part: ${name}, JEM translate: [${rawTranslate.join(', ')}], origin: [${origin.join(', ')}]`);
+  }
 
   const rotation: [number, number, number] = part.rotate
     ? [...part.rotate]
@@ -307,15 +307,15 @@ function parseModelPart(
   const children: ParsedPart[] = [];
 
   if (part.submodel) {
-    // Pass the NEGATED origin (which equals the original translate with sign flip)
-    // But for submodel coordinate calculation, we need the original translate
-    const child = parseModelPart(part.submodel, textureSize, translate);
+    // Parse child - it will use its own translate from JEM (relative to this part)
+    const child = parseModelPart(part.submodel, textureSize);
     children.push(child);
   }
 
   if (part.submodels) {
     for (const submodel of part.submodels) {
-      const child = parseModelPart(submodel, textureSize, translate);
+      // Parse child - it will use its own translate from JEM (relative to this part)
+      const child = parseModelPart(submodel, textureSize);
       children.push(child);
     }
   }
@@ -501,10 +501,20 @@ export function jemToThreeJS(
 /**
  * Convert a parsed part to Three.js geometry
  *
- * The key insight from Blockbench:
- * 1. Position the group at the origin (negated translate)
- * 2. Create box geometry relative to that origin
- * 3. Apply rotations around the origin
+ * Key insight: JEM box coordinates are RELATIVE to the part's translate (pivot).
+ * So we position groups at their translate, not origin.
+ *
+ * The algorithm:
+ * 1. Position the group at TRANSLATE (= -origin) in its parent's space
+ * 2. Box coordinates are relative to translate, so mesh.position = boxCenter / 16
+ * 3. Apply rotations around the local origin (which is the translate point)
+ * 4. Children are positioned at their own translates (relative to this group)
+ *
+ * Example for piglin headwear -> head2:
+ *   headwear.translate = [0, -24, 0.25] → headwear.position = [0, -1.5, 0.016]
+ *   head2.translate = [0, 24, 0] (relative to headwear) → head2.position = [0, 1.5, 0]
+ *   head2.world = [0, -1.5, 0.016] + [0, 1.5, 0] = [0, 0, 0.016]
+ *   This matches: headwear.translate + head2.translate = [0, -24, 0.25] + [0, 24, 0] = [0, 0, 0.25] → [0, 0, 0.016] ✓
  */
 function convertPart(
   part: ParsedPart,
@@ -514,12 +524,18 @@ function convertPart(
   const group = new THREE.Group();
   group.name = part.name;
 
-  // Position at origin (in Three.js units)
-  group.position.set(
-    part.origin[0] / PIXELS_PER_UNIT,
-    part.origin[1] / PIXELS_PER_UNIT,
-    part.origin[2] / PIXELS_PER_UNIT,
-  );
+  // Position at TRANSLATE (= -origin) in Three.js units
+  // Since origin = -translate, we use -origin to get translate
+  const translate = [
+    -part.origin[0] / PIXELS_PER_UNIT,
+    -part.origin[1] / PIXELS_PER_UNIT,
+    -part.origin[2] / PIXELS_PER_UNIT,
+  ];
+  group.position.set(translate[0], translate[1], translate[2]);
+
+  if (DEBUG_POSITIONING) {
+    console.log(`[JEM Convert] Part: ${part.name}, position (translate/16): [${translate.map(v => v.toFixed(3)).join(', ')}]`);
+  }
 
   // Apply rotation (degrees to radians)
   // JEM rotations are applied as-is
@@ -542,7 +558,6 @@ function convertPart(
   for (const box of part.boxes) {
     const mesh = createBoxMesh(
       box,
-      part.origin,
       textureSize,
       texture,
     );
@@ -555,18 +570,25 @@ function convertPart(
   for (const child of part.children) {
     const childGroup = convertPart(child, textureSize, texture);
 
-    // CRITICAL FIX: Child origins are already absolute (made so during parsing
-    // at lines 161-166 by adding parent translate). Since the parent group is
-    // positioned at its origin, the child should be at the origin [0,0,0]
-    // relative to the parent, NOT at (child.origin - parent.origin).
-    //
-    // The old calculation double-subtracted the parent's position:
-    //   WRONG: (child.origin - parent.origin) / 16
-    //   This resulted in children positioned at negative offsets
-    //
-    // The child's origin IS the absolute world position, so relative to
-    // a parent that's also absolutely positioned, it's just at origin.
-    childGroup.position.set(0, 0, 0);
+    // Child is positioned at its translate (= -child.origin) relative to this group
+    // Since child.origin = -child_translate, we negate it to get child_translate
+    // Child translates in JEM are relative to parent, so this is the correct local position
+    const childTranslate = [
+      -child.origin[0] / PIXELS_PER_UNIT,
+      -child.origin[1] / PIXELS_PER_UNIT,
+      -child.origin[2] / PIXELS_PER_UNIT,
+    ];
+    childGroup.position.set(childTranslate[0], childTranslate[1], childTranslate[2]);
+
+    if (DEBUG_POSITIONING) {
+      // Calculate world position for debugging
+      const worldPos = [
+        translate[0] + childTranslate[0],
+        translate[1] + childTranslate[1],
+        translate[2] + childTranslate[2],
+      ];
+      console.log(`[JEM Convert]   Child: ${child.name}, local pos: [${childTranslate.map(v => v.toFixed(3)).join(', ')}], world pos: [${worldPos.map(v => v.toFixed(3)).join(', ')}]`);
+    }
 
     group.add(childGroup);
   }
@@ -577,12 +599,20 @@ function convertPart(
 /**
  * Create a Three.js mesh for a box
  *
- * Box coordinates are absolute, but we need to position relative to the part's origin.
- * This matches Blockbench's updateGeometry() which subtracts the origin from from/to.
+ * Box coordinates are RELATIVE to the part's translate (pivot point).
+ * The group is positioned at translate (= -origin).
+ * So mesh local position = box center (in pixel coords relative to translate).
+ *
+ * Example for body:
+ *   body.translate = [0, -24, 0]
+ *   body group at [0, -1.5, 0] (translate/16)
+ *   box center (relative to translate) = [0, 18, 0]
+ *   mesh.local = [0, 1.125, 0]
+ *   mesh.world = [0, -1.5, 0] + [0, 1.125, 0] = [0, -0.375, 0] = y=-6 pixels
+ *   This is: translate.y + boxCenter.y = -24 + 18 = -6 ✓
  */
 function createBoxMesh(
   box: ParsedBox,
-  partOrigin: [number, number, number],
   textureSize: [number, number],
   texture: THREE.Texture | null,
 ): THREE.Mesh | null {
@@ -657,18 +687,23 @@ function createBoxMesh(
 
   const mesh = new THREE.Mesh(geometry, material);
 
-  // Calculate box center in absolute coordinates
+  // Calculate box center (coordinates are RELATIVE to part's translate)
   const centerX = (from[0] + to[0]) / 2;
   const centerY = (from[1] + to[1]) / 2;
   const centerZ = (from[2] + to[2]) / 2;
 
-  // Position RELATIVE to part origin (this is the key fix!)
-  // Blockbench does: from[i] -= element.origin[i]
+  // Position mesh at box center (in Three.js units)
+  // Since group is at translate and box coords are relative to translate,
+  // mesh local position is simply the box center coordinates
   mesh.position.set(
-    (centerX - partOrigin[0]) / PIXELS_PER_UNIT,
-    (centerY - partOrigin[1]) / PIXELS_PER_UNIT,
-    (centerZ - partOrigin[2]) / PIXELS_PER_UNIT,
+    centerX / PIXELS_PER_UNIT,
+    centerY / PIXELS_PER_UNIT,
+    centerZ / PIXELS_PER_UNIT,
   );
+
+  if (DEBUG_POSITIONING) {
+    console.log(`[JEM Box] Center (relative): [${centerX.toFixed(1)}, ${centerY.toFixed(1)}, ${centerZ.toFixed(1)}] px → mesh.pos: [${(centerX/PIXELS_PER_UNIT).toFixed(3)}, ${(centerY/PIXELS_PER_UNIT).toFixed(3)}, ${(centerZ/PIXELS_PER_UNIT).toFixed(3)}]`);
+  }
 
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -822,6 +857,9 @@ export function loadJEM(
   return jemToThreeJS(parsed, texture);
 }
 
+// Debug flag - set to true to enable detailed position logging
+const DEBUG_POSITIONING = true;
+
 // =============================================================================
 // DEBUG UTILITIES
 // =============================================================================
@@ -844,15 +882,24 @@ export function addDebugVisualization(group: THREE.Group): void {
 
 /**
  * Log the hierarchy of a Three.js group for debugging
+ * Shows both local and world positions for easier debugging
  */
 export function logHierarchy(group: THREE.Object3D, indent = 0): void {
   const prefix = "  ".repeat(indent);
   const pos = group.position;
   const rot = group.rotation;
 
+  // Get world position
+  const worldPos = new THREE.Vector3();
+  group.getWorldPosition(worldPos);
+
+  const isMesh = group instanceof THREE.Mesh;
+  const type = isMesh ? "[Mesh]" : "[Group]";
+
   console.log(
-    `${prefix}${group.name || "(unnamed)"} ` +
-    `pos:[${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}] ` +
+    `${prefix}${type} ${group.name || "(unnamed)"} ` +
+    `local:[${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}] ` +
+    `world:[${worldPos.x.toFixed(3)}, ${worldPos.y.toFixed(3)}, ${worldPos.z.toFixed(3)}] ` +
     `rot:[${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}°]`,
   );
 
