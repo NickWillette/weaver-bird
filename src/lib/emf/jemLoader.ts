@@ -307,19 +307,29 @@ function parseModelPart(
     ? [...part.translate]
     : [0, 0, 0];
 
-  // Store origin = -translate for each part locally.
-  // We DON'T accumulate origins through the hierarchy because:
-  // 1. Box coordinates are RELATIVE to the part's translate (pivot point)
-  // 2. Each group should be positioned at its translate, not cumulative
-  // 3. Three.js hierarchy handles parent-child transforms naturally
+  // Compute origin following Blockbench's JEM import logic:
+  // 1. Start with translate
+  // 2. Negate all axes (origin = -translate)
+  // 3. If invertAxis is specified, flip those axes AGAIN
   //
-  // In convertPart, we'll use translate = -origin for positioning.
-  // invertAxis is export metadata only, NOT applied at runtime.
-  const origin: [number, number, number] = [
+  // The net effect of invertAxis="xy" is that X and Y keep their original
+  // translate values (not negated), while Z is negated.
+  //
+  // Example with body: translate=[0,-24,0], invertAxis="xy"
+  //   Step 2: origin = [0, 24, 0]
+  //   Step 3: flip x,y → [0, -24, 0]
+  // Result: origin = [0, -24, 0], so group positioned at [0, 24, 0] / 16 = [0, 1.5, 0]
+  let origin: [number, number, number] = [
     -rawTranslate[0],
     -rawTranslate[1],
     -rawTranslate[2],
   ];
+
+  // Apply invertAxis - flip specified axes again
+  const invertAxis = part.invertAxis || '';
+  if (invertAxis.includes('x')) origin[0] = -origin[0];
+  if (invertAxis.includes('y')) origin[1] = -origin[1];
+  if (invertAxis.includes('z')) origin[2] = -origin[2];
 
   const rotation: [number, number, number] = part.rotate
     ? [...part.rotate]
@@ -328,11 +338,11 @@ function parseModelPart(
   const scale = part.scale ?? 1.0;
   const mirrorUV = part.mirrorTexture?.includes("u") ?? false;
 
-  // Parse boxes (invertAxis is NOT applied - it's export metadata only)
+  // Parse boxes with invertAxis for coordinate transformation
   const boxes: ParsedBox[] = [];
   if (part.boxes) {
     for (const box of part.boxes) {
-      const parsed = parseBox(box, textureSize, mirrorUV);
+      const parsed = parseBox(box, textureSize, mirrorUV, invertAxis);
       if (parsed) {
         boxes.push(parsed);
       }
@@ -370,11 +380,17 @@ function parseModelPart(
  *
  * Box coordinates in JEM are relative to the part's pivot point.
  * [x, y, z, width, height, depth] where (x,y,z) is the minimum corner.
+ *
+ * invertAxis handling:
+ * During JEM export, Blockbench transforms coordinates for axes in invertAxis.
+ * For Y: pos[1] = -pos[1] - size[1]
+ * We apply the same transform to reverse it (it's an involution).
  */
 function parseBox(
   box: JEMBox,
   _textureSize: [number, number],
   partMirrorUV: boolean,
+  invertAxis: string = '',
 ): ParsedBox | null {
   // Default coordinates if not specified
   let x = 0,
@@ -390,6 +406,19 @@ function parseBox(
     // No coordinates - can't create box
     console.warn("[JEM Parser] Box missing coordinates, skipping");
     return null;
+  }
+
+  // Apply invertAxis transformation to reverse the export transformation
+  // Blockbench export does: pos[axis] = -pos[axis] - size[axis]
+  // This is an involution, so applying it again reverses it
+  if (invertAxis.includes('x')) {
+    x = -x - width;
+  }
+  if (invertAxis.includes('y')) {
+    y = -y - height;
+  }
+  if (invertAxis.includes('z')) {
+    z = -z - depth;
   }
 
   const inflate = box.sizeAdd || 0;
