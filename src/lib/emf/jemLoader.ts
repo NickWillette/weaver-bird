@@ -44,6 +44,10 @@ export interface JEMModelPart {
   submodel?: JEMModelPart;
   submodels?: JEMModelPart[];
   animations?: Record<string, string | number>[];
+  /** External model reference (JPM file path) - not currently supported */
+  model?: string;
+  /** Whether this is an attachment reference */
+  attach?: boolean | string;
 }
 
 /** Box geometry definition */
@@ -60,12 +64,17 @@ export interface JEMBox {
   uvEast?: [number, number, number, number];
 }
 
+/** Animation layer type */
+export type AnimationLayer = Record<string, string | number>;
+
 /** Parsed and normalized entity model */
 export interface ParsedEntityModel {
   texturePath: string;
   textureSize: [number, number];
   shadowSize: number;
   parts: ParsedPart[];
+  /** Animation layers from all model parts (if present) */
+  animations?: AnimationLayer[];
 }
 
 /** Parsed model part with resolved values */
@@ -79,6 +88,8 @@ export interface ParsedPart {
   mirrorUV: boolean;
   boxes: ParsedBox[];
   children: ParsedPart[];
+  /** Whether this is a root part (affects how box coordinates are interpreted) */
+  isRootPart: boolean;
 }
 
 /** Parsed box with absolute coordinates and UV data */
@@ -120,22 +131,48 @@ export function parseJEM(jemData: JEMFile): ParsedEntityModel {
   const shadowSize = jemData.shadowSize ?? 1.0;
 
   const parts: ParsedPart[] = [];
+  const animations: AnimationLayer[] = [];
 
   if (jemData.models) {
     for (const modelPart of jemData.models) {
-      const parsed = parseModelPart(modelPart, textureSize, null);
+      // Skip external model references (parts with "model" property but no geometry)
+      // These reference external .jpm files which we don't currently support.
+      // They often have the same "part" name as a real part, causing collisions.
+      // Example: {"part":"body","model":"piglin_body.jpm","attach":"true"}
+      // should be skipped when there's already a {"part":"body","id":"body",...} with real geometry.
+      if (modelPart.model && !modelPart.boxes && !modelPart.submodel && !modelPart.submodels) {
+        console.log(`[JEM Parser] Skipping external model reference: ${modelPart.part || modelPart.id} -> ${modelPart.model}`);
+        continue;
+      }
+
+      const parsed = parseModelPart(modelPart, textureSize);
       if (parsed) {
         parts.push(parsed);
+      }
+
+      // Extract animations from this model part
+      // Animations are defined at the part level and contain multiple layers
+      if (modelPart.animations && modelPart.animations.length > 0) {
+        for (const animLayer of modelPart.animations) {
+          animations.push(animLayer);
+        }
       }
     }
   }
 
-  return {
+  const result: ParsedEntityModel = {
     texturePath,
     textureSize,
     shadowSize,
     parts,
   };
+
+  // Only include animations if present
+  if (animations.length > 0) {
+    result.animations = animations;
+  }
+
+  return result;
 }
 
 /**
@@ -255,34 +292,40 @@ export function mergeVariantTextures(
  *
  * @param part - The raw JEM model part
  * @param textureSize - Default texture size [width, height]
- * @param parentOrigin - Parent's origin for submodel coordinate adjustment
+ * @param isRootPart - Whether this is a root part (not a submodel)
+ *
+ * invertAxis handling:
+ * - invertAxis is export metadata from Blockbench indicating which axes were inverted
+ * - During JEM export, Blockbench transforms box coordinates: pos[axis] = -pos[axis] - size[axis]
+ * - We reverse this transformation, but ONLY for root parts
+ * - Submodels don't need the transformation because their coordinates are already
+ *   in the correct "child-relative" space
  */
 function parseModelPart(
   part: JEMModelPart,
   textureSize: [number, number],
-  parentOrigin: [number, number, number] | null,
+  isRootPart: boolean = true,
 ): ParsedPart {
-  const name = part.part || part.id || "unnamed";
+  // IMPORTANT: Prefer id over part to avoid name collisions.
+  // JEM files can have multiple entries with the same "part" but different "id"s:
+  // - {"part":"body", "id":"body", "translate":[0,-6,0], ...} - the actual body
+  // - {"part":"body", "id":"body_part", "model":"...", ...} - external model ref
+  // Using id first ensures each gets a unique name in the bone map.
+  const name = part.id || part.part || "unnamed";
 
   // Get the translate (pivot point)
-  // For submodels at depth >= 1, add parent's origin to make absolute
-  const translate: [number, number, number] = part.translate
+  const rawTranslate: [number, number, number] = part.translate
     ? [...part.translate]
     : [0, 0, 0];
 
-  // Submodels have relative translates - convert to absolute
-  if (parentOrigin) {
-    translate[0] += parentOrigin[0];
-    translate[1] += parentOrigin[1];
-    translate[2] += parentOrigin[2];
-  }
-
-  // CRITICAL: Negate translate to get origin (Blockbench line 276)
-  // This is the key transformation that makes everything work
+  // Origin = -translate
+  // Note: invertAxis is export metadata that indicates which axes were inverted
+  // during Blockbench export. We're not applying it here yet - need to understand
+  // the exact transformation order better.
   const origin: [number, number, number] = [
-    -translate[0],
-    -translate[1],
-    -translate[2],
+    -rawTranslate[0],
+    -rawTranslate[1],
+    -rawTranslate[2],
   ];
 
   const rotation: [number, number, number] = part.rotate
@@ -292,7 +335,12 @@ function parseModelPart(
   const scale = part.scale ?? 1.0;
   const mirrorUV = part.mirrorTexture?.includes("u") ?? false;
 
-  // Parse boxes
+  // Parse boxes - don't apply invertAxis to box coordinates
+  // invertAxis is export metadata that affects how coordinates were written,
+  // but the actual coordinate values in the file are correct as-is.
+  // The key difference is how we interpret them:
+  // - Root parts: boxes are in ABSOLUTE model space
+  // - Submodels: boxes are in LOCAL (relative to translate) space
   const boxes: ParsedBox[] = [];
   if (part.boxes) {
     for (const box of part.boxes) {
@@ -303,19 +351,17 @@ function parseModelPart(
     }
   }
 
-  // Parse children (submodels)
+  // Parse children (submodels) - these are NOT root parts
   const children: ParsedPart[] = [];
 
   if (part.submodel) {
-    // Pass the NEGATED origin (which equals the original translate with sign flip)
-    // But for submodel coordinate calculation, we need the original translate
-    const child = parseModelPart(part.submodel, textureSize, translate);
+    const child = parseModelPart(part.submodel, textureSize, false);
     children.push(child);
   }
 
   if (part.submodels) {
     for (const submodel of part.submodels) {
-      const child = parseModelPart(submodel, textureSize, translate);
+      const child = parseModelPart(submodel, textureSize, false);
       children.push(child);
     }
   }
@@ -328,14 +374,18 @@ function parseModelPart(
     mirrorUV,
     boxes,
     children,
+    isRootPart,
   };
 }
 
 /**
  * Parse a box definition
  *
- * Box coordinates in JEM are ABSOLUTE in world space.
- * [x, y, z, width, height, depth] where (x,y,z) is the minimum corner.
+ * Box coordinates in JEM: [x, y, z, width, height, depth]
+ * - For root parts: coordinates are in ABSOLUTE model space
+ * - For submodels: coordinates are relative to the part's translate
+ *
+ * The interpretation of these coordinates happens in convertPart, not here.
  */
 function parseBox(
   box: JEMBox,
@@ -501,10 +551,28 @@ export function jemToThreeJS(
 /**
  * Convert a parsed part to Three.js geometry
  *
- * The key insight from Blockbench:
- * 1. Position the group at the origin (negated translate)
- * 2. Create box geometry relative to that origin
- * 3. Apply rotations around the origin
+ * Key insight: JEM uses ORIGIN (= -translate) as the pivot point position.
+ * Box coordinates are in the same space, so we offset them by -origin to make
+ * them relative to the group.
+ *
+ * The algorithm:
+ * 1. Position the group at ORIGIN (the pivot point)
+ * 2. Mesh position = (boxCenter - origin) / 16 to make it relative to group
+ *
+ * Example for body (root part):
+ *   translate = [0, -24, 0], origin = [0, 24, 0]
+ *   group.position = origin/16 = [0, 1.5, 0]
+ *   box center = [0, 18, 0]
+ *   mesh.local = (18 - 24)/16 = -0.375
+ *   mesh.world = 1.5 + (-0.375) = 1.125 = y=18 pixels ✓
+ *
+ * Example for head2 (submodel of headwear):
+ *   headwear.origin = [0, 24, -0.25], group at [0, 1.5, -0.016]
+ *   head2.origin = [0, -24, 0], local at [0, -1.5, 0]
+ *   head2.world = [0, 1.5, -0.016] + [0, -1.5, 0] = [0, 0, -0.016]
+ *   box center = [0, 4, 0]
+ *   mesh.local = (4 - (-24))/16 = 28/16 = 1.75
+ *   mesh.world = 0 + 1.75 = 1.75 = y=28 pixels ✓ (head at top!)
  */
 function convertPart(
   part: ParsedPart,
@@ -514,7 +582,7 @@ function convertPart(
   const group = new THREE.Group();
   group.name = part.name;
 
-  // Position at origin (in Three.js units)
+  // Position group at ORIGIN (the pivot point for rotations)
   group.position.set(
     part.origin[0] / PIXELS_PER_UNIT,
     part.origin[1] / PIXELS_PER_UNIT,
@@ -522,10 +590,7 @@ function convertPart(
   );
 
   // Apply rotation (degrees to radians)
-  // JEM rotations are applied as-is
   // IMPORTANT: Set Euler order to 'ZYX' to match JEM specification
-  // Default 'XYZ' order does not match JEM's expected rotation behavior
-  // console.log(`[jemLoader] Part: ${part.name}, Rotation: [${part.rotation.join(', ')}]`);
   group.rotation.order = 'ZYX';
   group.rotation.set(
     THREE.MathUtils.degToRad(part.rotation[0]),
@@ -539,14 +604,18 @@ function convertPart(
   }
 
   // Create meshes for each box
+  // Mesh position = (center - origin) / 16 to offset from group position
   for (const box of part.boxes) {
     const mesh = createBoxMesh(
       box,
-      part.origin,
       textureSize,
       texture,
     );
     if (mesh) {
+      // Offset mesh by -origin to make position relative to group
+      mesh.position.x -= part.origin[0] / PIXELS_PER_UNIT;
+      mesh.position.y -= part.origin[1] / PIXELS_PER_UNIT;
+      mesh.position.z -= part.origin[2] / PIXELS_PER_UNIT;
       group.add(mesh);
     }
   }
@@ -555,19 +624,9 @@ function convertPart(
   for (const child of part.children) {
     const childGroup = convertPart(child, textureSize, texture);
 
-    // CRITICAL FIX: Child origins are already absolute (made so during parsing
-    // at lines 161-166 by adding parent translate). Since the parent group is
-    // positioned at its origin, the child should be at the origin [0,0,0]
-    // relative to the parent, NOT at (child.origin - parent.origin).
-    //
-    // The old calculation double-subtracted the parent's position:
-    //   WRONG: (child.origin - parent.origin) / 16
-    //   This resulted in children positioned at negative offsets
-    //
-    // The child's origin IS the absolute world position, so relative to
-    // a parent that's also absolutely positioned, it's just at origin.
-    childGroup.position.set(0, 0, 0);
-
+    // Child position is at child's ORIGIN (pivot point)
+    // Since convertPart already set childGroup.position to child.origin,
+    // we just add it to the parent group (Three.js handles the hierarchy)
     group.add(childGroup);
   }
 
@@ -577,12 +636,12 @@ function convertPart(
 /**
  * Create a Three.js mesh for a box
  *
- * Box coordinates are absolute, but we need to position relative to the part's origin.
- * This matches Blockbench's updateGeometry() which subtracts the origin from from/to.
+ * Creates a mesh positioned at the box center (in pixel coordinates / 16).
+ * The caller (convertPart) will offset this by -origin to make it relative
+ * to the group's position.
  */
 function createBoxMesh(
   box: ParsedBox,
-  partOrigin: [number, number, number],
   textureSize: [number, number],
   texture: THREE.Texture | null,
 ): THREE.Mesh | null {
@@ -657,17 +716,18 @@ function createBoxMesh(
 
   const mesh = new THREE.Mesh(geometry, material);
 
-  // Calculate box center in absolute coordinates
+  // Calculate box center (coordinates are RELATIVE to part's translate)
   const centerX = (from[0] + to[0]) / 2;
   const centerY = (from[1] + to[1]) / 2;
   const centerZ = (from[2] + to[2]) / 2;
 
-  // Position RELATIVE to part origin (this is the key fix!)
-  // Blockbench does: from[i] -= element.origin[i]
+  // Position mesh at box center (in Three.js units)
+  // Since group is at translate and box coords are relative to translate,
+  // mesh local position is simply the box center coordinates.
   mesh.position.set(
-    (centerX - partOrigin[0]) / PIXELS_PER_UNIT,
-    (centerY - partOrigin[1]) / PIXELS_PER_UNIT,
-    (centerZ - partOrigin[2]) / PIXELS_PER_UNIT,
+    centerX / PIXELS_PER_UNIT,
+    centerY / PIXELS_PER_UNIT,
+    centerZ / PIXELS_PER_UNIT,
   );
 
   mesh.castShadow = true;

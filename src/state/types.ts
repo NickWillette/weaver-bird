@@ -134,6 +134,13 @@ export interface UIState {
   useLegacyCEM: boolean; // Use legacy CEM files for entities with compatibility issues (default: true)
   targetMinecraftVersion: string | null; // Target Minecraft version for compatibility (null = use current vanilla version)
   entityVersionVariants: Record<string, string[]>; // Map of entity ID -> available version folders
+
+  // Entity animation settings
+  animationPreset: string | null; // Active animation preset ID (null = no animation)
+  animationPlaying: boolean; // Whether animation is currently playing
+  animationSpeed: number; // Animation playback speed multiplier (0.1 - 3.0)
+  entityHeadYaw: number; // Entity head yaw for manual control (degrees)
+  entityHeadPitch: number; // Entity head pitch for manual control (degrees)
 }
 
 /**
