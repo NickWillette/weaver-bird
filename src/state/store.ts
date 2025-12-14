@@ -95,6 +95,9 @@ interface StoreActions {
   setEntityHeadYaw: (yaw: number) => void;
   setEntityHeadPitch: (pitch: number) => void;
 
+  // Debug mode
+  setJemDebugMode: (enabled: boolean) => void;
+
   // Reset
   reset: () => void;
 }
@@ -162,6 +165,9 @@ const initialState: AppState = {
   animationSpeed: 1.0, // Normal speed
   entityHeadYaw: 0, // Looking forward
   entityHeadPitch: 0, // Looking forward
+
+  // Debug mode
+  jemDebugMode: false, // Debug mode disabled by default
 };
 
 export const useStore = create<WeaverbirdStore>()(
@@ -527,6 +533,12 @@ export const useStore = create<WeaverbirdStore>()(
       set((state) => {
         // Clamp pitch to -90 to 90 (can't look further than straight up/down)
         state.entityHeadPitch = Math.max(-90, Math.min(90, pitch));
+      });
+    },
+
+    setJemDebugMode: (enabled: boolean) => {
+      set((state) => {
+        state.jemDebugMode = enabled;
       });
     },
 

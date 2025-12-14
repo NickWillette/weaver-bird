@@ -245,7 +245,7 @@ describe("Expression Evaluator", () => {
   it("should evaluate entity state variables", () => {
     const context = createTestContext({ limb_swing: 10 });
     const ast = parseExpression("limb_swing");
-    expect(evaluateAST(ast, context)).toBe(10);
+    expect(evaluateAST(ast, context)).toBe(-10);
   });
 
   it("should evaluate boolean entity state as 0/1", () => {
@@ -358,6 +358,45 @@ describe("Expression Evaluator", () => {
     expect(evaluateAST(parseExpression("if(health > 15, 1, 0)"), context)).toBe(0);
   });
 
+  it("should evaluate multi-branch if/ifb functions", () => {
+    const context = createTestContext({ health: 10 });
+    // First condition true
+    expect(
+      evaluateAST(
+        parseExpression("if(health > 5, 1, health > 15, 2, 3)"),
+        context,
+      ),
+    ).toBe(1);
+    // First false, second true
+    expect(
+      evaluateAST(
+        parseExpression("if(health > 15, 1, health > 5, 2, 3)"),
+        context,
+      ),
+    ).toBe(2);
+    // None true => default
+    expect(
+      evaluateAST(
+        parseExpression("if(health > 15, 1, health > 20, 2, 3)"),
+        context,
+      ),
+    ).toBe(3);
+    // Even number of args, no default => 0
+    expect(
+      evaluateAST(
+        parseExpression("if(health > 15, 1, health > 20, 2)"),
+        context,
+      ),
+    ).toBe(0);
+
+    expect(
+      evaluateAST(
+        parseExpression("ifb(health > 15, 1, health > 5, 2, 3)"),
+        context,
+      ),
+    ).toBe(2);
+  });
+
   it("should evaluate between function", () => {
     const context = createTestContext();
     expect(evaluateAST(parseExpression("between(5, 0, 10)"), context)).toBe(1);
@@ -435,7 +474,7 @@ describe("Compile Expression", () => {
   it("should evaluate compiled expressions", () => {
     const context = createTestContext({ limb_swing: 5 });
     const expr = compileExpression("limb_swing * 2");
-    expect(evaluate(expr, context)).toBe(10);
+    expect(evaluate(expr, context)).toBe(-10);
   });
 });
 
@@ -474,7 +513,7 @@ describe("Real CEM Expressions", () => {
       limb_speed: 0.5,
     });
     const ast = parseExpression("sin(limb_swing)*limb_speed");
-    expect(evaluateAST(ast, context)).toBeCloseTo(0.5);
+    expect(evaluateAST(ast, context)).toBeCloseTo(-0.5);
   });
 
   it("should evaluate hurt animation: -sin(hurt_time/2)*hurt_time/10", () => {

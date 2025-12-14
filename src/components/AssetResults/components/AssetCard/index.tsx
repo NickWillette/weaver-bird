@@ -335,6 +335,7 @@ export const AssetCard = memo(
       isEntity,
       asset.id,
       winnerPackId,
+      winnerPack,
       targetMinecraftVersion,
       entityVersionVariants,
       packFormat,

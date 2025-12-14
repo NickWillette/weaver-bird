@@ -20,6 +20,7 @@ import {
   type AnimationEngine as AnimationEngineType,
 } from "@lib/emf/animation/AnimationEngine";
 import type { AnimationLayer } from "@lib/emf/jemLoader";
+import { JEMInspectorV2 } from "@lib/emf/JEMInspectorV2";
 
 interface Props {
   assetId: string;
@@ -44,6 +45,10 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     AnimationLayer[] | undefined
   >(undefined);
 
+  // JEM Inspector state
+  const jemInspectorRef = useRef<JEMInspectorV2 | null>(null);
+  const [parsedJemData, setParsedJemData] = useState<any>(null);
+
   // Get the winning pack for this entity texture
   const storeWinnerPackId = useSelectWinner(assetId);
   const storeWinnerPack = useSelectPack(storeWinnerPackId || "");
@@ -64,6 +69,9 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const animationSpeed = useStore((state) => state.animationSpeed);
   const entityHeadYaw = useStore((state) => state.entityHeadYaw);
   const entityHeadPitch = useStore((state) => state.entityHeadPitch);
+
+  // Get debug mode state
+  const jemDebugMode = useStore((state) => state.jemDebugMode);
 
   // State for entity version variants
   const [entityVersionVariants, setEntityVersionVariants] = useState<
@@ -198,9 +206,52 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           );
         }
 
+        // Load any additional textures referenced by parts
+        const extraTexturePaths = new Set<string>();
+        const collectTextures = (part: any) => {
+          if (part.texturePath) extraTexturePaths.add(part.texturePath);
+          if (part.children) part.children.forEach(collectTextures);
+        };
+        parsedModel.parts.forEach(collectTextures);
+        extraTexturePaths.delete(parsedModel.texturePath);
+        extraTexturePaths.delete("");
+
+        const normalizeJemTextureId = (jemTex: string): string => {
+          let namespace = "minecraft";
+          let path = jemTex.replace(/\\/g, "/");
+          if (path.includes(":")) {
+            const split = path.split(":");
+            namespace = split[0] || namespace;
+            path = split.slice(1).join(":");
+          }
+          if (path.startsWith("textures/")) {
+            path = path.slice("textures/".length);
+          }
+          path = path.replace(/\.png$/i, "");
+          return `${namespace}:${path}`;
+        };
+
+        const textureMap: Record<string, THREE.Texture> = {};
+        for (const jemTexPath of extraTexturePaths) {
+          const texId = normalizeJemTextureId(jemTexPath);
+          let extraTex: THREE.Texture | null = null;
+
+          if (resolvedPack && packsDir) {
+            extraTex = await loadPackTexture(
+              resolvedPack.path,
+              texId,
+              resolvedPack.is_zip,
+            );
+          }
+          if (!extraTex) {
+            extraTex = await loadVanillaTexture(texId);
+          }
+          if (extraTex) textureMap[jemTexPath] = extraTex;
+        }
+
         // Convert parsed entity model to Three.js using new loader
         console.log("[EntityModel] Converting model to Three.js...");
-        const group = jemToThreeJS(parsedModel, texture);
+        const group = jemToThreeJS(parsedModel, texture, textureMap);
 
         if (cancelled) {
           console.log(
@@ -221,6 +272,9 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
         } else {
           setAnimationLayers(undefined);
         }
+
+        // Store parsed JEM data for inspector
+        setParsedJemData(parsedModel);
 
         setEntityGroup(group);
         setLoading(false);
@@ -352,10 +406,53 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     engine.setHeadOrientation(entityHeadYaw, entityHeadPitch);
   }, [entityHeadYaw, entityHeadPitch]);
 
+  // Create/destroy JEM inspector based on debug mode
+  useEffect(() => {
+    // Clean up existing inspector
+    if (jemInspectorRef.current) {
+      jemInspectorRef.current.dispose();
+      jemInspectorRef.current = null;
+    }
+
+    // Create new inspector if debug mode is enabled and we have data
+    if (jemDebugMode && entityGroup && parsedJemData && groupRef.current) {
+      console.log("[EntityModel] Creating JEM inspector");
+
+      // Get the Three.js scene from the group
+      let scene: THREE.Scene | null = null;
+      groupRef.current.traverseAncestors((ancestor) => {
+        if (ancestor instanceof THREE.Scene) {
+          scene = ancestor;
+        }
+      });
+
+      if (scene) {
+        jemInspectorRef.current = new JEMInspectorV2({
+          scene: scene,
+          jemData: parsedJemData,
+          rootGroup: entityGroup,
+        });
+      } else {
+        console.warn("[EntityModel] Could not find Scene for JEM inspector");
+      }
+    }
+
+    return () => {
+      if (jemInspectorRef.current) {
+        jemInspectorRef.current.dispose();
+        jemInspectorRef.current = null;
+      }
+    };
+  }, [jemDebugMode, entityGroup, parsedJemData]);
+
   // Animation frame update
   useFrame((_, delta) => {
     const engine = animationEngineRef.current;
     if (!engine) return;
+
+    // Don't tick animations when debug mode is active
+    // (manual transform adjustments would be overridden)
+    if (jemDebugMode) return;
 
     // Tick the animation engine
     engine.tick(delta);

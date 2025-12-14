@@ -132,6 +132,7 @@ export interface EntityState {
   day_time: number; // Current day time (0-24000 ticks)
   day_count: number; // Day counter
   frame_time: number; // Seconds since last frame
+  frame_counter: number; // Total frame count since animation started
 
   // Combat & Damage
   swing_progress: number; // Attack progress 0-1
@@ -279,6 +280,7 @@ export const DEFAULT_ENTITY_STATE: EntityState = {
   day_time: 6000, // Noon
   day_count: 0,
   frame_time: 0.05, // ~20 FPS
+  frame_counter: 0,
 
   // Combat
   swing_progress: 0,
@@ -357,7 +359,7 @@ export function createAnimationContext(): AnimationContext {
  */
 export function getEntityStateValue(
   state: EntityState,
-  name: string
+  name: string,
 ): number | undefined {
   // Use keyof to ensure type safety
   if (!(name in state)) {
@@ -365,6 +367,13 @@ export function getEntityStateValue(
   }
 
   const value = state[name as keyof EntityState];
+
+  // Vanilla/OptiFine limb_swing advances in the opposite direction relative to
+  // our preview presets. Fresh Animations and most CEM packs assume the vanilla
+  // sign, so we invert it for expression evaluation.
+  if (name === "limb_swing" && typeof value === "number") {
+    return -value;
+  }
 
   if (typeof value === "boolean") {
     return value ? 1 : 0;

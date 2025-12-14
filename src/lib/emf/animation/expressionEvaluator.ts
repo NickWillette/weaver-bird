@@ -68,8 +68,25 @@ const BUILTIN_FUNCTIONS: Record<string, BuiltinFunction> = {
   lerp: (args) => args[0] + (args[1] - args[0]) * args[2],
 
   // Conditionals
-  if: (args) => (args[0] ? args[1] : args[2]),
-  ifb: (args) => (args[0] ? args[1] : args[2]),
+  // OptiFine CEM `if`/`ifb` support multiple condition/value pairs:
+  // if(cond1, val1, cond2, val2, ..., default)
+  // Returns the first matching valN, otherwise default (or 0 if none).
+  if: (args) => {
+    // Walk pairs (cond, value)
+    for (let i = 0; i + 1 < args.length; i += 2) {
+      if (args[i]) return args[i + 1];
+    }
+    // Odd-length arg list => last arg is default
+    if (args.length % 2 === 1) return args[args.length - 1];
+    return 0;
+  },
+  ifb: (args) => {
+    for (let i = 0; i + 1 < args.length; i += 2) {
+      if (args[i]) return args[i + 1];
+    }
+    if (args.length % 2 === 1) return args[args.length - 1];
+    return 0;
+  },
   between: (args) => (args[0] >= args[1] && args[0] <= args[2] ? 1 : 0),
   equals: (args) => {
     // equals(x, val1, val2, ...) - returns 1 if x equals any value

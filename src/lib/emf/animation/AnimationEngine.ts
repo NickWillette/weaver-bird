@@ -13,7 +13,11 @@ import type {
   ParsedExpression,
   BoneTransform,
 } from "./types";
-import { createAnimationContext, DEFAULT_ENTITY_STATE, clampAnimationSpeed } from "./types";
+import {
+  createAnimationContext,
+  DEFAULT_ENTITY_STATE,
+  clampAnimationSpeed,
+} from "./types";
 import { compileExpression } from "./expressionParser";
 import { safeEvaluate } from "./expressionEvaluator";
 import {
@@ -54,6 +58,9 @@ export class AnimationEngine {
   /** Compiled animations organized by layer */
   private animationLayers: CompiledAnimation[][] = [];
 
+  /** Reference to the model group for matrix updates */
+  private modelGroup: THREE.Group;
+
   /** Bone name to Three.js object mapping */
   private bones: BoneMap;
 
@@ -87,10 +94,10 @@ export class AnimationEngine {
    * @param modelGroup The Three.js group containing the entity model
    * @param animationLayers Raw animation layers from JEM file
    */
-  constructor(
-    modelGroup: THREE.Group,
-    animationLayers?: AnimationLayer[]
-  ) {
+  constructor(modelGroup: THREE.Group, animationLayers?: AnimationLayer[]) {
+    // Store reference to model group
+    this.modelGroup = modelGroup;
+
     // Build bone map from model
     this.bones = buildBoneMap(modelGroup);
 
@@ -126,7 +133,7 @@ export class AnimationEngine {
         } catch (error) {
           console.warn(
             `[AnimationEngine] Failed to compile: ${property} = ${expression}`,
-            error
+            error,
           );
         }
       }
@@ -137,7 +144,7 @@ export class AnimationEngine {
     }
 
     console.log(
-      `[AnimationEngine] Compiled ${this.animationLayers.length} animation layers with ${this.animationLayers.reduce((sum, l) => sum + l.length, 0)} expressions`
+      `[AnimationEngine] Compiled ${this.animationLayers.length} animation layers with ${this.animationLayers.reduce((sum, l) => sum + l.length, 0)} expressions`,
     );
   }
 
@@ -146,13 +153,11 @@ export class AnimationEngine {
    */
   private compileProperty(
     property: string,
-    expression: string | number
+    expression: string | number,
   ): CompiledAnimation | null {
     const parsed = parseBoneProperty(property);
     if (!parsed) {
-      console.warn(
-        `[AnimationEngine] Invalid property format: ${property}`
-      );
+      console.warn(`[AnimationEngine] Invalid property format: ${property}`);
       return null;
     }
 
@@ -232,6 +237,7 @@ export class AnimationEngine {
 
     this.activePreset = preset;
     this.elapsedTime = 0;
+    this.context.entityState.frame_counter = 0;
 
     // Apply preset setup
     if (preset.setup) {
@@ -272,6 +278,7 @@ export class AnimationEngine {
     this.isPlaying = false;
     this.activePreset = null;
     this.elapsedTime = 0;
+    this.context.entityState.frame_counter = 0;
     this.reset();
   }
 
@@ -377,14 +384,15 @@ export class AnimationEngine {
         // Apply preset update function
         const updates = this.activePreset.update(
           this.context.entityState,
-          scaledDelta
+          scaledDelta,
         );
         Object.assign(this.context.entityState, updates);
       }
     }
 
-    // Always update frame_time for expression evaluation
+    // Always update frame_time and frame_counter for expression evaluation
     this.context.entityState.frame_time = scaledDelta;
+    this.context.entityState.frame_counter++;
 
     // Evaluate animations and apply to bones
     if (this.animationLayers.length > 0) {
@@ -392,7 +400,10 @@ export class AnimationEngine {
         this.evaluateAndApply();
       } catch (error) {
         // Log error but don't crash - animation will just skip this frame
-        console.error("[AnimationEngine] Error during animation evaluation:", error);
+        console.error(
+          "[AnimationEngine] Error during animation evaluation:",
+          error,
+        );
       }
       return true;
     }
@@ -428,7 +439,8 @@ export class AnimationEngine {
     }
 
     // Calculate swing amount for walking animation
-    const swingAmount = Math.sin(state.limb_swing * 0.6662) * 1.4 * state.limb_speed;
+    const swingAmount =
+      Math.sin(state.limb_swing * 0.6662) * 1.4 * state.limb_speed;
 
     // Try humanoid limbs first (zombie, piglin, skeleton, etc.)
     const hasHumanoidLimbs = this.applyHumanoidLimbs(swingAmount);
@@ -617,8 +629,15 @@ export class AnimationEngine {
         const layer = this.animationLayers[i];
         console.log(`  Layer ${i}: ${layer.length} expressions`);
         for (const anim of layer) {
-          if (anim.targetType === "bone" && (anim.propertyName === "tx" || anim.propertyName === "ty" || anim.propertyName === "tz")) {
-            console.log(`    - ${anim.targetName}.${anim.propertyName} (translation)`);
+          if (
+            anim.targetType === "bone" &&
+            (anim.propertyName === "tx" ||
+              anim.propertyName === "ty" ||
+              anim.propertyName === "tz")
+          ) {
+            console.log(
+              `    - ${anim.targetName}.${anim.propertyName} (translation)`,
+            );
           }
         }
       }
@@ -654,19 +673,31 @@ export class AnimationEngine {
                 transform = {};
                 boneTransforms.set(animation.targetName, transform);
               }
-              const partial = createBoneTransform(animation.propertyName, value);
+              const partial = createBoneTransform(
+                animation.propertyName,
+                value,
+              );
               Object.assign(transform, partial);
 
               // Log translation values
-              if (shouldLogThisFrame && (animation.propertyName === "tx" || animation.propertyName === "ty" || animation.propertyName === "tz")) {
-                console.log(`[AnimationEngine] Frame ${this.debugFrameCount}: ${animation.targetName}.${animation.propertyName} = ${value.toFixed(3)}`);
+              if (
+                shouldLogThisFrame &&
+                (animation.propertyName === "tx" ||
+                  animation.propertyName === "ty" ||
+                  animation.propertyName === "tz")
+              ) {
+                console.log(
+                  `[AnimationEngine] Frame ${this.debugFrameCount}: ${animation.targetName}.${animation.propertyName} = ${value.toFixed(3)}`,
+                );
               }
 
               // Also store in context for expression references
               if (!this.context.boneValues[animation.targetName]) {
                 this.context.boneValues[animation.targetName] = {};
               }
-              this.context.boneValues[animation.targetName][animation.propertyName] = value;
+              this.context.boneValues[animation.targetName][
+                animation.propertyName
+              ] = value;
             }
             break;
         }
@@ -675,38 +706,103 @@ export class AnimationEngine {
 
     // Log final transforms before applying
     if (shouldLogThisFrame) {
-      console.log(`[AnimationEngine] Frame ${this.debugFrameCount}: Accumulated transforms for ${boneTransforms.size} bones`);
+      console.log(
+        `[AnimationEngine] Frame ${this.debugFrameCount}: Accumulated transforms for ${boneTransforms.size} bones`,
+      );
       for (const [boneName, transform] of boneTransforms) {
-        if (transform.tx !== undefined || transform.ty !== undefined || transform.tz !== undefined) {
-          console.log(`  ${boneName}: tx=${transform.tx?.toFixed(3)}, ty=${transform.ty?.toFixed(3)}, tz=${transform.tz?.toFixed(3)}`);
+        if (
+          transform.tx !== undefined ||
+          transform.ty !== undefined ||
+          transform.tz !== undefined
+        ) {
+          console.log(
+            `  ${boneName}: tx=${transform.tx?.toFixed(3)}, ty=${transform.ty?.toFixed(3)}, tz=${transform.tz?.toFixed(3)}`,
+          );
         }
       }
     }
 
     // Apply accumulated transforms to bones
+    // With nested Three.js hierarchy, parent transforms automatically propagate
+    // to children - we just apply each bone's animation offset to its local transform
     for (const [boneName, transform] of boneTransforms) {
       const bone = this.bones.get(boneName);
       if (bone) {
         const base = this.baseTransforms.get(boneName);
-
-        // Get parent's animation transforms if the parent is also animated
-        let parentTransform: BoneTransform | undefined;
-        const parentName = bone.parent?.name;
-        if (parentName && boneTransforms.has(parentName)) {
-          parentTransform = boneTransforms.get(parentName);
-          if (shouldLogThisFrame) {
-            console.log(`[AnimationEngine] ${boneName} has animated parent: ${parentName}`);
-          }
-        }
-
-        applyBoneTransform(bone, transform, base, parentTransform);
+        applyBoneTransform(bone, transform, base);
       } else if (!this.warnedMissingBones.has(boneName)) {
         // Warn once per missing bone to avoid log spam
         console.warn(
           `[AnimationEngine] Animation references missing bone: "${boneName}". ` +
-          `Available bones: ${Array.from(this.bones.keys()).join(", ")}`
+            `Available bones: ${Array.from(this.bones.keys()).join(", ")}`,
         );
         this.warnedMissingBones.add(boneName);
+      }
+    }
+
+    // If key vanilla parts are animated as root-level bones, they do not inherit
+    // body rotations via the scene graph. OptiFine/Minecraft applies implicit
+    // vanilla hierarchy for rotations, so we emulate that here by applying the
+    // body's animation rotation offset to those bones.
+    const bodyTransform = boneTransforms.get("body");
+    if (
+      bodyTransform &&
+      (bodyTransform.rx !== undefined ||
+        bodyTransform.ry !== undefined ||
+        bodyTransform.rz !== undefined)
+    ) {
+      const bodyBone = this.bones.get("body");
+      if (bodyBone) {
+        const order = bodyBone.rotation.order || "ZYX";
+        const animEuler = new THREE.Euler(
+          bodyTransform.rx ?? 0,
+          bodyTransform.ry ?? 0,
+          bodyTransform.rz ?? 0,
+          order,
+        );
+        const bodyAnimQuat = new THREE.Quaternion().setFromEuler(animEuler);
+
+        const vanillaChildren = [
+          "head",
+          "headwear",
+          "left_arm",
+          "right_arm",
+          "left_leg",
+          "right_leg",
+        ];
+
+        for (const childName of vanillaChildren) {
+          const child = this.bones.get(childName);
+          if (!child) continue;
+          // Only apply if the bone is still a direct child of the model root
+          // (i.e., it was skipped during applyVanillaHierarchy).
+          if (child.parent !== this.modelGroup) continue;
+          // Only apply to bones that were animated this frame to avoid accumulation.
+          if (!boneTransforms.has(childName)) continue;
+
+          child.quaternion.premultiply(bodyAnimQuat);
+          child.rotation.setFromQuaternion(
+            child.quaternion,
+            child.rotation.order,
+          );
+        }
+      }
+    }
+
+    this.modelGroup.updateMatrixWorld(true);
+
+    if (shouldLogThisFrame) {
+      console.log(`[AnimationEngine] World positions AFTER animation:`);
+      const bonesToCheck = ["head", "headwear", "head2", "left_ear2", "nose"];
+      for (const boneName of bonesToCheck) {
+        const bone = this.bones.get(boneName);
+        if (bone) {
+          const worldPos = new THREE.Vector3();
+          bone.getWorldPosition(worldPos);
+          console.log(
+            `  ${boneName}: local=[${bone.position.x.toFixed(3)}, ${bone.position.y.toFixed(3)}, ${bone.position.z.toFixed(3)}], world=[${worldPos.x.toFixed(3)}, ${worldPos.y.toFixed(3)}, ${worldPos.z.toFixed(3)}]`,
+          );
+        }
       }
     }
   }
@@ -762,7 +858,7 @@ export class AnimationEngine {
  */
 export function createAnimationEngine(
   modelGroup: THREE.Group,
-  animationLayers?: AnimationLayer[]
+  animationLayers?: AnimationLayer[],
 ): AnimationEngine {
   return new AnimationEngine(modelGroup, animationLayers);
 }

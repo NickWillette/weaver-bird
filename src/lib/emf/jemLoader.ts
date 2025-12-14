@@ -1,29 +1,36 @@
-/**
- * JEM (JSON Entity Model) Loader for Three.js
- *
- * This module parses OptiFine CEM format entity models and converts them
- * to Three.js geometry. It follows Blockbench's approach exactly to ensure
- * correct rendering.
- *
- * Key Concepts:
- * - JEM uses pixel coordinates (16 pixels = 1 block = 1 Three.js unit)
- * - `translate` is the pivot/origin point, negated on import
- * - `coordinates` are [x, y, z, width, height, depth] in absolute pixel space
- * - `invertAxis: 'xy'` is metadata for exporters, NOT a runtime transformation
- * - Box positions must be made relative to their part's origin for Three.js
- *
- * Coordinate System:
- * - Both Minecraft/JEM and Three.js use Y-up, right-handed coordinates
- * - The main transformation is negating `translate` to get the origin
- */
-
 import * as THREE from "three";
 
-// =============================================================================
-// TYPES
-// =============================================================================
+/**
+ * JEM Loader - Parses OptiFine Entity Models following Blockbench's exact logic
+ *
+ * KEY INSIGHT FROM BLOCKBENCH (optifine_jem.js):
+ *
+ * 1. ROOT PARTS (depth=0):
+ *    - origin = -translate (negate)
+ *    - Boxes are in ABSOLUTE world coordinates
+ *
+ * 2. SUBMODELS:
+ *    - Depth=1 (direct child of a root part):
+ *        origin = translate (NO negation, NO accumulation)
+ *    - Depth>=2:
+ *        First: subsub.translate += parent.origin
+ *        Then: origin = subsub.translate (use directly, NO negation)
+ *    - Boxes are ALSO in absolute coordinates, but Blockbench adjusts them for
+ *      non-root groups: box.from += group.origin, box.to += group.origin
+ *
+ * 3. THREE.JS POSITIONING:
+ *    - Blockbench's outliner.js (bone_rig mode):
+ *      mesh.position = origin
+ *      if (parent) mesh.position -= parent.origin
+ *    - So children are positioned RELATIVE to parent
+ *
+ * 4. BOX POSITIONING:
+ *    - After the origin adjustment, boxes need to be positioned relative to (0,0,0)
+ *    - in the group's local space. Blockbench adds p_group.origin to box coords
+ *    - for non-root groups, which effectively repositions them.
+ *    - The mesh center is then just the box center (no origin subtraction needed).
+ */
 
-/** Raw JEM file structure as parsed from JSON */
 export interface JEMFile {
   texture?: string;
   textureSize?: [number, number];
@@ -31,10 +38,11 @@ export interface JEMFile {
   models?: JEMModelPart[];
 }
 
-/** A model part (bone) in the JEM file */
 export interface JEMModelPart {
   part?: string;
   id?: string;
+  texture?: string;
+  textureSize?: [number, number];
   invertAxis?: string;
   translate?: [number, number, number];
   rotate?: [number, number, number];
@@ -44,13 +52,10 @@ export interface JEMModelPart {
   submodel?: JEMModelPart;
   submodels?: JEMModelPart[];
   animations?: Record<string, string | number>[];
-  /** External model reference (JPM file path) - not currently supported */
   model?: string;
-  /** Whether this is an attachment reference */
   attach?: boolean | string;
 }
 
-/** Box geometry definition */
 export interface JEMBox {
   coordinates?: [number, number, number, number, number, number];
   textureOffset?: [number, number];
@@ -64,41 +69,50 @@ export interface JEMBox {
   uvEast?: [number, number, number, number];
 }
 
-/** Animation layer type */
 export type AnimationLayer = Record<string, string | number>;
 
-/** Parsed and normalized entity model */
 export interface ParsedEntityModel {
   texturePath: string;
   textureSize: [number, number];
   shadowSize: number;
   parts: ParsedPart[];
-  /** Animation layers from all model parts (if present) */
   animations?: AnimationLayer[];
 }
 
-/** Parsed model part with resolved values */
+export interface ParseOptions {
+  /** Parse in JPM mode (root translate not negated, root boxes adjusted) */
+  isJpm?: boolean;
+}
+
 export interface ParsedPart {
   name: string;
-  /** Origin point (negated translate) in pixels */
+  /**
+   * Origin in Blockbench space (after accumulation for submodels).
+   * ROOT (depth=0): origin = -translate
+   * SUBMODEL depth=1: origin = translate (absolute)
+   * SUBMODEL depth>=2: origin = translate + parentOrigin (accumulated, NOT negated)
+   */
   origin: [number, number, number];
-  /** Rotation in degrees [rx, ry, rz] */
   rotation: [number, number, number];
   scale: number;
   mirrorUV: boolean;
+  /** Boxes with coordinates already adjusted (for non-root: coords += origin) */
   boxes: ParsedBox[];
   children: ParsedPart[];
-  /** Whether this is a root part (affects how box coordinates are interpreted) */
   isRootPart: boolean;
+  /** Axes to invert when applying animations (as specified by CEM) */
+  invertAxis?: string;
+  /** Effective texture path for this part (inherits from parent/JEM) */
+  texturePath: string;
+  /** Effective texture size for this part (inherits from parent/JEM) */
+  textureSize: [number, number];
 }
 
-/** Parsed box with absolute coordinates and UV data */
 export interface ParsedBox {
-  /** Corner position [x, y, z] in pixels (absolute) */
+  /** Box min corner (already adjusted for submodels) */
   from: [number, number, number];
-  /** Opposite corner [x, y, z] in pixels (absolute) */
+  /** Box max corner (already adjusted for submodels) */
   to: [number, number, number];
-  /** UV coordinates for each face [u1, v1, u2, v2] */
   uv: {
     east: [number, number, number, number];
     west: [number, number, number, number];
@@ -109,53 +123,126 @@ export interface ParsedBox {
   };
   mirror: boolean;
   inflate: number;
+  /** Effective texture path for this box (inherits from part) */
+  texturePath: string;
+  /** Texture size to use for UV normalization */
+  textureSize: [number, number];
 }
 
-// =============================================================================
-// CONSTANTS
-// =============================================================================
-
-/** Pixels per block/Three.js unit */
 const PIXELS_PER_UNIT = 16;
+const DEBUG_JEM = false;
 
-// =============================================================================
+const fmt = (v: number[], d = 2): string =>
+  `[${v.map((n) => n.toFixed(d)).join(", ")}]`;
+
+const log = {
+  section: (msg: string) => {
+    if (DEBUG_JEM)
+      console.log(`\n${"=".repeat(60)}\n${msg}\n${"=".repeat(60)}`);
+  },
+  parse: (
+    name: string,
+    depth: number,
+    translate: number[],
+    origin: number[],
+    isRoot: boolean,
+  ) => {
+    if (!DEBUG_JEM) return;
+    const indent = "  ".repeat(depth);
+    const type = isRoot ? "ROOT" : "SUB";
+    console.log(
+      `${indent}[PARSE:${type}] "${name}" translate=${fmt(translate)} → origin=${fmt(origin)}`,
+    );
+  },
+  box: (
+    _name: string,
+    depth: number,
+    rawFrom: number[],
+    rawTo: number[],
+    adjFrom: number[],
+    adjTo: number[],
+  ) => {
+    if (!DEBUG_JEM) return;
+    const indent = "  ".repeat(depth + 1);
+    console.log(
+      `${indent}[BOX] raw=[${fmt(rawFrom)}→${fmt(rawTo)}] adj=[${fmt(adjFrom)}→${fmt(adjTo)}]`,
+    );
+  },
+  convert: (
+    name: string,
+    origin: number[],
+    parentOrigin: number[] | null,
+    localPos: number[],
+  ) => {
+    if (!DEBUG_JEM) return;
+    const pStr = parentOrigin ? ` parent=${fmt(parentOrigin)}` : "";
+    console.log(
+      `[THREE] "${name}" origin=${fmt(origin)}${pStr} → local=${fmt(localPos, 4)}`,
+    );
+  },
+  mesh: (name: string, boxIdx: number, center: number[], meshPos: number[]) => {
+    if (!DEBUG_JEM) return;
+    console.log(
+      `  [MESH] "${name}"[${boxIdx}] center=${fmt(center)} → pos=${fmt(meshPos, 4)}`,
+    );
+  },
+  hierarchy: (root: THREE.Group) => {
+    if (!DEBUG_JEM) return;
+    console.log(`\n[FINAL HIERARCHY]`);
+    const logNode = (obj: THREE.Object3D, depth: number) => {
+      const indent = "  ".repeat(depth);
+      const p = obj.position;
+      const w = new THREE.Vector3();
+      obj.getWorldPosition(w);
+      const type = obj instanceof THREE.Mesh ? "MESH" : "GROUP";
+      console.log(
+        `${indent}${type} "${obj.name}" local=[${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${p.z.toFixed(3)}] world=[${w.x.toFixed(3)}, ${w.y.toFixed(3)}, ${w.z.toFixed(3)}]`,
+      );
+      obj.children.forEach((c) => logNode(c, depth + 1));
+    };
+    logNode(root, 0);
+  },
+};
+
+// ============================================================================
 // PARSING
-// =============================================================================
+// ============================================================================
 
-/**
- * Parse a JEM file into a normalized structure
- */
-export function parseJEM(jemData: JEMFile): ParsedEntityModel {
+export function parseJEM(
+  jemData: JEMFile,
+  options: ParseOptions = {},
+): ParsedEntityModel {
   const textureSize: [number, number] = jemData.textureSize || [64, 32];
   const texturePath = jemData.texture || "";
   const shadowSize = jemData.shadowSize ?? 1.0;
-
   const parts: ParsedPart[] = [];
   const animations: AnimationLayer[] = [];
 
   if (jemData.models) {
+    log.section(`Parsing ${jemData.models.length} models`);
+
     for (const modelPart of jemData.models) {
-      // Skip external model references (parts with "model" property but no geometry)
-      // These reference external .jpm files which we don't currently support.
-      // They often have the same "part" name as a real part, causing collisions.
-      // Example: {"part":"body","model":"piglin_body.jpm","attach":"true"}
-      // should be skipped when there's already a {"part":"body","id":"body",...} with real geometry.
-      if (modelPart.model && !modelPart.boxes && !modelPart.submodel && !modelPart.submodels) {
-        console.log(`[JEM Parser] Skipping external model reference: ${modelPart.part || modelPart.id} -> ${modelPart.model}`);
+      // Skip pure external model refs (including attach-only roots)
+      if (
+        modelPart.model &&
+        !modelPart.boxes &&
+        !modelPart.submodel &&
+        !modelPart.submodels
+      )
         continue;
-      }
 
-      const parsed = parseModelPart(modelPart, textureSize);
-      if (parsed) {
-        parts.push(parsed);
-      }
+      const parsed = parseModelPart(
+        modelPart,
+        texturePath,
+        textureSize,
+        0,
+        null,
+        options,
+      );
+      if (parsed) parts.push(parsed);
 
-      // Extract animations from this model part
-      // Animations are defined at the part level and contain multiple layers
-      if (modelPart.animations && modelPart.animations.length > 0) {
-        for (const animLayer of modelPart.animations) {
-          animations.push(animLayer);
-        }
+      if (modelPart.animations) {
+        for (const anim of modelPart.animations) animations.push(anim);
       }
     }
   }
@@ -166,203 +253,152 @@ export function parseJEM(jemData: JEMFile): ParsedEntityModel {
     shadowSize,
     parts,
   };
-
-  // Only include animations if present
-  if (animations.length > 0) {
-    result.animations = animations;
-  }
-
+  if (animations.length > 0) result.animations = animations;
   return result;
 }
 
 /**
- * Merge geometry from base model with textures from variant model
- * 
- * Use case: Variant JEMs that only define texture offsets but no coordinates
- * (e.g., bed_foot.jem uses bed.jem geometry, sheep_wool_undercoat.jem uses sheep.jem geometry)
- * 
- * Strategy:
- * 1. For each part in the base model, check if variant has a matching part
- * 2. If match found, use base geometry (from/to) but variant UVs (texture offsets)
- * 3. This allows variants to change textures without redefining coordinates
- * 
- * @param baseModel - Base model with complete geometry (e.g., from bed.jem)
- * @param variantJemData - Variant JEM with texture overrides (e.g., from bed_foot.jem)
- * @returns Merged model with base geometry + variant textures
+ * Parse a model part following Blockbench's exact logic.
+ *
+ * @param part - The JEM model part data
+ * @param textureSize - Texture dimensions for UV calculation
+ * @param depth - Nesting depth (0 = root, 1+ = submodel)
+ * @param parentOrigin - Parent's origin (null for root parts)
  */
-export function mergeVariantTextures(
-  baseModel: ParsedEntityModel,
-  variantJemData: JEMFile
-): ParsedEntityModel {
-  // console.log('[JEM Merger] Merging variant textures with base geometry');
-
-  // Parse variant to extract part names and texture info
-  // Note: parseJEM will skip boxes without coordinates, but we still get part structure
-  const variantParsed = parseJEM(variantJemData);
-
-  // Build a map of variant parts by name for quick lookup
-  const variantPartMap = new Map<string, ParsedPart>();
-  for (const part of variantParsed.parts) {
-    variantPartMap.set(part.name, part);
-  }
-
-  // Helper to merge a single part recursively
-  const mergePart = (basePart: ParsedPart): ParsedPart => {
-    const variantPart = variantPartMap.get(basePart.name);
-
-    // If no variant override, return base part as-is
-    if (!variantPart) {
-      // console.log(`[JEM Merger] No variant override for part: ${basePart.name}`);
-      return {
-        ...basePart,
-        children: basePart.children.map(child => mergePart(child))
-      };
-    }
-
-    // console.log(`[JEM Merger] Merging textures for part: ${basePart.name}`);
-
-    // Merge boxes: use base geometry but try to get variant UVs
-    // For texture-only variants, we need to get UVs from the raw JEM data
-    // because parseJEM skipped boxes without coordinates
-    const mergedBoxes: ParsedBox[] = basePart.boxes.map((baseBox, boxIdx) => {
-      // Try to find matching box in variant's RAW data
-      const rawVariantModel = variantJemData.models?.find(m =>
-        (m.part === basePart.name || m.id === basePart.name)
-      );
-
-      const rawVariantBox = rawVariantModel?.boxes?.[boxIdx];
-
-      if (rawVariantBox) {
-        // Calculate UVs from variant's texture offset
-        // We need to recalculate UVs using the variant's textureOffset
-        let variantUV: ParsedBox['uv'];
-
-        if (rawVariantBox.uvNorth || rawVariantBox.uvEast ||
-          rawVariantBox.uvSouth || rawVariantBox.uvWest ||
-          rawVariantBox.uvUp || rawVariantBox.uvDown) {
-          // Per-face UV mode
-          variantUV = {
-            east: rawVariantBox.uvEast || baseBox.uv.east,
-            west: rawVariantBox.uvWest || baseBox.uv.west,
-            up: rawVariantBox.uvUp || baseBox.uv.up,
-            down: rawVariantBox.uvDown || baseBox.uv.down,
-            south: rawVariantBox.uvSouth || baseBox.uv.south,
-            north: rawVariantBox.uvNorth || baseBox.uv.north,
-          };
-        } else if (rawVariantBox.textureOffset) {
-          // Box UV mode - recalculate from texture offset
-          const [u, v] = rawVariantBox.textureOffset;
-          const width = baseBox.to[0] - baseBox.from[0];
-          const height = baseBox.to[1] - baseBox.from[1];
-          const depth = baseBox.to[2] - baseBox.from[2];
-          variantUV = calculateBoxUV(u, v, width, height, depth);
-        } else {
-          // No UV override, use base
-          variantUV = baseBox.uv;
-        }
-
-        return {
-          ...baseBox,
-          uv: variantUV,
-        };
-      }
-
-      // No variant box data, use base
-      return baseBox;
-    });
-
-    return {
-      ...basePart,
-      boxes: mergedBoxes,
-      children: basePart.children.map(child => mergePart(child))
-    };
-  };
-
-  // Merge all parts
-  const mergedParts = baseModel.parts.map(part => mergePart(part));
-
-  return {
-    ...baseModel,
-    parts: mergedParts,
-  };
+export function parseJEMPart(
+  part: JEMModelPart,
+  inheritedTextureSize: [number, number],
+  options: ParseOptions = {},
+  inheritedTexturePath = "",
+): ParsedPart {
+  return parseModelPart(
+    part,
+    inheritedTexturePath,
+    inheritedTextureSize,
+    0,
+    null,
+    options,
+  );
 }
 
-/**
- * Parse a model part and its children recursively
- *
- * @param part - The raw JEM model part
- * @param textureSize - Default texture size [width, height]
- * @param isRootPart - Whether this is a root part (not a submodel)
- *
- * invertAxis handling:
- * - invertAxis is export metadata from Blockbench indicating which axes were inverted
- * - During JEM export, Blockbench transforms box coordinates: pos[axis] = -pos[axis] - size[axis]
- * - We reverse this transformation, but ONLY for root parts
- * - Submodels don't need the transformation because their coordinates are already
- *   in the correct "child-relative" space
- */
 function parseModelPart(
   part: JEMModelPart,
-  textureSize: [number, number],
-  isRootPart: boolean = true,
+  inheritedTexturePath: string,
+  inheritedTextureSize: [number, number],
+  depth: number,
+  parentOrigin: [number, number, number] | null,
+  options: ParseOptions,
 ): ParsedPart {
-  // IMPORTANT: Prefer id over part to avoid name collisions.
-  // JEM files can have multiple entries with the same "part" but different "id"s:
-  // - {"part":"body", "id":"body", "translate":[0,-6,0], ...} - the actual body
-  // - {"part":"body", "id":"body_part", "model":"...", ...} - external model ref
-  // Using id first ensures each gets a unique name in the bone map.
   const name = part.id || part.part || "unnamed";
-
-  // Get the translate (pivot point)
-  const rawTranslate: [number, number, number] = part.translate
-    ? [...part.translate]
+  const invertAxis = part.invertAxis;
+  const hasTranslate = Array.isArray(part.translate);
+  const translate: [number, number, number] = hasTranslate
+    ? [...(part.translate as [number, number, number])]
     : [0, 0, 0];
+  const isRoot = depth === 0;
 
-  // Origin = -translate
-  // Note: invertAxis is export metadata that indicates which axes were inverted
-  // during Blockbench export. We're not applying it here yet - need to understand
-  // the exact transformation order better.
-  const origin: [number, number, number] = [
-    -rawTranslate[0],
-    -rawTranslate[1],
-    -rawTranslate[2],
-  ];
+  // Calculate origin following Blockbench's logic:
+  // ROOT (depth=0): origin = -translate
+  // CHILD (depth=1): origin = translate (absolute)
+  // GRANDCHILD+ (depth>=2): origin = translate + parentOrigin
+  let origin: [number, number, number];
+
+  const isJpm = options.isJpm === true;
+
+  if (isRoot) {
+    origin = isJpm
+      ? hasTranslate
+        ? [...translate]
+        : [0, 0, 0]
+      : [-translate[0], -translate[1], -translate[2]];
+  } else if (depth === 1) {
+    // Direct children of root use translate as-is; missing translate defaults to [0,0,0]
+    origin = hasTranslate ? [...translate] : [0, 0, 0];
+  } else if (parentOrigin) {
+    origin = [
+      translate[0] + parentOrigin[0],
+      translate[1] + parentOrigin[1],
+      translate[2] + parentOrigin[2],
+    ];
+  } else {
+    origin = [...translate];
+  }
+
+  log.parse(name, depth, translate, origin, isRoot);
 
   const rotation: [number, number, number] = part.rotate
     ? [...part.rotate]
     : [0, 0, 0];
-
   const scale = part.scale ?? 1.0;
   const mirrorUV = part.mirrorTexture?.includes("u") ?? false;
 
-  // Parse boxes - don't apply invertAxis to box coordinates
-  // invertAxis is export metadata that affects how coordinates were written,
-  // but the actual coordinate values in the file are correct as-is.
-  // The key difference is how we interpret them:
-  // - Root parts: boxes are in ABSOLUTE model space
-  // - Submodels: boxes are in LOCAL (relative to translate) space
+  const effectiveTexturePath = part.texture ?? inheritedTexturePath;
+  const effectiveTextureSize = part.textureSize ?? inheritedTextureSize;
+
+  // Parse boxes - Blockbench adjusts box coords for non-root groups
+  // by adding p_group.origin. But since we're in the parsing phase,
+  // we need to understand what this means:
+  //
+  // For ROOT parts: boxes stay as-is (they're in absolute world coords)
+  // For SUBMODELS: Blockbench adds the group's origin to box coords
+  //                This makes the boxes "move" to their correct world position
+  //
+  // HOWEVER - the key insight is that after this adjustment, the boxes
+  // are positioned in world space, but the GROUP is ALSO at origin.
+  // So when we compute mesh position = boxCenter - groupOrigin, it cancels out
+  // and boxes end up at their intended world positions.
+  //
+  // Actually, re-reading Blockbench more carefully:
+  // - p_group is the current group being populated, not the parent
+  // - So boxes get p_group.origin added, which is THIS group's origin
+  // - This means: adjustedBox = rawBox + thisOrigin
+  // - Then mesh position in local space = adjustedBoxCenter (no subtraction needed)
+  //   because the group position already accounts for origin
+
   const boxes: ParsedBox[] = [];
   if (part.boxes) {
     for (const box of part.boxes) {
-      const parsed = parseBox(box, textureSize, mirrorUV);
-      if (parsed) {
-        boxes.push(parsed);
-      }
+      const parsed = parseBox(
+        box,
+        mirrorUV,
+        origin,
+        isRoot,
+        isJpm,
+        effectiveTexturePath,
+        effectiveTextureSize,
+        name,
+        depth,
+      );
+      if (parsed) boxes.push(parsed);
     }
   }
 
-  // Parse children (submodels) - these are NOT root parts
+  // Recursively parse children
   const children: ParsedPart[] = [];
-
   if (part.submodel) {
-    const child = parseModelPart(part.submodel, textureSize, false);
-    children.push(child);
+    children.push(
+      parseModelPart(
+        part.submodel,
+        effectiveTexturePath,
+        effectiveTextureSize,
+        depth + 1,
+        origin,
+        options,
+      ),
+    );
   }
-
   if (part.submodels) {
-    for (const submodel of part.submodels) {
-      const child = parseModelPart(submodel, textureSize, false);
-      children.push(child);
+    for (const sub of part.submodels) {
+      children.push(
+        parseModelPart(
+          sub,
+          effectiveTexturePath,
+          effectiveTextureSize,
+          depth + 1,
+          origin,
+          options,
+        ),
+      );
     }
   }
 
@@ -374,55 +410,81 @@ function parseModelPart(
     mirrorUV,
     boxes,
     children,
-    isRootPart,
+    isRootPart: isRoot,
+    invertAxis,
+    texturePath: effectiveTexturePath,
+    textureSize: effectiveTextureSize,
   };
 }
 
 /**
- * Parse a box definition
+ * Parse a box, adjusting coordinates for non-root groups.
  *
- * Box coordinates in JEM: [x, y, z, width, height, depth]
- * - For root parts: coordinates are in ABSOLUTE model space
- * - For submodels: coordinates are relative to the part's translate
+ * Blockbench (line 332-337):
+ *   if (p_group && (p_group.parent !== 'root' || model._is_jpm)) {
+ *     base_cube.from[i] += p_group.origin[i];
+ *     base_cube.to[i] += p_group.origin[i];
+ *   }
  *
- * The interpretation of these coordinates happens in convertPart, not here.
+ * This means for non-root groups, box coords get the group's origin added.
+ * For root groups, boxes stay as-is.
  */
 function parseBox(
   box: JEMBox,
-  _textureSize: [number, number],
-  partMirrorUV: boolean,
+  mirrorUV: boolean,
+  groupOrigin: [number, number, number],
+  isRootGroup: boolean,
+  isJpm: boolean,
+  texturePath: string,
+  textureSize: [number, number],
+  partName: string,
+  depth: number,
 ): ParsedBox | null {
-  // Default coordinates if not specified
-  let x = 0,
-    y = 0,
-    z = 0;
-  let width = 0,
-    height = 0,
-    depth = 0;
-
-  if (box.coordinates) {
-    [x, y, z, width, height, depth] = box.coordinates;
-  } else {
-    // No coordinates - can't create box
-    console.warn("[JEM Parser] Box missing coordinates, skipping");
+  if (!box.coordinates) {
+    console.warn("[JEM] Box missing coordinates");
     return null;
   }
 
+  const [x, y, z, width, height, boxDepth] = box.coordinates;
   const inflate = box.sizeAdd || 0;
 
-  // Calculate from/to with inflation
-  const from: [number, number, number] = [
+  // Raw box coords from JEM
+  const rawFrom: [number, number, number] = [
     x - inflate,
     y - inflate,
     z - inflate,
   ];
-  const to: [number, number, number] = [
+  const rawTo: [number, number, number] = [
     x + width + inflate,
     y + height + inflate,
-    z + depth + inflate,
+    z + boxDepth + inflate,
   ];
 
-  // Calculate UV coordinates
+  // Adjust for non-root groups (add group origin)
+  let from: [number, number, number];
+  let to: [number, number, number];
+
+  if (!isRootGroup || isJpm) {
+    // Non-root (or JPM root): add group origin to box coords
+    from = [
+      rawFrom[0] + groupOrigin[0],
+      rawFrom[1] + groupOrigin[1],
+      rawFrom[2] + groupOrigin[2],
+    ];
+    to = [
+      rawTo[0] + groupOrigin[0],
+      rawTo[1] + groupOrigin[1],
+      rawTo[2] + groupOrigin[2],
+    ];
+  } else {
+    // Root JEM: boxes stay as-is
+    from = [...rawFrom];
+    to = [...rawTo];
+  }
+
+  log.box(partName, depth, rawFrom, rawTo, from, to);
+
+  // Parse UVs
   let uv: ParsedBox["uv"];
   if (
     box.uvNorth ||
@@ -432,7 +494,6 @@ function parseBox(
     box.uvUp ||
     box.uvDown
   ) {
-    // Use per-face UV if provided
     uv = {
       north: box.uvNorth || [0, 0, 0, 0],
       east: box.uvEast || [0, 0, 0, 0],
@@ -442,11 +503,15 @@ function parseBox(
       down: box.uvDown || [0, 0, 0, 0],
     };
   } else if (box.textureOffset) {
-    // Box UV mode - calculate from texture offset
-    const [u, v] = box.textureOffset;
-    uv = calculateBoxUV(u, v, width, height, depth);
+    uv = calculateBoxUV(
+      box.textureOffset[0],
+      box.textureOffset[1],
+      width,
+      height,
+      boxDepth,
+      mirrorUV,
+    );
   } else {
-    // No texture information
     uv = {
       north: [0, 0, 1, 1],
       east: [0, 0, 1, 1],
@@ -457,277 +522,413 @@ function parseBox(
     };
   }
 
+  const boxTextureSize = box.textureSize ?? textureSize;
+
   return {
     from,
     to,
     uv,
-    mirror: partMirrorUV,
+    mirror: mirrorUV,
     inflate,
+    texturePath,
+    textureSize: boxTextureSize,
   };
 }
 
-/**
- * Calculate UV coordinates for a box using Minecraft's standard layout
- *
- * Standard Minecraft Box UV Layout (textureOffset at [u, v]):
- *
- *       u      u+d     u+d+w   u+d+w+d  u+2d+2w
- *   v   +------+-------+-------+--------+
- *       |      |  up   | down  |        |   d (depth)
- *   v+d +------+-------+-------+--------+
- *       | east | north | west  | south  |   h (height)
- * v+d+h +------+-------+-------+--------+
- *          d      w       d       w
- *
- * Where: d = depth (Z), w = width (X), h = height (Y)
- */
 function calculateBoxUV(
   u: number,
   v: number,
-  width: number,
-  height: number,
-  depth: number,
+  w: number,
+  h: number,
+  d: number,
+  mirror: boolean,
 ): ParsedBox["uv"] {
-  // Based on skinview3d's proven implementation
-  // Their naming: top, bottom, left, front, right, back
-  // Minecraft naming: down=top, up=bottom, east=left, north=front, west=right, south=back
-  return {
-    // Top row in texture (top and bottom faces of the box)
-    up: [u + depth, v, u + depth + width, v + depth], // skinview3d calls this "top"
-    down: [u + depth + width, v, u + depth + width * 2, v + depth], // skinview3d calls this "bottom"
+  // Port of Blockbench cube.js updateUV() box_uv face_list logic
+  const faceList: {
+    face: keyof ParsedBox["uv"];
+    from: [number, number];
+    size: [number, number];
+  }[] = [
+    { face: "east", from: [0, d], size: [d, h] },
+    { face: "west", from: [d + w, d], size: [d, h] },
+    { face: "up", from: [d + w, d], size: [-w, -d] },
+    { face: "down", from: [d + w * 2, 0], size: [-w, d] },
+    { face: "south", from: [d * 2 + w, d], size: [w, h] },
+    { face: "north", from: [d, d], size: [w, h] },
+  ];
 
-    // Bottom row in texture (side faces)
-    east: [u, v + depth, u + depth, v + depth + height], // left
-    north: [u + depth, v + depth, u + depth + width, v + depth + height], // front
-    west: [
-      u + depth + width,
-      v + depth,
-      u + depth + width + depth,
-      v + depth + height,
-    ], // right
-    south: [
-      u + depth + width + depth,
-      v + depth,
-      u + depth + width + depth + width,
-      v + depth + height,
-    ], // back
+  if (mirror) {
+    for (const f of faceList) {
+      f.from[0] += f.size[0];
+      f.size[0] *= -1;
+    }
+    // Swap east/west rectangles after mirroring (Blockbench swaps from/size only)
+    const eastFrom = faceList[0].from;
+    const eastSize = faceList[0].size;
+    faceList[0].from = faceList[1].from;
+    faceList[0].size = faceList[1].size;
+    faceList[1].from = eastFrom;
+    faceList[1].size = eastSize;
+  }
+
+  const uv: ParsedBox["uv"] = {
+    east: [0, 0, 0, 0],
+    west: [0, 0, 0, 0],
+    up: [0, 0, 0, 0],
+    down: [0, 0, 0, 0],
+    south: [0, 0, 0, 0],
+    north: [0, 0, 0, 0],
   };
+
+  for (const f of faceList) {
+    uv[f.face] = [
+      u + f.from[0],
+      v + f.from[1],
+      u + f.from[0] + f.size[0],
+      v + f.from[1] + f.size[1],
+    ];
+  }
+
+  return uv;
 }
 
-// =============================================================================
+// ============================================================================
 // THREE.JS CONVERSION
-// =============================================================================
+// ============================================================================
 
-/**
- * Convert a parsed JEM model to a Three.js Group
- *
- * @param model - The parsed entity model
- * @param texture - Optional Three.js texture to apply
- * @returns Three.js Group containing the entity
- */
 export function jemToThreeJS(
   model: ParsedEntityModel,
   texture: THREE.Texture | null,
+  textureMap: Record<string, THREE.Texture> = {},
 ): THREE.Group {
   const root = new THREE.Group();
   root.name = "jem_entity";
 
-  // Configure texture for pixel-perfect rendering
   if (texture) {
     texture.magFilter = THREE.NearestFilter;
     texture.minFilter = THREE.NearestFilter;
     texture.colorSpace = THREE.SRGBColorSpace;
   }
-
-  // Convert each part
-  for (const part of model.parts) {
-    const partGroup = convertPart(part, model.textureSize, texture);
-    root.add(partGroup);
+  for (const tex of Object.values(textureMap)) {
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.colorSpace = THREE.SRGBColorSpace;
   }
 
+  log.section("Converting to Three.js");
+
+  const materialCache = new Map<
+    THREE.Texture | null,
+    THREE.MeshStandardMaterial
+  >();
+
+  const rootGroups: Record<string, THREE.Group> = {};
+  for (const part of model.parts) {
+    const group = convertPart(part, texture, textureMap, materialCache, null);
+    root.add(group);
+    rootGroups[group.name] = group;
+  }
+
+  // Mark translation semantics for common vanilla parts.
+  // Legs: absolute rotationPoint on all axes (Fresh Animations uses full pivot values).
+  for (const limbName of ["left_leg", "right_leg"]) {
+    const limb = rootGroups[limbName];
+    if (limb) limb.userData.absoluteTranslationAxes = "xyz";
+  }
+  // Arms: only X is authored as absolute (includes ±5 base pivot); Y/Z are offsets.
+  for (const limbName of ["left_arm", "right_arm"]) {
+    const limb = rootGroups[limbName];
+    if (limb) limb.userData.absoluteTranslationAxes = "x";
+  }
+
+  // Collect bones that are explicitly animated so we don't re-parent them.
+  const animatedBones = new Set<string>();
+  if (model.animations) {
+    for (const layer of model.animations) {
+      for (const property of Object.keys(layer)) {
+        const dot = property.indexOf(".");
+        if (dot === -1) continue;
+        const target = property.slice(0, dot);
+        if (target === "var" || target === "render") continue;
+        animatedBones.add(target);
+      }
+    }
+  }
+
+  // Apply implicit vanilla hierarchy for common skeletons.
+  // Many CEM animations assume vanilla parent-child relationships for non-animated overlays.
+  applyVanillaHierarchy(root, rootGroups, animatedBones);
+
+  // Fix translation semantics for specific animated submodels.
+  // Eyes in Fresh Animations use absolute tz to pin to head.
+  root.traverse((obj) => {
+    if (!(obj instanceof THREE.Group)) return;
+    if (obj.name === "eyes") {
+      obj.userData.absoluteTranslationAxes = "z";
+    }
+  });
+
+  log.hierarchy(root);
   return root;
 }
 
 /**
- * Convert a parsed part to Three.js geometry
+ * Re-parent common vanilla parts into their implicit hierarchy while preserving
+ * world transforms. This aligns our scene graph with OptiFine/Minecraft's
+ * built-in skeleton so animation translations are applied in the right space.
+ */
+function applyVanillaHierarchy(
+  root: THREE.Group,
+  rootGroups: Record<string, THREE.Group>,
+  animatedBones: Set<string>,
+): void {
+  const hasBody = !!rootGroups.body;
+  const hasHumanoidLimbs =
+    !!rootGroups.left_arm &&
+    !!rootGroups.right_arm &&
+    !!rootGroups.left_leg &&
+    !!rootGroups.right_leg;
+
+  if (!hasBody || !hasHumanoidLimbs) return;
+
+  const parentMap: Record<string, string> = {
+    head: "body",
+    headwear: "head",
+    left_arm: "body",
+    right_arm: "body",
+    left_leg: "body",
+    right_leg: "body",
+    jacket: "body",
+    left_ear: "head",
+    right_ear: "head",
+    left_sleeve: "left_arm",
+    right_sleeve: "right_arm",
+    left_pants: "left_leg",
+    right_pants: "right_leg",
+  };
+
+  root.updateMatrixWorld(true);
+
+  const reparentPreserveWorld = (
+    child: THREE.Object3D,
+    parent: THREE.Object3D,
+  ) => {
+    child.updateMatrixWorld(true);
+    const worldMatrix = child.matrixWorld.clone();
+
+    parent.add(child);
+    parent.updateMatrixWorld(true);
+
+    const parentInv = parent.matrixWorld.clone().invert();
+    const localMatrix = worldMatrix.clone().premultiply(parentInv);
+    localMatrix.decompose(child.position, child.quaternion, child.scale);
+  };
+
+  for (const [childName, parentName] of Object.entries(parentMap)) {
+    const child = rootGroups[childName];
+    const parent = rootGroups[parentName];
+    if (!child || !parent) continue;
+    if (child.parent === parent) continue;
+    if (animatedBones.has(childName)) continue;
+
+    // Mark these as vanilla skeleton parts for animation semantics.
+    child.userData.vanillaPart = true;
+    parent.userData.vanillaPart = true;
+
+    reparentPreserveWorld(child, parent);
+  }
+}
+
+/**
+ * Convert a parsed part to Three.js.
  *
- * Key insight: JEM uses ORIGIN (= -translate) as the pivot point position.
- * Box coordinates are in the same space, so we offset them by -origin to make
- * them relative to the group.
+ * Blockbench's outliner.js (bone_rig mode, lines 821-827):
+ *   mesh.position.set(element.origin[0], element.origin[1], element.origin[2])
+ *   if (element.parent instanceof OutlinerNode) {
+ *     mesh.position.x -= element.parent.origin[0];
+ *     mesh.position.y -= element.parent.origin[1];
+ *     mesh.position.z -= element.parent.origin[2];
+ *   }
  *
- * The algorithm:
- * 1. Position the group at ORIGIN (the pivot point)
- * 2. Mesh position = (boxCenter - origin) / 16 to make it relative to group
- *
- * Example for body (root part):
- *   translate = [0, -24, 0], origin = [0, 24, 0]
- *   group.position = origin/16 = [0, 1.5, 0]
- *   box center = [0, 18, 0]
- *   mesh.local = (18 - 24)/16 = -0.375
- *   mesh.world = 1.5 + (-0.375) = 1.125 = y=18 pixels ✓
- *
- * Example for head2 (submodel of headwear):
- *   headwear.origin = [0, 24, -0.25], group at [0, 1.5, -0.016]
- *   head2.origin = [0, -24, 0], local at [0, -1.5, 0]
- *   head2.world = [0, 1.5, -0.016] + [0, -1.5, 0] = [0, 0, -0.016]
- *   box center = [0, 4, 0]
- *   mesh.local = (4 - (-24))/16 = 28/16 = 1.75
- *   mesh.world = 0 + 1.75 = 1.75 = y=28 pixels ✓ (head at top!)
+ * So: localPosition = origin - parentOrigin (for children)
+ *     localPosition = origin (for root)
  */
 function convertPart(
   part: ParsedPart,
-  textureSize: [number, number],
   texture: THREE.Texture | null,
+  textureMap: Record<string, THREE.Texture>,
+  materialCache: Map<THREE.Texture | null, THREE.MeshStandardMaterial>,
+  parentOrigin: [number, number, number] | null,
 ): THREE.Group {
   const group = new THREE.Group();
   group.name = part.name;
+  if (part.invertAxis) {
+    group.userData.invertAxis = part.invertAxis;
+  }
 
-  // Position group at ORIGIN (the pivot point for rotations)
-  group.position.set(
-    part.origin[0] / PIXELS_PER_UNIT,
-    part.origin[1] / PIXELS_PER_UNIT,
-    part.origin[2] / PIXELS_PER_UNIT,
-  );
+  // Calculate local position
+  // ROOT: position = origin
+  // CHILD: position = origin - parentOrigin
+  let localX: number, localY: number, localZ: number;
 
-  // Apply rotation (degrees to radians)
-  // IMPORTANT: Set Euler order to 'ZYX' to match JEM specification
-  group.rotation.order = 'ZYX';
+  if (parentOrigin === null) {
+    localX = part.origin[0] / PIXELS_PER_UNIT;
+    localY = part.origin[1] / PIXELS_PER_UNIT;
+    localZ = part.origin[2] / PIXELS_PER_UNIT;
+  } else {
+    localX = (part.origin[0] - parentOrigin[0]) / PIXELS_PER_UNIT;
+    localY = (part.origin[1] - parentOrigin[1]) / PIXELS_PER_UNIT;
+    localZ = (part.origin[2] - parentOrigin[2]) / PIXELS_PER_UNIT;
+  }
+
+  group.position.set(localX, localY, localZ);
+  log.convert(part.name, part.origin, parentOrigin, [localX, localY, localZ]);
+
+  // Rotation
+  group.rotation.order = "ZYX";
   group.rotation.set(
     THREE.MathUtils.degToRad(part.rotation[0]),
     THREE.MathUtils.degToRad(part.rotation[1]),
     THREE.MathUtils.degToRad(part.rotation[2]),
   );
 
-  // Apply scale if not 1.0
-  if (part.scale !== 1.0) {
-    group.scale.setScalar(part.scale);
-  }
+  // Scale
+  if (part.scale !== 1.0) group.scale.setScalar(part.scale);
 
-  // Create meshes for each box
-  // Mesh position = (center - origin) / 16 to offset from group position
-  for (const box of part.boxes) {
+  // Add boxes
+  // After parsing, box coords are already adjusted (for non-root: coords += origin)
+  // Now we need to position meshes in the group's local space.
+  //
+  // For ROOT groups: mesh position = boxCenter - origin
+  //   Because boxes are in world coords, and group is at origin
+  //
+  // For NON-ROOT groups: mesh position = boxCenter - origin
+  //   Because boxes were adjusted to world coords (rawBox + origin),
+  //   and group is at origin in world space.
+  //   So: adjustedCenter - origin = (rawCenter + origin) - origin = rawCenter
+  //
+  // Wait, that means for non-root, mesh should be at rawCenter!
+  // Let me reconsider...
+  //
+  // Actually, looking at Blockbench's cube.js updateGeometry (lines 1154-1193):
+  //   from.forEach((v, i) => { from[i] -= element.origin[i]; })
+  //   to.forEach((v, i) => { to[i] -= element.origin[i]; })
+  //
+  // So Blockbench subtracts the element's origin from box coords when building geometry!
+  // This means the mesh is centered at (0,0,0) in local space, offset by (from+to)/2 - origin.
+  //
+  // Combined with the parsing adjustment:
+  // - Parsing: adjustedBox = rawBox + groupOrigin (for non-root)
+  // - Geometry: meshPos = adjustedBoxCenter - groupOrigin
+  //           = (rawBoxCenter + groupOrigin) - groupOrigin = rawBoxCenter
+  //
+  // So for non-root, mesh ends up at rawBoxCenter!
+  // For root, no parsing adjustment, so mesh = rawBoxCenter - origin.
+  //
+  // This makes sense - the group handles world positioning, boxes are in local space.
+
+  const partTexture = textureMap[part.texturePath] ?? texture;
+
+  for (let i = 0; i < part.boxes.length; i++) {
+    const box = part.boxes[i];
     const mesh = createBoxMesh(
       box,
-      textureSize,
-      texture,
+      partTexture,
+      materialCache,
+      part.origin,
+      part.name,
+      i,
     );
-    if (mesh) {
-      // Offset mesh by -origin to make position relative to group
-      mesh.position.x -= part.origin[0] / PIXELS_PER_UNIT;
-      mesh.position.y -= part.origin[1] / PIXELS_PER_UNIT;
-      mesh.position.z -= part.origin[2] / PIXELS_PER_UNIT;
-      group.add(mesh);
-    }
+    if (mesh) group.add(mesh);
   }
 
-  // Recursively add children
+  // Children
   for (const child of part.children) {
-    const childGroup = convertPart(child, textureSize, texture);
-
-    // Child position is at child's ORIGIN (pivot point)
-    // Since convertPart already set childGroup.position to child.origin,
-    // we just add it to the parent group (Three.js handles the hierarchy)
-    group.add(childGroup);
+    group.add(
+      convertPart(child, texture, textureMap, materialCache, part.origin),
+    );
   }
 
   return group;
 }
 
-/**
- * Create a Three.js mesh for a box
- *
- * Creates a mesh positioned at the box center (in pixel coordinates / 16).
- * The caller (convertPart) will offset this by -origin to make it relative
- * to the group's position.
- */
 function createBoxMesh(
   box: ParsedBox,
-  textureSize: [number, number],
   texture: THREE.Texture | null,
+  materialCache: Map<THREE.Texture | null, THREE.MeshStandardMaterial>,
+  groupOrigin: [number, number, number],
+  partName: string,
+  boxIdx: number,
 ): THREE.Mesh | null {
   const { from, to } = box;
 
-  // Calculate size
   const width = (to[0] - from[0]) / PIXELS_PER_UNIT;
   const height = (to[1] - from[1]) / PIXELS_PER_UNIT;
   const depth = (to[2] - from[2]) / PIXELS_PER_UNIT;
 
-  // Skip completely degenerate boxes, but allow zero-width/depth planes (used for flat elements like tails)
-  if (width < 0 || height < 0 || depth < 0) {
-    console.warn(
-      "[JEM] Skipping invalid box with negative dimensions:",
-      width,
-      height,
-      depth,
-    );
-    return null;
-  }
+  if (width < 0 || height < 0 || depth < 0) return null;
+  if (width === 0 && height === 0 && depth === 0) return null;
 
-  // Skip boxes with no volume at all
-  if (width === 0 && height === 0 && depth === 0) {
-    console.warn("[JEM] Skipping zero-volume box");
-    return null;
-  }
-
-  // Create geometry - use PlaneGeometry for flat elements (width=0 or depth=0)
+  // Create geometry
   let geometry: THREE.BufferGeometry;
   let planeAxis: "x" | "z" | null = null;
 
   if (width === 0) {
-    // YZ plane (should face X axis)
-    // PlaneGeometry defaults to XY plane facing +Z, so we need depth x height
     geometry = new THREE.PlaneGeometry(depth, height);
-    geometry.rotateY(Math.PI / 2); // Rotate 90° to face X axis
+    geometry.rotateY(Math.PI / 2);
     planeAxis = "x";
   } else if (depth === 0) {
-    // XY plane (should face Z axis)
     geometry = new THREE.PlaneGeometry(width, height);
-    // No rotation needed - already facing Z
     planeAxis = "z";
   } else {
-    // Normal 3D box
     geometry = new THREE.BoxGeometry(width, height, depth);
   }
 
-  // Apply UV coordinates with rotation compensation
+  const textureSize = box.textureSize;
+
+  // Apply UVs
   if (planeAxis) {
     applyPlaneUVs(geometry, box.uv, textureSize, planeAxis);
   } else {
-    applyUVs(
-      geometry as THREE.BoxGeometry,
-      box.uv,
-      textureSize,
-      box.mirror,
-    );
+    applyUVs(geometry as THREE.BoxGeometry, box.uv, textureSize);
   }
 
-  // Create material
-  const material = texture
-    ? new THREE.MeshStandardMaterial({
-      map: texture,
-      transparent: true,
-      alphaTest: 0.1,
-      side: THREE.DoubleSide,
-    })
-    : new THREE.MeshStandardMaterial({
-      color: 0x8b4513,
-      side: THREE.DoubleSide,
-    });
+  // Material
+  let material = materialCache.get(texture);
+  if (!material) {
+    material = texture
+      ? new THREE.MeshStandardMaterial({
+          map: texture,
+          transparent: true,
+          alphaTest: 0.1,
+          side: THREE.DoubleSide,
+        })
+      : new THREE.MeshStandardMaterial({
+          color: 0x8b4513,
+          side: THREE.DoubleSide,
+        });
+    materialCache.set(texture, material);
+  }
 
   const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = `${partName}_box${boxIdx}`;
 
-  // Calculate box center (coordinates are RELATIVE to part's translate)
+  // Position mesh in group's local space
+  // Blockbench subtracts origin from box coords: mesh = boxCenter - origin
   const centerX = (from[0] + to[0]) / 2;
   const centerY = (from[1] + to[1]) / 2;
   const centerZ = (from[2] + to[2]) / 2;
 
-  // Position mesh at box center (in Three.js units)
-  // Since group is at translate and box coords are relative to translate,
-  // mesh local position is simply the box center coordinates.
-  mesh.position.set(
-    centerX / PIXELS_PER_UNIT,
-    centerY / PIXELS_PER_UNIT,
-    centerZ / PIXELS_PER_UNIT,
+  const meshX = (centerX - groupOrigin[0]) / PIXELS_PER_UNIT;
+  const meshY = (centerY - groupOrigin[1]) / PIXELS_PER_UNIT;
+  const meshZ = (centerZ - groupOrigin[2]) / PIXELS_PER_UNIT;
+
+  mesh.position.set(meshX, meshY, meshZ);
+  log.mesh(
+    partName,
+    boxIdx,
+    [centerX, centerY, centerZ],
+    [meshX, meshY, meshZ],
   );
 
   mesh.castShadow = true;
@@ -736,144 +937,166 @@ function createBoxMesh(
   return mesh;
 }
 
-/**
- * Apply UV coordinates to box geometry
- *
- * Three.js BoxGeometry face order: +X, -X, +Y, -Y, +Z, -Z
- * Which maps to: East, West, Up, Down, South, North
- *
- * CRITICAL: Different faces need different UV orientations!
- * Based on Blockbench's box UV implementation and Minecraft's coordinate system:
- * - Side faces (east, west, north, south): Standard orientation
- * - Up face (+Y): Needs Z-flip (swap v1/v2) for correct orientation
- * - Down face (-Y): Standard orientation
- *
- * Three.js UV coordinate system: (0,0) at bottom-left, (1,1) at top-right
- * Texture UV system: (0,0) at top-left
- */
+// ============================================================================
+// UV MAPPING
+// ============================================================================
+
 function applyUVs(
   geometry: THREE.BoxGeometry,
   uv: ParsedBox["uv"],
   textureSize: [number, number],
-  mirror: boolean,
 ): void {
   const [texWidth, texHeight] = textureSize;
   const uvAttr = geometry.attributes.uv;
   if (!uvAttr) return;
 
-  // Map face names to Three.js box face indices
-  // Three.js order: [right(+X), left(-X), top(+Y), bottom(-Y), front(+Z), back(-Z)]
-  const faceConfigs: { name: keyof typeof uv; index: number; flipZ?: boolean }[] = [
-    { name: "east", index: 0 }, // right face (+X)
-    { name: "west", index: 1 }, // left face (-X)
-    { name: "up", index: 2, flipZ: true }, // top face (+Y) needs Z-flip
-    { name: "down", index: 3 }, // bottom face (-Y)
-    { name: "south", index: 4 }, // front face (+Z)
-    { name: "north", index: 5 }, // back face (-Z)
+  const faces: { name: keyof typeof uv; index: number }[] = [
+    { name: "east", index: 0 },
+    { name: "west", index: 1 },
+    { name: "up", index: 2 },
+    { name: "down", index: 3 },
+    { name: "south", index: 4 },
+    { name: "north", index: 5 },
   ];
 
-  for (const config of faceConfigs) {
-    const faceUV = uv[config.name];
+  for (const face of faces) {
+    const faceUV = uv[face.name];
     if (!faceUV || faceUV.every((v) => v === 0)) continue;
 
-    const [u1, v1, u2, v2] = faceUV;
+    let [u1, v1, u2, v2] = faceUV;
+    let uvU1 = u1 / texWidth,
+      uvV1 = 1 - v1 / texHeight;
+    let uvU2 = u2 / texWidth,
+      uvV2 = 1 - v2 / texHeight;
 
-    // Convert pixel coordinates to 0-1 UV space
-    // Entity textures have (0,0) at top-left, Three.js at bottom-left
-    let uvU1 = u1 / texWidth;
-    let uvV1 = 1 - v1 / texHeight; // Top of face in texture space
-    let uvU2 = u2 / texWidth;
-    let uvV2 = 1 - v2 / texHeight; // Bottom of face in texture space
-
-    // Handle mirroring
-    if (mirror) {
-      [uvU1, uvU2] = [uvU2, uvU1];
-    }
-
-    // Handle Z-flip for up face (swap V coordinates to flip along Z/depth axis)
-    if (config.flipZ) {
-      [uvV1, uvV2] = [uvV2, uvV1];
-    }
-
-    // Set UV coordinates for the 4 vertices of this face
-    const baseIndex = config.index * 4;
-
-    // Three.js BoxGeometry vertex layout per face:
-    // 2---3
-    // |   |
-    // 0---1
-    uvAttr.setXY(baseIndex + 0, uvU1, uvV1); // Bottom-left
-    uvAttr.setXY(baseIndex + 1, uvU2, uvV1); // Bottom-right
-    uvAttr.setXY(baseIndex + 2, uvU1, uvV2); // Top-left
-    uvAttr.setXY(baseIndex + 3, uvU2, uvV2); // Top-right
+    const base = face.index * 4;
+    uvAttr.setXY(base + 0, uvU1, uvV1);
+    uvAttr.setXY(base + 1, uvU2, uvV1);
+    uvAttr.setXY(base + 2, uvU1, uvV2);
+    uvAttr.setXY(base + 3, uvU2, uvV2);
   }
 
   uvAttr.needsUpdate = true;
 }
 
-/**
- * Apply UV coordinates to a plane geometry (for zero-width/depth boxes)
- *
- * PlaneGeometry has only 1 face with 4 vertices, so we apply the appropriate
- * face UV based on which axis the plane is perpendicular to.
- */
 function applyPlaneUVs(
   geometry: THREE.BufferGeometry,
   uv: ParsedBox["uv"],
   textureSize: [number, number],
-  normalAxis: "x" | "z",
+  axis: "x" | "z",
 ): void {
   const [texWidth, texHeight] = textureSize;
   const uvAttr = geometry.attributes.uv;
   if (!uvAttr) return;
 
-  // Choose which face UV to use based on the plane orientation
-  let faceUV: [number, number, number, number];
-
-  if (normalAxis === "x") {
-    // YZ plane - use east or west face UV (east for positive side)
-    faceUV = uv.east;
-  } else {
-    // XY plane - use north or south face UV (north for positive side)
-    faceUV = uv.north;
-  }
-
+  let faceUV = axis === "x" ? uv.east : uv.north;
   if (!faceUV || faceUV.every((v) => v === 0)) {
-    // Try fallback UVs if primary is empty
-    faceUV = normalAxis === "x" ? uv.west : uv.south;
+    faceUV = axis === "x" ? uv.west : uv.south;
   }
 
   const [u1, v1, u2, v2] = faceUV;
+  const uvU1 = u1 / texWidth,
+    uvV1 = 1 - v1 / texHeight;
+  const uvU2 = u2 / texWidth,
+    uvV2 = 1 - v2 / texHeight;
 
-  // Convert pixel coordinates to 0-1 UV space
-  const uvU1 = u1 / texWidth;
-  const uvV1 = 1 - v1 / texHeight; // Top
-  const uvU2 = u2 / texWidth;
-  const uvV2 = 1 - v2 / texHeight; // Bottom
-
-  // PlaneGeometry has 4 vertices in this layout:
-  // 2---3
-  // |   |
-  // 0---1
-  uvAttr.setXY(0, uvU1, uvV1); // Bottom-left
-  uvAttr.setXY(1, uvU2, uvV1); // Bottom-right
-  uvAttr.setXY(2, uvU1, uvV2); // Top-left
-  uvAttr.setXY(3, uvU2, uvV2); // Top-right
-
+  uvAttr.setXY(0, uvU1, uvV1);
+  uvAttr.setXY(1, uvU2, uvV1);
+  uvAttr.setXY(2, uvU1, uvV2);
+  uvAttr.setXY(3, uvU2, uvV2);
   uvAttr.needsUpdate = true;
 }
 
-// =============================================================================
-// CONVENIENCE FUNCTION
-// =============================================================================
+// ============================================================================
+// EXPORTS
+// ============================================================================
 
-/**
- * Load and convert a JEM file to Three.js in one step
- *
- * @param jemData - Raw JEM JSON data
- * @param texture - Optional Three.js texture
- * @returns Three.js Group containing the entity
- */
+export function mergeVariantTextures(
+  baseModel: ParsedEntityModel,
+  variantJemData: JEMFile,
+): ParsedEntityModel {
+  const variantParsed = parseJEM(variantJemData);
+  const variantPartMap = new Map<string, ParsedPart>();
+  for (const part of variantParsed.parts) variantPartMap.set(part.name, part);
+
+  const mergePart = (basePart: ParsedPart): ParsedPart => {
+    const variantPart = variantPartMap.get(basePart.name);
+    if (!variantPart)
+      return { ...basePart, children: basePart.children.map(mergePart) };
+
+    const mergedTexturePath = variantPart.texturePath || basePart.texturePath;
+    const mergedTextureSize = variantPart.textureSize || basePart.textureSize;
+
+    const mergedBoxes = basePart.boxes.map((baseBox, idx) => {
+      const rawVariantModel = variantJemData.models?.find(
+        (m) => m.part === basePart.name || m.id === basePart.name,
+      );
+      const rawVariantBox = rawVariantModel?.boxes?.[idx];
+
+      let variantUV = baseBox.uv;
+      let variantBoxSize: [number, number] | undefined;
+
+      if (rawVariantBox) {
+        if (
+          rawVariantBox.uvNorth ||
+          rawVariantBox.uvEast ||
+          rawVariantBox.uvSouth ||
+          rawVariantBox.uvWest ||
+          rawVariantBox.uvUp ||
+          rawVariantBox.uvDown
+        ) {
+          variantUV = {
+            east: rawVariantBox.uvEast || baseBox.uv.east,
+            west: rawVariantBox.uvWest || baseBox.uv.west,
+            up: rawVariantBox.uvUp || baseBox.uv.up,
+            down: rawVariantBox.uvDown || baseBox.uv.down,
+            south: rawVariantBox.uvSouth || baseBox.uv.south,
+            north: rawVariantBox.uvNorth || baseBox.uv.north,
+          };
+        } else if (rawVariantBox.textureOffset) {
+          const w = baseBox.to[0] - baseBox.from[0];
+          const h = baseBox.to[1] - baseBox.from[1];
+          const d = baseBox.to[2] - baseBox.from[2];
+          variantUV = calculateBoxUV(
+            rawVariantBox.textureOffset[0],
+            rawVariantBox.textureOffset[1],
+            w,
+            h,
+            d,
+            basePart.mirrorUV,
+          );
+        }
+        if (rawVariantBox.textureSize) {
+          variantBoxSize = rawVariantBox.textureSize;
+        }
+      }
+
+      const inheritedBoxSize =
+        baseBox.textureSize[0] === basePart.textureSize[0] &&
+        baseBox.textureSize[1] === basePart.textureSize[1]
+          ? mergedTextureSize
+          : baseBox.textureSize;
+
+      return {
+        ...baseBox,
+        uv: variantUV,
+        texturePath: mergedTexturePath,
+        textureSize: variantBoxSize ?? inheritedBoxSize,
+      };
+    });
+
+    return {
+      ...basePart,
+      texturePath: mergedTexturePath,
+      textureSize: mergedTextureSize,
+      boxes: mergedBoxes,
+      children: basePart.children.map(mergePart),
+    };
+  };
+
+  return { ...baseModel, parts: baseModel.parts.map(mergePart) };
+}
+
 export function loadJEM(
   jemData: JEMFile,
   texture: THREE.Texture | null = null,
@@ -882,41 +1105,25 @@ export function loadJEM(
   return jemToThreeJS(parsed, texture);
 }
 
-// =============================================================================
-// DEBUG UTILITIES
-// =============================================================================
-
-/**
- * Add debug visualization (pivot points, bounding boxes)
- */
 export function addDebugVisualization(group: THREE.Group): void {
   group.traverse((obj) => {
     if (obj instanceof THREE.Group && obj.name) {
-      // Add pivot point marker
-      const pivotGeom = new THREE.SphereGeometry(0.05);
-      const pivotMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-      const pivotMarker = new THREE.Mesh(pivotGeom, pivotMat);
-      pivotMarker.name = `${obj.name}_pivot`;
-      obj.add(pivotMarker);
+      const marker = new THREE.Mesh(
+        new THREE.SphereGeometry(0.05),
+        new THREE.MeshBasicMaterial({ color: 0xff0000 }),
+      );
+      marker.name = `${obj.name}_pivot`;
+      obj.add(marker);
     }
   });
 }
 
-/**
- * Log the hierarchy of a Three.js group for debugging
- */
 export function logHierarchy(group: THREE.Object3D, indent = 0): void {
   const prefix = "  ".repeat(indent);
-  const pos = group.position;
-  const rot = group.rotation;
-
+  const p = group.position;
+  const r = group.rotation;
   console.log(
-    `${prefix}${group.name || "(unnamed)"} ` +
-    `pos:[${pos.x.toFixed(3)}, ${pos.y.toFixed(3)}, ${pos.z.toFixed(3)}] ` +
-    `rot:[${THREE.MathUtils.radToDeg(rot.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rot.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(rot.z).toFixed(1)}°]`,
+    `${prefix}${group.name || "(unnamed)"} pos:[${p.x.toFixed(3)}, ${p.y.toFixed(3)}, ${p.z.toFixed(3)}] rot:[${THREE.MathUtils.radToDeg(r.x).toFixed(1)}°, ${THREE.MathUtils.radToDeg(r.y).toFixed(1)}°, ${THREE.MathUtils.radToDeg(r.z).toFixed(1)}°]`,
   );
-
-  for (const child of group.children) {
-    logHierarchy(child, indent + 1);
-  }
+  group.children.forEach((c) => logHierarchy(c, indent + 1));
 }

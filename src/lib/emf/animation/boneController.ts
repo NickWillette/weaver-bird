@@ -1,31 +1,18 @@
-/**
- * Bone Controller for Three.js Entity Models
- *
- * Manages bone transforms for CEM animation playback.
- * Handles building bone maps and applying animation transforms.
- */
-
 import * as THREE from "three";
 import type { BoneTransform } from "./types";
 
-// Pixels per Three.js unit (matches jemLoader.ts)
 const PIXELS_PER_UNIT = 16;
 
-// Debug flag - set to true to enable extensive logging
-export const DEBUG_ANIMATIONS = true;
+export const DEBUG_ANIMATIONS = false;
 
-// Track which bones we've logged to avoid spam
-const loggedBones = new Set<string>();
 let frameCount = 0;
 
-/**
- * Map of bone names to their Three.js Object3D references.
- */
+const MAX_LOG_FRAMES = 3;
+
+const BONES_TO_LOG = ["head", "headwear", "body", "left_arm", "right_arm"];
+
 export type BoneMap = Map<string, THREE.Object3D>;
 
-/**
- * Stored base transforms for resetting bones to their original state.
- */
 export interface BaseTransforms {
   position: THREE.Vector3;
   rotation: THREE.Euler;
@@ -33,23 +20,23 @@ export interface BaseTransforms {
   visible: boolean;
 }
 
-/**
- * Map of bone names to their base (rest pose) transforms.
- */
 export type BaseTransformMap = Map<string, BaseTransforms>;
 
 /**
- * Build a map of bone names to Three.js objects from a model group.
- * Traverses the entire hierarchy to find all named groups.
+ * Build a map of bone names to Three.js objects for quick lookup.
  *
- * @param root The root Three.js group of the entity model
- * @returns Map of bone names to Object3D references
+ * With our nested hierarchy, bones are organized as a proper tree structure:
+ * - Parent bones contain child bones as Three.js children
+ * - When a parent rotates/translates, children automatically follow
+ * - This eliminates the need for manual parent transform propagation
+ *
+ * @param root The root Three.js group containing all bones
+ * @returns A Map of bone names to their Three.js objects
  */
 export function buildBoneMap(root: THREE.Group): BoneMap {
   const bones: BoneMap = new Map();
 
   root.traverse((obj) => {
-    // Only include named objects (bones/parts have names from jemLoader)
     if (obj.name && obj.name !== "jem_entity") {
       bones.set(obj.name, obj);
     }
@@ -57,24 +44,34 @@ export function buildBoneMap(root: THREE.Group): BoneMap {
 
   if (DEBUG_ANIMATIONS) {
     console.log("[BoneController] Built bone map with", bones.size, "bones:");
-    for (const [name, bone] of bones) {
-      const parentName = bone.parent?.name || "(root)";
-      console.log(
-        `  - ${name}: pos=[${bone.position.x.toFixed(3)}, ${bone.position.y.toFixed(3)}, ${bone.position.z.toFixed(3)}], parent=${parentName}`
-      );
-    }
+    console.log("[BoneController] Hierarchy (nested structure):");
+    root.updateMatrixWorld(true);
+
+    // Log hierarchy with indentation to show nesting
+    const logBoneTree = (obj: THREE.Object3D, indent: number) => {
+      if (obj.name && obj.name !== "jem_entity") {
+        const prefix = "  ".repeat(indent);
+        const worldPos = new THREE.Vector3();
+        obj.getWorldPosition(worldPos);
+        console.log(
+          `${prefix}- ${obj.name}: local=[${obj.position.x.toFixed(3)}, ${obj.position.y.toFixed(3)}, ${obj.position.z.toFixed(3)}], world=[${worldPos.x.toFixed(3)}, ${worldPos.y.toFixed(3)}, ${worldPos.z.toFixed(3)}]`,
+        );
+      }
+      for (const child of obj.children) {
+        if (child instanceof THREE.Group || child.name) {
+          logBoneTree(
+            child,
+            obj.name && obj.name !== "jem_entity" ? indent + 1 : indent,
+          );
+        }
+      }
+    };
+    logBoneTree(root, 0);
   }
 
   return bones;
 }
 
-/**
- * Store base transforms for all bones (rest pose).
- * Used to reset bones after animation or apply relative transforms.
- *
- * @param bones The bone map to store transforms from
- * @returns Map of bone names to their base transforms
- */
 export function storeBaseTransforms(bones: BoneMap): BaseTransformMap {
   const baseTransforms: BaseTransformMap = new Map();
 
@@ -91,7 +88,7 @@ export function storeBaseTransforms(bones: BoneMap): BaseTransformMap {
     console.log("[BoneController] Stored base transforms:");
     for (const [name, base] of baseTransforms) {
       console.log(
-        `  - ${name}: base_pos=[${base.position.x.toFixed(3)}, ${base.position.y.toFixed(3)}, ${base.position.z.toFixed(3)}]`
+        `  - ${name}: base_pos=[${base.position.x.toFixed(3)}, ${base.position.y.toFixed(3)}, ${base.position.z.toFixed(3)}]`,
       );
     }
   }
@@ -99,15 +96,9 @@ export function storeBaseTransforms(bones: BoneMap): BaseTransformMap {
   return baseTransforms;
 }
 
-/**
- * Reset a bone to its base transform.
- *
- * @param bone The bone to reset
- * @param baseTransform The base transform to restore
- */
 export function resetBone(
   bone: THREE.Object3D,
-  baseTransform: BaseTransforms
+  baseTransform: BaseTransforms,
 ): void {
   bone.position.copy(baseTransform.position);
   bone.rotation.copy(baseTransform.rotation);
@@ -115,15 +106,9 @@ export function resetBone(
   bone.visible = baseTransform.visible;
 }
 
-/**
- * Reset all bones to their base transforms.
- *
- * @param bones The bone map
- * @param baseTransforms The base transform map
- */
 export function resetAllBones(
   bones: BoneMap,
-  baseTransforms: BaseTransformMap
+  baseTransforms: BaseTransformMap,
 ): void {
   for (const [name, bone] of bones) {
     const base = baseTransforms.get(name);
@@ -136,89 +121,181 @@ export function resetAllBones(
 /**
  * Apply animation transforms to a bone.
  *
- * CEM animation tx/ty/tz values are OFFSETS (in pixels) to add to the part's
- * base translate value. Since Three.js position = translate/16 (no negation),
- * we ADD the animation offset to the base position:
- *
- *   final_translate = base_translate + animation_offset
- *   final_position = final_translate / 16
- *                  = (base_translate + animation_offset) / 16
- *                  = base_translate/16 + animation_offset/16
- *                  = base_position + animation_offset/16
- *
- * Rotations are always ADDED to base rotation.
- * Scales are always MULTIPLIED with base scale.
+ * With our nested Three.js hierarchy, parent transforms automatically propagate
+ * to children. We only need to apply the animation offset to each bone's LOCAL
+ * transform - Three.js handles combining them in world space.
  *
  * @param bone The Three.js object to transform
- * @param transforms The transforms to apply
- * @param baseTransform Optional base transform for relative positioning
- * @param _parentTransforms Unused - kept for API compatibility
+ * @param transforms The animation transforms to apply (tx, ty, tz, rx, ry, rz, sx, sy, sz)
+ * @param baseTransform The bone's original rest pose transform
  */
 export function applyBoneTransform(
   bone: THREE.Object3D,
   transforms: BoneTransform,
   baseTransform?: BaseTransforms,
-  _parentTransforms?: BoneTransform
 ): void {
   const base = baseTransform;
   const boneName = bone.name;
 
-  // Log detailed transform info (only first few frames per bone to avoid spam)
-  const shouldLog = DEBUG_ANIMATIONS && !loggedBones.has(boneName);
-  if (shouldLog && (transforms.tx !== undefined || transforms.ty !== undefined || transforms.tz !== undefined)) {
-    frameCount++;
-    if (frameCount <= 50) {
-      console.log(`[BoneController] Applying transform to "${boneName}":`);
-      console.log(`  Animation values: tx=${transforms.tx?.toFixed(3)}, ty=${transforms.ty?.toFixed(3)}, tz=${transforms.tz?.toFixed(3)}`);
-      console.log(`  Base position: [${base?.position.x.toFixed(3)}, ${base?.position.y.toFixed(3)}, ${base?.position.z.toFixed(3)}]`);
+  const hasTranslation =
+    transforms.tx !== undefined ||
+    transforms.ty !== undefined ||
+    transforms.tz !== undefined;
+  const hasRotation =
+    transforms.rx !== undefined ||
+    transforms.ry !== undefined ||
+    transforms.rz !== undefined;
+  const hasScale =
+    transforms.sx !== undefined ||
+    transforms.sy !== undefined ||
+    transforms.sz !== undefined;
+
+  const shouldLog =
+    DEBUG_ANIMATIONS &&
+    frameCount < MAX_LOG_FRAMES &&
+    (BONES_TO_LOG.length === 0 || BONES_TO_LOG.includes(boneName));
+
+  if (shouldLog && (hasTranslation || hasRotation || hasScale)) {
+    console.log(
+      `\n[BoneController] Frame ${frameCount + 1} - Bone "${boneName}":`,
+    );
+
+    if (base) {
+      const basePxX = base.position.x * PIXELS_PER_UNIT;
+      const basePxY = base.position.y * PIXELS_PER_UNIT;
+      const basePxZ = base.position.z * PIXELS_PER_UNIT;
+      console.log(`  BASE (from JEM loader):`);
+      console.log(
+        `    Position (Three.js units): [${base.position.x.toFixed(3)}, ${base.position.y.toFixed(3)}, ${base.position.z.toFixed(3)}]`,
+      );
+      console.log(
+        `    Position (pixels): [${basePxX.toFixed(1)}, ${basePxY.toFixed(1)}, ${basePxZ.toFixed(1)}]`,
+      );
+      const degX = (base.rotation.x * 180) / Math.PI;
+      const degY = (base.rotation.y * 180) / Math.PI;
+      const degZ = (base.rotation.z * 180) / Math.PI;
+      console.log(
+        `    Rotation (degrees): [${degX.toFixed(1)}°, ${degY.toFixed(1)}°, ${degZ.toFixed(1)}°]`,
+      );
+    } else {
+      console.log(`  BASE: No base transform available`);
     }
-    if (frameCount === 5) {
-      loggedBones.add(boneName);
+
+    if (hasTranslation) {
+      console.log(`  ANIMATION OFFSET (pixels):`);
+      console.log(
+        `    tx=${transforms.tx !== undefined ? transforms.tx.toFixed(3) : "none"}`,
+      );
+      console.log(
+        `    ty=${transforms.ty !== undefined ? transforms.ty.toFixed(3) : "none"}`,
+      );
+      console.log(
+        `    tz=${transforms.tz !== undefined ? transforms.tz.toFixed(3) : "none"}`,
+      );
+    }
+
+    if (hasRotation) {
+      console.log(`  ANIMATION ROTATION (radians):`);
+      const rxDeg =
+        transforms.rx !== undefined
+          ? ((transforms.rx * 180) / Math.PI).toFixed(1) + "°"
+          : "none";
+      const ryDeg =
+        transforms.ry !== undefined
+          ? ((transforms.ry * 180) / Math.PI).toFixed(1) + "°"
+          : "none";
+      const rzDeg =
+        transforms.rz !== undefined
+          ? ((transforms.rz * 180) / Math.PI).toFixed(1) + "°"
+          : "none";
+      console.log(`    rx=${rxDeg}, ry=${ryDeg}, rz=${rzDeg}`);
     }
   }
 
-  // Apply translations: position = base_position + animation_offset / 16
-  // The ADDITION is because position = translate/16 in jemLoader (no negation)
+  const userData = (bone as any).userData || {};
+  const absoluteAxes: string =
+    typeof userData.absoluteTranslationAxes === "string"
+      ? userData.absoluteTranslationAxes
+      : userData.absoluteTranslation === true
+        ? "xyz"
+        : "";
+
+  const invertAxis =
+    typeof userData.invertAxis === "string"
+      ? (userData.invertAxis as string)
+      : "";
+  // Absolute translations don't use invertAxis (they're in world space already)
+  const absSignX =
+    absoluteAxes.includes("x") && invertAxis.includes("x") ? -1 : 1;
+  const absSignY = 1; // Y absolute translations are not inverted
+  const absSignZ =
+    absoluteAxes.includes("z") && invertAxis.includes("z") ? -1 : 1;
+
+  // Apply inversion to additive translations as well (needed for Fresh Animations)
+  const addSignX = invertAxis.includes("x") ? -1 : 1;
+  const addSignY = invertAxis.includes("y") ? -1 : 1;
+  const addSignZ = invertAxis.includes("z") ? -1 : 1;
+
   if (transforms.tx !== undefined) {
-    const newX = (base?.position.x ?? 0) + transforms.tx / PIXELS_PER_UNIT;
-    if (shouldLog && frameCount <= 50) {
-      console.log(`  Setting position.x = ${newX.toFixed(3)} (base ${base?.position.x?.toFixed(3)} + ${transforms.tx.toFixed(3)}/16)`);
+    const baseX = base?.position.x ?? 0;
+    const value = transforms.tx / PIXELS_PER_UNIT;
+    if (absoluteAxes.includes("x")) {
+      bone.position.x = absSignX * value;
+    } else {
+      bone.position.x = baseX + addSignX * value;
     }
-    bone.position.x = newX;
   }
 
   if (transforms.ty !== undefined) {
-    const newY = (base?.position.y ?? 0) + transforms.ty / PIXELS_PER_UNIT;
-    if (shouldLog && frameCount <= 50) {
-      console.log(`  Setting position.y = ${newY.toFixed(3)} (base ${base?.position.y?.toFixed(3)} + ${transforms.ty.toFixed(3)}/16)`);
+    const baseY = base?.position.y ?? 0;
+    const value = transforms.ty / PIXELS_PER_UNIT;
+    if (absoluteAxes.includes("y")) {
+      bone.position.y = absSignY * value;
+    } else {
+      bone.position.y = baseY + addSignY * value;
     }
-    bone.position.y = newY;
   }
 
   if (transforms.tz !== undefined) {
-    const newZ = (base?.position.z ?? 0) + transforms.tz / PIXELS_PER_UNIT;
-    if (shouldLog && frameCount <= 50) {
-      console.log(`  Setting position.z = ${newZ.toFixed(3)} (base ${base?.position.z?.toFixed(3)} + ${transforms.tz.toFixed(3)}/16)`);
+    const baseZ = base?.position.z ?? 0;
+    const value = transforms.tz / PIXELS_PER_UNIT;
+    if (absoluteAxes.includes("z")) {
+      bone.position.z = absSignZ * value;
+    } else {
+      bone.position.z = baseZ + addSignZ * value;
     }
-    bone.position.z = newZ;
   }
 
-  if (shouldLog && frameCount <= 50) {
-    console.log(`  Final position: [${bone.position.x.toFixed(3)}, ${bone.position.y.toFixed(3)}, ${bone.position.z.toFixed(3)}]`);
+  if (shouldLog && hasTranslation) {
+    const finalPxX = bone.position.x * PIXELS_PER_UNIT;
+    const finalPxY = bone.position.y * PIXELS_PER_UNIT;
+    const finalPxZ = bone.position.z * PIXELS_PER_UNIT;
+    console.log(
+      `  FINAL POSITION (${absoluteAxes ? `ABSOLUTE(${absoluteAxes})` : "ADDITIVE"}):`,
+    );
+    console.log(
+      `    Three.js units: [${bone.position.x.toFixed(3)}, ${bone.position.y.toFixed(3)}, ${bone.position.z.toFixed(3)}]`,
+    );
+    console.log(
+      `    Pixels: [${finalPxX.toFixed(1)}, ${finalPxY.toFixed(1)}, ${finalPxZ.toFixed(1)}]`,
+    );
   }
 
-  // Apply rotations (in radians, ADDED to base rotation)
+  // Apply rotation transforms with invertAxis consideration
+  const rotSignX = invertAxis.includes("x") ? -1 : 1;
+  const rotSignY = invertAxis.includes("y") ? -1 : 1;
+  const rotSignZ = invertAxis.includes("z") ? -1 : 1;
+
   if (transforms.rx !== undefined) {
-    bone.rotation.x = (base?.rotation.x ?? 0) + transforms.rx;
+    bone.rotation.x = (base?.rotation.x ?? 0) + rotSignX * transforms.rx;
   }
   if (transforms.ry !== undefined) {
-    bone.rotation.y = (base?.rotation.y ?? 0) + transforms.ry;
+    bone.rotation.y = (base?.rotation.y ?? 0) + rotSignY * transforms.ry;
   }
   if (transforms.rz !== undefined) {
-    bone.rotation.z = (base?.rotation.z ?? 0) + transforms.rz;
+    bone.rotation.z = (base?.rotation.z ?? 0) + rotSignZ * transforms.rz;
   }
 
-  // Apply scale (multiplied with base scale, default 1.0)
   if (transforms.sx !== undefined) {
     bone.scale.x = (base?.scale.x ?? 1) * transforms.sx;
   }
@@ -229,25 +306,17 @@ export function applyBoneTransform(
     bone.scale.z = (base?.scale.z ?? 1) * transforms.sz;
   }
 
-  // Apply visibility
   if (transforms.visible !== undefined) {
     bone.visible = transforms.visible;
   }
+
+  if (shouldLog && (hasTranslation || hasRotation || hasScale)) {
+    frameCount++;
+  }
 }
 
-/**
- * Parse a bone property string into target and property components.
- *
- * Examples:
- * - "head.rx" -> { target: "head", property: "rx" }
- * - "var.hy" -> { target: "var", property: "hy" }
- * - "render.shadow_size" -> { target: "render", property: "shadow_size" }
- *
- * @param propertyPath Full property path string
- * @returns Parsed target and property, or null if invalid
- */
 export function parseBoneProperty(
-  propertyPath: string
+  propertyPath: string,
 ): { target: string; property: string } | null {
   const dotIndex = propertyPath.indexOf(".");
   if (dotIndex === -1) {
@@ -260,13 +329,6 @@ export function parseBoneProperty(
   };
 }
 
-/**
- * Check if a property is a bone transform property.
- * Bone transforms are: tx, ty, tz, rx, ry, rz, sx, sy, sz, visible, visible_boxes
- *
- * @param property The property name to check
- * @returns True if this is a bone transform property
- */
 export function isBoneTransformProperty(property: string): boolean {
   return [
     "tx",
@@ -283,16 +345,9 @@ export function isBoneTransformProperty(property: string): boolean {
   ].includes(property);
 }
 
-/**
- * Convert a property value to a BoneTransform object.
- *
- * @param property The property name (rx, ty, etc.)
- * @param value The numeric value
- * @returns A BoneTransform with only that property set
- */
 export function createBoneTransform(
   property: string,
-  value: number
+  value: number,
 ): BoneTransform {
   const transform: BoneTransform = {};
 
@@ -335,13 +390,6 @@ export function createBoneTransform(
   return transform;
 }
 
-/**
- * Merge multiple bone transforms into one.
- * Later transforms override earlier ones for the same property.
- *
- * @param transforms Array of transforms to merge
- * @returns Merged transform
- */
 export function mergeBoneTransforms(
   ...transforms: BoneTransform[]
 ): BoneTransform {
@@ -365,16 +413,9 @@ export function mergeBoneTransforms(
   return result;
 }
 
-/**
- * Accumulated bone transforms during animation evaluation.
- * Allows multiple animation layers to contribute to bone state.
- */
 export class BoneTransformAccumulator {
   private transforms: Map<string, BoneTransform> = new Map();
 
-  /**
-   * Add a transform value for a bone.
-   */
   set(boneName: string, property: string, value: number): void {
     let transform = this.transforms.get(boneName);
     if (!transform) {
@@ -386,30 +427,18 @@ export class BoneTransformAccumulator {
     Object.assign(transform, partialTransform);
   }
 
-  /**
-   * Get the accumulated transform for a bone.
-   */
   get(boneName: string): BoneTransform | undefined {
     return this.transforms.get(boneName);
   }
 
-  /**
-   * Get all accumulated transforms.
-   */
   getAll(): Map<string, BoneTransform> {
     return this.transforms;
   }
 
-  /**
-   * Clear all accumulated transforms.
-   */
   clear(): void {
     this.transforms.clear();
   }
 
-  /**
-   * Apply all accumulated transforms to bones.
-   */
   applyAll(bones: BoneMap, baseTransforms: BaseTransformMap): void {
     for (const [boneName, transform] of this.transforms) {
       const bone = bones.get(boneName);
