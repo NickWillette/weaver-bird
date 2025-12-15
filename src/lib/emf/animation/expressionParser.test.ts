@@ -245,7 +245,7 @@ describe("Expression Evaluator", () => {
   it("should evaluate entity state variables", () => {
     const context = createTestContext({ limb_swing: 10 });
     const ast = parseExpression("limb_swing");
-    expect(evaluateAST(ast, context)).toBe(-10);
+    expect(evaluateAST(ast, context)).toBe(10);
   });
 
   it("should evaluate boolean entity state as 0/1", () => {
@@ -474,7 +474,7 @@ describe("Compile Expression", () => {
   it("should evaluate compiled expressions", () => {
     const context = createTestContext({ limb_swing: 5 });
     const expr = compileExpression("limb_swing * 2");
-    expect(evaluate(expr, context)).toBe(-10);
+    expect(evaluate(expr, context)).toBe(10);
   });
 });
 
@@ -513,7 +513,7 @@ describe("Real CEM Expressions", () => {
       limb_speed: 0.5,
     });
     const ast = parseExpression("sin(limb_swing)*limb_speed");
-    expect(evaluateAST(ast, context)).toBeCloseTo(-0.5);
+    expect(evaluateAST(ast, context)).toBeCloseTo(0.5);
   });
 
   it("should evaluate hurt animation: -sin(hurt_time/2)*hurt_time/10", () => {

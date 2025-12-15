@@ -368,13 +368,6 @@ export function getEntityStateValue(
 
   const value = state[name as keyof EntityState];
 
-  // Vanilla/OptiFine limb_swing advances in the opposite direction relative to
-  // our preview presets. Fresh Animations and most CEM packs assume the vanilla
-  // sign, so we invert it for expression evaluation.
-  if (name === "limb_swing" && typeof value === "number") {
-    return -value;
-  }
-
   if (typeof value === "boolean") {
     return value ? 1 : 0;
   }
