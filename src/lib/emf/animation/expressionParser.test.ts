@@ -158,6 +158,14 @@ describe("Expression Parser", () => {
     }
   });
 
+  it("should parse unary plus", () => {
+    const ast = parseExpression("+5");
+    expect(ast.type).toBe("UnaryOp");
+    if (ast.type === "UnaryOp") {
+      expect(ast.operator).toBe("+");
+    }
+  });
+
   it("should parse logical not", () => {
     const ast = parseExpression("!is_hurt");
     expect(ast.type).toBe("UnaryOp");
@@ -287,6 +295,12 @@ describe("Expression Evaluator", () => {
     const context = createTestContext();
     expect(evaluateAST(parseExpression("-5"), context)).toBe(-5);
     expect(evaluateAST(parseExpression("-(3 + 2)"), context)).toBe(-5);
+  });
+
+  it("should evaluate unary plus", () => {
+    const context = createTestContext();
+    expect(evaluateAST(parseExpression("+5"), context)).toBe(5);
+    expect(evaluateAST(parseExpression("+(3 + 2)"), context)).toBe(5);
   });
 
   it("should evaluate sin function", () => {

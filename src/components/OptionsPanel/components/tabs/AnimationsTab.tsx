@@ -10,6 +10,7 @@
 
 import { TabsContent } from "@/ui/components/tabs";
 import { Separator } from "@/ui/components/Separator/Separator";
+import { useEffect } from "react";
 import { useStore } from "@state/store";
 import { ANIMATION_PRESETS } from "@lib/emf/animation/entityState";
 
@@ -19,6 +20,9 @@ export const AnimationsTab = () => {
   const animationSpeed = useStore((state) => state.animationSpeed);
   const entityHeadYaw = useStore((state) => state.entityHeadYaw);
   const entityHeadPitch = useStore((state) => state.entityHeadPitch);
+  const availableAnimationPresets = useStore(
+    (state) => state.availableAnimationPresets,
+  );
 
   const setAnimationPreset = useStore((state) => state.setAnimationPreset);
   const setAnimationPlaying = useStore((state) => state.setAnimationPlaying);
@@ -56,6 +60,20 @@ export const AnimationsTab = () => {
   };
 
   const selectedPreset = ANIMATION_PRESETS.find((p) => p.id === animationPreset);
+  const visiblePresets =
+    availableAnimationPresets === null
+      ? ANIMATION_PRESETS
+      : ANIMATION_PRESETS.filter((p) => availableAnimationPresets.includes(p.id));
+
+  useEffect(() => {
+    if (
+      animationPreset &&
+      availableAnimationPresets !== null &&
+      !availableAnimationPresets.includes(animationPreset)
+    ) {
+      setAnimationPreset(null);
+    }
+  }, [animationPreset, availableAnimationPresets, setAnimationPreset]);
 
   return (
     <TabsContent value="animations">
@@ -69,7 +87,7 @@ export const AnimationsTab = () => {
             Animation Presets
           </label>
           <div className="grid grid-cols-3 gap-2">
-            {ANIMATION_PRESETS.map((preset) => (
+            {visiblePresets.map((preset) => (
               <button
                 key={preset.id}
                 onClick={() => handlePresetClick(preset.id)}
@@ -90,6 +108,11 @@ export const AnimationsTab = () => {
               </button>
             ))}
           </div>
+          {visiblePresets.length === 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              No animation presets detected for this model.
+            </p>
+          )}
         </div>
 
         {/* Playback Controls */}

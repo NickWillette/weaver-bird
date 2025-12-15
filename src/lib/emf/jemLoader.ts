@@ -748,6 +748,26 @@ export function jemToThreeJS(
         );
       obj.userData.absoluteTranslationSpace = "local";
     }
+    // Piglin-style snouts (nose/tusks) animate `ty` as an absolute (already
+    // includes the bone's base translate, typically `-2` with invertAxis="xy").
+    // Treat them as local absolute to avoid double-adding the base position.
+    if (
+      (obj.name === "nose" || obj.name === "tusks") &&
+      (obj.parent?.name === "head" || obj.parent?.name === "head2")
+    ) {
+      const existing =
+        typeof obj.userData.absoluteTranslationAxes === "string"
+          ? (obj.userData.absoluteTranslationAxes as string)
+          : "";
+      const want = "y";
+      obj.userData.absoluteTranslationAxes = want
+        .split("")
+        .reduce(
+          (acc, axis) => (acc.includes(axis) ? acc : acc + axis),
+          existing,
+        );
+      obj.userData.absoluteTranslationSpace = "local";
+    }
     // Fresh Animations allay (and similar) uses head2.ty as an absolute origin
     // coordinate (in CEM space), not a local offset.
     if (obj.name === "head2" && obj.parent?.name === "body") {

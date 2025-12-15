@@ -19,6 +19,7 @@ import {
   createAnimationEngine,
   type AnimationEngine as AnimationEngineType,
 } from "@lib/emf/animation/AnimationEngine";
+import { getAvailableAnimationPresetIdsForAnimationLayers } from "@lib/emf/animation";
 import type { AnimationLayer } from "@lib/emf/jemLoader";
 import { JEMInspectorV2 } from "@lib/emf/JEMInspectorV2";
 
@@ -69,6 +70,9 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const animationSpeed = useStore((state) => state.animationSpeed);
   const entityHeadYaw = useStore((state) => state.entityHeadYaw);
   const entityHeadPitch = useStore((state) => state.entityHeadPitch);
+  const setAvailableAnimationPresets = useStore(
+    (state) => state.setAvailableAnimationPresets,
+  );
 
   // Get debug mode state
   const jemDebugMode = useStore((state) => state.jemDebugMode);
@@ -122,6 +126,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     if (!entityInfo) {
       console.warn("[EntityModel] Unknown entity type for:", assetId);
       setError("Unknown entity type");
+      setAvailableAnimationPresets(null);
       createPlaceholder();
       return;
     }
@@ -133,6 +138,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     async function loadModel() {
       setLoading(true);
       setError(null);
+      setAvailableAnimationPresets(null);
 
       try {
         console.log("=== [EntityModel] Starting Entity Model Load ===");
@@ -160,6 +166,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
             "[EntityModel] Entity models require OptiFine CEM files (assets/minecraft/optifine/cem/*.jem)",
           );
           setError(`No custom entity model available for ${entityType}`);
+          setAvailableAnimationPresets(null);
           createPlaceholder();
           return;
         }
@@ -269,8 +276,12 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
             `[EntityModel] Found ${parsedModel.animations.length} animation layers`,
           );
           setAnimationLayers(parsedModel.animations);
+          setAvailableAnimationPresets(
+            getAvailableAnimationPresetIdsForAnimationLayers(parsedModel.animations),
+          );
         } else {
           setAnimationLayers(undefined);
+          setAvailableAnimationPresets(null);
         }
 
         // Store parsed JEM data for inspector
@@ -288,6 +299,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
             err instanceof Error ? err.message : "Unknown error";
           setError(errorMessage);
           setLoading(false);
+          setAvailableAnimationPresets(null);
           createPlaceholder();
         }
       }
@@ -300,6 +312,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
       );
 
       try {
+        setAvailableAnimationPresets(null);
         // Create a simple cube placeholder to indicate entity position
         const geometry = new THREE.BoxGeometry(1, 1, 1);
         const material = new THREE.MeshStandardMaterial({

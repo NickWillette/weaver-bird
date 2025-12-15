@@ -198,6 +198,8 @@ export function evaluateAST(node: ASTNode, context: AnimationContext): number {
       switch (node.operator) {
         case "-":
           return -operand;
+        case "+":
+          return operand;
         case "!":
           return operand ? 0 : 1;
         default:

@@ -224,20 +224,49 @@ export class AnimationEngine {
    * @param autoPlay Whether to start playing immediately
    */
   setPreset(presetId: string | null, autoPlay: boolean = true): void {
-    if (presetId === null) {
-      this.activePreset = null;
+    const currentPresetId = this.activePreset?.id ?? null;
+
+    // If we're just toggling play/pause for the same preset, don't reset state.
+    if (presetId === currentPresetId) {
+      this.isPlaying = autoPlay && presetId !== null;
       return;
     }
 
-    const preset = getPresetById(presetId);
-    if (!preset) {
+    const preset = presetId === null ? null : getPresetById(presetId);
+    if (presetId !== null && !preset) {
       console.warn(`[AnimationEngine] Unknown preset: ${presetId}`);
       return;
     }
 
-    this.activePreset = preset;
+    // Preserve identity + manual controls across preset changes.
+    const preservedId = this.context.entityState.id;
+    const preservedHeadYaw = this.context.entityState.head_yaw;
+    const preservedHeadPitch = this.context.entityState.head_pitch;
+
+    // Reset state when switching presets so booleans like `is_riding` don't stick.
+    this.context.entityState = {
+      ...DEFAULT_ENTITY_STATE,
+      id: preservedId,
+      head_yaw: preservedHeadYaw,
+      head_pitch: preservedHeadPitch,
+    };
+    this.context.variables = {};
+    this.context.boneValues = {};
+    this.context.randomCache.clear();
+
+    // Reset timing counters for the new preset.
     this.elapsedTime = 0;
     this.context.entityState.frame_counter = 0;
+
+    // Clearing preset stops playback and returns to rest pose.
+    if (presetId === null) {
+      this.activePreset = null;
+      this.isPlaying = false;
+      resetAllBones(this.bones, this.baseTransforms);
+      return;
+    }
+
+    this.activePreset = preset;
 
     // Apply preset setup
     if (preset.setup) {
@@ -245,9 +274,7 @@ export class AnimationEngine {
       Object.assign(this.context.entityState, setupState);
     }
 
-    if (autoPlay) {
-      this.isPlaying = true;
-    }
+    this.isPlaying = autoPlay;
   }
 
   /**

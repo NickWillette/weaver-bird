@@ -63,6 +63,12 @@ export {
   AnimationStateController,
 } from "./entityState";
 
+// Preset discovery exports
+export {
+  getUsedEntityStateKeysFromAnimationLayers,
+  getAvailableAnimationPresetIdsForAnimationLayers,
+} from "./presetDiscovery";
+
 // Bone controller exports
 export type { BoneMap, BaseTransforms, BaseTransformMap } from "./boneController";
 export {

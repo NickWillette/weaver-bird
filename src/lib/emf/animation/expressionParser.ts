@@ -328,7 +328,10 @@ class Parser {
     const token = this.current();
 
     // Unary operators
-    if (token.type === "OPERATOR" && (token.value === "-" || token.value === "!")) {
+    if (
+      token.type === "OPERATOR" &&
+      (token.value === "-" || token.value === "+" || token.value === "!")
+    ) {
       this.advance();
       const operand = this.parsePrimary();
       return {

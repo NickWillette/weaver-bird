@@ -141,6 +141,7 @@ export interface UIState {
   animationSpeed: number; // Animation playback speed multiplier (0.1 - 3.0)
   entityHeadYaw: number; // Entity head yaw for manual control (degrees)
   entityHeadPitch: number; // Entity head pitch for manual control (degrees)
+  availableAnimationPresets: string[] | null; // Presets relevant to current model (null = show all)
 
   // Debug mode
   jemDebugMode: boolean; // Enable JEM model inspector for debugging entity models

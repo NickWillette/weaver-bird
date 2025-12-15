@@ -10,27 +10,31 @@ import { parseJEM, type JEMFile } from "../jemLoader";
 import { createAnimationEngine } from "./AnimationEngine";
 import { ANIMATION_PRESETS, getPresetById } from "./entityState";
 
-// Load a test JEM file with animations (from Fresh Animations pack)
-const allayJEMPath = join(
+type JPMAnimationsFile = {
+  animations: Record<string, string | number>[];
+};
+
+// Load a test JPM file with animations (from Fresh Animations pack)
+const allayAnimationsPath = join(
   __dirname,
-  "../../../../__mocks__/resourcepacks/FreshAnimations_v1.9.2/assets/minecraft/optifine/cem/allay.jem"
+  "../../../../__mocks__/resourcepacks/FreshAnimations_v1.10.2/assets/minecraft/optifine/cem/allay_animations.jpm",
 );
-const allayJEM = JSON.parse(readFileSync(allayJEMPath, "utf-8")) as JEMFile;
+const allayAnimations = JSON.parse(
+  readFileSync(allayAnimationsPath, "utf-8"),
+) as JPMAnimationsFile;
 
 // Load a simple JEM without animations for comparison
 const cowJEMPath = join(__dirname, "../../../../__mocks__/cem/cow.jem");
 const cowJEM = JSON.parse(readFileSync(cowJEMPath, "utf-8")) as JEMFile;
 
-describe("JEM Animation Extraction", () => {
-  it("should extract animations from allay.jem", () => {
-    const parsed = parseJEM(allayJEM);
-
-    expect(parsed.animations).toBeDefined();
-    expect(parsed.animations!.length).toBeGreaterThan(0);
+describe("CEM Animation Extraction", () => {
+  it("should extract animations from allay_animations.jpm", () => {
+    expect(allayAnimations.animations).toBeDefined();
+    expect(allayAnimations.animations.length).toBeGreaterThan(0);
 
     // Allay has multiple animation layers
     // Check that we have var.* definitions (layer 0) and bone transforms
-    const allProperties = parsed.animations!.flatMap((layer) =>
+    const allProperties = allayAnimations.animations.flatMap((layer) =>
       Object.keys(layer)
     );
 
@@ -56,10 +60,8 @@ describe("JEM Animation Extraction", () => {
   });
 
   it("should preserve animation expression strings", () => {
-    const parsed = parseJEM(allayJEM);
-
     // Find a specific known expression
-    const firstLayer = parsed.animations![0];
+    const firstLayer = allayAnimations.animations[0];
 
     // Check that expressions are preserved as strings
     for (const [key, value] of Object.entries(firstLayer)) {
@@ -108,8 +110,7 @@ describe("Animation Engine", () => {
   });
 
   it("should create engine with animations", () => {
-    const parsed = parseJEM(allayJEM);
-    const engine = createAnimationEngine(mockGroup, parsed.animations);
+    const engine = createAnimationEngine(mockGroup, allayAnimations.animations);
 
     expect(engine).toBeDefined();
     expect(engine.hasAnimations()).toBe(true);
@@ -168,6 +169,40 @@ describe("Animation Engine", () => {
     // Walking preset should set limb_speed
     expect(state.limb_speed).toBe(0.4);
     expect(state.is_on_ground).toBe(true);
+  });
+
+  it("should reset state when switching presets", () => {
+    const engine = createAnimationEngine(mockGroup);
+
+    engine.setPreset("riding");
+    expect(engine.getEntityState().is_riding).toBe(true);
+
+    engine.setPreset("walking");
+    expect(engine.getActivePreset()?.id).toBe("walking");
+    expect(engine.getEntityState().is_riding).toBe(false);
+  });
+
+  it("should not reset state when toggling play/pause", () => {
+    const engine = createAnimationEngine(mockGroup);
+
+    engine.setPreset("walking");
+    engine.tick(0.1);
+
+    const swingBeforePause = engine.getEntityState().limb_swing;
+
+    // Pause (same preset id, autoPlay=false) should not reset limb_swing
+    engine.setPreset("walking", false);
+    expect(engine.getIsPlaying()).toBe(false);
+    expect(engine.getEntityState().limb_swing).toBe(swingBeforePause);
+
+    engine.tick(0.1);
+    expect(engine.getEntityState().limb_swing).toBe(swingBeforePause);
+
+    // Resume should continue from the same limb_swing value
+    engine.setPreset("walking", true);
+    expect(engine.getIsPlaying()).toBe(true);
+    engine.tick(0.1);
+    expect(engine.getEntityState().limb_swing).toBeGreaterThan(swingBeforePause);
   });
 
   it("should tick animation forward", () => {
@@ -282,10 +317,7 @@ describe("Animation Presets", () => {
 });
 
 describe("Animation with Real JEM", () => {
-  it("should evaluate expressions from allay.jem", () => {
-    // Parse the JEM file
-    const parsed = parseJEM(allayJEM);
-
+  it("should evaluate expressions from allay_animations.jpm", () => {
     // Create a mock Three.js model
     const mockGroup = new THREE.Group();
     mockGroup.name = "jem_entity";
@@ -312,7 +344,7 @@ describe("Animation with Real JEM", () => {
     }
 
     // Create animation engine with real animations
-    const engine = createAnimationEngine(mockGroup, parsed.animations);
+    const engine = createAnimationEngine(mockGroup, allayAnimations.animations);
 
     expect(engine.hasAnimations()).toBe(true);
     expect(engine.getExpressionCount()).toBeGreaterThan(0);
