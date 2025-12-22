@@ -226,6 +226,25 @@ export function applyBoneTransform(
       ? (userData.invertAxis as string)
       : "";
 
+  const translationOffsetXPx =
+    typeof userData.translationOffsetXPx === "number"
+      ? (userData.translationOffsetXPx as number)
+      : typeof userData.translationOffsetX === "number"
+        ? (userData.translationOffsetX as number)
+        : 0;
+  const translationOffsetYPx =
+    typeof userData.translationOffsetYPx === "number"
+      ? (userData.translationOffsetYPx as number)
+      : typeof userData.translationOffsetY === "number"
+        ? (userData.translationOffsetY as number)
+        : 0;
+  const translationOffsetZPx =
+    typeof userData.translationOffsetZPx === "number"
+      ? (userData.translationOffsetZPx as number)
+      : typeof userData.translationOffsetZ === "number"
+        ? (userData.translationOffsetZ as number)
+        : 0;
+
   const absoluteRotationAxes: string =
     typeof userData.absoluteRotationAxes === "string"
       ? (userData.absoluteRotationAxes as string)
@@ -257,7 +276,7 @@ export function applyBoneTransform(
 
   if (transforms.tx !== undefined) {
     const baseX = base?.position.x ?? 0;
-    const value = transforms.tx / PIXELS_PER_UNIT;
+    const value = (transforms.tx - translationOffsetXPx) / PIXELS_PER_UNIT;
     if (absoluteAxes.includes("x")) {
       bone.position.x = isLocalAbsolute
         ? absSignX * value
@@ -269,7 +288,7 @@ export function applyBoneTransform(
 
   if (transforms.ty !== undefined) {
     const baseY = base?.position.y ?? 0;
-    const value = transforms.ty / PIXELS_PER_UNIT;
+    const value = (transforms.ty - translationOffsetYPx) / PIXELS_PER_UNIT;
     if (absoluteAxes.includes("y")) {
       if (isLocalAbsolute) {
         bone.position.y = addSignY * value;
@@ -292,7 +311,7 @@ export function applyBoneTransform(
 
   if (transforms.tz !== undefined) {
     const baseZ = base?.position.z ?? 0;
-    const value = transforms.tz / PIXELS_PER_UNIT;
+    const value = (transforms.tz - translationOffsetZPx) / PIXELS_PER_UNIT;
     if (absoluteAxes.includes("z")) {
       bone.position.z = isLocalAbsolute
         ? absSignZ * value
@@ -322,20 +341,36 @@ export function applyBoneTransform(
   const rotSignY = invertAxis.includes("y") ? -1 : 1;
   const rotSignZ = invertAxis.includes("z") ? -1 : 1;
 
+  const rotOffsetX =
+    typeof userData.rotationOffsetX === "number"
+      ? (userData.rotationOffsetX as number)
+      : 0;
+  const rotOffsetY =
+    typeof userData.rotationOffsetY === "number"
+      ? (userData.rotationOffsetY as number)
+      : 0;
+  const rotOffsetZ =
+    typeof userData.rotationOffsetZ === "number"
+      ? (userData.rotationOffsetZ as number)
+      : 0;
+
   if (transforms.rx !== undefined) {
+    const rx = transforms.rx - rotOffsetX;
     bone.rotation.x = absoluteRotationAxes.includes("x")
-      ? rotSignX * transforms.rx
-      : (base?.rotation.x ?? 0) + rotSignX * transforms.rx;
+      ? rotSignX * rx
+      : (base?.rotation.x ?? 0) + rotSignX * rx;
   }
   if (transforms.ry !== undefined) {
+    const ry = transforms.ry - rotOffsetY;
     bone.rotation.y = absoluteRotationAxes.includes("y")
-      ? rotSignY * transforms.ry
-      : (base?.rotation.y ?? 0) + rotSignY * transforms.ry;
+      ? rotSignY * ry
+      : (base?.rotation.y ?? 0) + rotSignY * ry;
   }
   if (transforms.rz !== undefined) {
+    const rz = transforms.rz - rotOffsetZ;
     bone.rotation.z = absoluteRotationAxes.includes("z")
-      ? rotSignZ * transforms.rz
-      : (base?.rotation.z ?? 0) + rotSignZ * transforms.rz;
+      ? rotSignZ * rz
+      : (base?.rotation.z ?? 0) + rotSignZ * rz;
   }
 
   if (transforms.sx !== undefined) {
