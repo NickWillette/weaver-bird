@@ -780,6 +780,73 @@ export function jemToThreeJS(
       obj.userData.cemYOriginPx = 0;
     }
 
+    // Horse-family rigs (horse/donkey/mule/skeleton horse/zombie horse) animate
+    // neck2 and tail2 translations as absolute origin values (e.g. ty≈-18.7),
+    // not local offsets. Use a 0px CEM Y origin and subtract the body/saddle pivot.
+    if (isQuadruped && obj.parent?.name === "body") {
+      if (obj.name === "neck2") {
+        const existing =
+          typeof obj.userData.absoluteTranslationAxes === "string"
+            ? (obj.userData.absoluteTranslationAxes as string)
+            : "";
+        const want = "yz";
+        obj.userData.absoluteTranslationAxes = want
+          .split("")
+          .reduce(
+            (acc, axis) => (acc.includes(axis) ? acc : acc + axis),
+            existing,
+          );
+        obj.userData.cemYOriginPx = 0;
+      }
+
+      if (obj.name === "tail2") {
+        const existing =
+          typeof obj.userData.absoluteTranslationAxes === "string"
+            ? (obj.userData.absoluteTranslationAxes as string)
+            : "";
+        const want = "y";
+        obj.userData.absoluteTranslationAxes = want
+          .split("")
+          .reduce(
+            (acc, axis) => (acc.includes(axis) ? acc : acc + axis),
+            existing,
+          );
+        obj.userData.cemYOriginPx = 0;
+      }
+    }
+
+    if (obj.name === "headpiece_neck" && obj.parent?.name === "saddle") {
+      const existing =
+        typeof obj.userData.absoluteTranslationAxes === "string"
+          ? (obj.userData.absoluteTranslationAxes as string)
+          : "";
+      const want = "yz";
+      obj.userData.absoluteTranslationAxes = want
+        .split("")
+        .reduce((acc, axis) => (acc.includes(axis) ? acc : acc + axis), existing);
+      obj.userData.cemYOriginPx = 0;
+    }
+
+    // Horse-family snouts animate `snout2.ty` (and tack `headpiece_snout.ty`) as
+    // local absolute values (they include the base translate of +3px).
+    if (
+      (obj.name === "snout2" && obj.parent?.name === "head2") ||
+      (obj.name === "headpiece_snout" && obj.parent?.name === "headpiece_head")
+    ) {
+      const existing =
+        typeof obj.userData.absoluteTranslationAxes === "string"
+          ? (obj.userData.absoluteTranslationAxes as string)
+          : "";
+      const want = "y";
+      obj.userData.absoluteTranslationAxes = want
+        .split("")
+        .reduce(
+          (acc, axis) => (acc.includes(axis) ? acc : acc + axis),
+          existing,
+        );
+      obj.userData.absoluteTranslationSpace = "local";
+    }
+
     // Pupils in Fresh Animations are driven by expressions that already include
     // their base translate, so treat them as local absolute translations.
     if (
@@ -879,6 +946,18 @@ function applyVanillaHierarchy(
   // Flying/humanoid-lite skeletons (body + arms, but no legs)
   const hasArmsOnly = hasArms && !hasLegs;
 
+  const hasQuadrupedLegs =
+    !!rootGroups.leg1 &&
+    !!rootGroups.leg2 &&
+    !!rootGroups.leg3 &&
+    !!rootGroups.leg4;
+  const hasDirectionalLegs =
+    !!rootGroups.front_left_leg &&
+    !!rootGroups.front_right_leg &&
+    !!rootGroups.back_left_leg &&
+    !!rootGroups.back_right_leg;
+  const isQuadruped = hasQuadrupedLegs || hasDirectionalLegs;
+
   let parentMap: Record<string, string>;
   let shouldSkipAnimated: (boneName: string) => boolean;
 
@@ -907,6 +986,14 @@ function applyVanillaHierarchy(
     };
     // For arms-only rigs, re-parent the arms even if they are animated.
     shouldSkipAnimated = () => false;
+  } else if (isQuadruped) {
+    // Quadruped overlays (e.g. horse saddle) are authored as separate root parts
+    // but should inherit body motion via the vanilla hierarchy.
+    parentMap = {
+      saddle: "body",
+    };
+    shouldSkipAnimated = (boneName) =>
+      boneName !== "saddle" && animatedBones.has(boneName);
   } else {
     return;
   }
