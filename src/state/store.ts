@@ -6,6 +6,7 @@
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { AppState, PackId, AssetId, PackMeta, AssetRecord } from "./types";
+import { clampAnimationSpeed } from "@lib/emf/animation/types";
 
 interface StoreActions {
   // Pack management
@@ -87,6 +88,19 @@ interface StoreActions {
   setTargetMinecraftVersion: (version: string | null) => void;
   setEntityVersionVariants: (variants: Record<string, string[]>) => void;
 
+  // Entity animation
+  setAnimationPreset: (preset: string | null) => void;
+  setAnimationPlaying: (playing: boolean) => void;
+  setAnimationSpeed: (speed: number) => void;
+  setEntityHeadYaw: (yaw: number) => void;
+  setEntityHeadPitch: (pitch: number) => void;
+  setAvailableAnimationPresets: (presets: string[] | null) => void;
+  setAvailableAnimationTriggers: (triggers: string[] | null) => void;
+  triggerAnimation: (triggerId: string) => void;
+
+  // Debug mode
+  setJemDebugMode: (enabled: boolean) => void;
+
   // Reset
   reset: () => void;
 }
@@ -147,6 +161,20 @@ const initialState: AppState = {
   useLegacyCEM: true, // Use legacy CEM by default for older packs
   targetMinecraftVersion: null, // Default to current vanilla version
   entityVersionVariants: {}, // Will be loaded when packs are scanned
+
+  // Entity animation settings
+  animationPreset: null, // No animation by default
+  animationPlaying: false, // Not playing by default
+  animationSpeed: 1.0, // Normal speed
+  entityHeadYaw: 0, // Looking forward
+  entityHeadPitch: 0, // Looking forward
+  availableAnimationPresets: null, // Show all presets by default
+  availableAnimationTriggers: null, // No triggers by default
+  animationTriggerRequestId: null,
+  animationTriggerRequestNonce: 0,
+
+  // Debug mode
+  jemDebugMode: false, // Debug mode disabled by default
 };
 
 export const useStore = create<WeaverbirdStore>()(
@@ -477,6 +505,66 @@ export const useStore = create<WeaverbirdStore>()(
     setEntityVersionVariants: (variants: Record<string, string[]>) => {
       set((state) => {
         state.entityVersionVariants = variants;
+      });
+    },
+
+    // Entity animation
+    setAnimationPreset: (preset: string | null) => {
+      set((state) => {
+        state.animationPreset = preset;
+        // Auto-play when preset is selected
+        state.animationPlaying = preset !== null;
+      });
+    },
+
+    setAnimationPlaying: (playing: boolean) => {
+      set((state) => {
+        state.animationPlaying = playing;
+      });
+    },
+
+    setAnimationSpeed: (speed: number) => {
+      set((state) => {
+        state.animationSpeed = clampAnimationSpeed(speed);
+      });
+    },
+
+    setEntityHeadYaw: (yaw: number) => {
+      set((state) => {
+        // Normalize to -180 to 180 range
+        state.entityHeadYaw = ((yaw + 180) % 360) - 180;
+      });
+    },
+
+    setEntityHeadPitch: (pitch: number) => {
+      set((state) => {
+        // Clamp pitch to -90 to 90 (can't look further than straight up/down)
+        state.entityHeadPitch = Math.max(-90, Math.min(90, pitch));
+      });
+    },
+
+    setAvailableAnimationPresets: (presets: string[] | null) => {
+      set((state) => {
+        state.availableAnimationPresets = presets;
+      });
+    },
+
+    setAvailableAnimationTriggers: (triggers: string[] | null) => {
+      set((state) => {
+        state.availableAnimationTriggers = triggers;
+      });
+    },
+
+    triggerAnimation: (triggerId: string) => {
+      set((state) => {
+        state.animationTriggerRequestId = triggerId;
+        state.animationTriggerRequestNonce += 1;
+      });
+    },
+
+    setJemDebugMode: (enabled: boolean) => {
+      set((state) => {
+        state.jemDebugMode = enabled;
       });
     },
 
