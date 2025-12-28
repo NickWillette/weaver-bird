@@ -130,7 +130,8 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
       age: state.age + dt * 20,
       time: (state.time + dt * 20) % 27720,
       frame_time: dt,
-      limb_swing: state.limb_swing + dt * 20 * 0.6666, // Walking pace
+      // Minecraft's `limb_swing` advances by `limb_speed` each tick.
+      limb_swing: state.limb_swing + dt * 20 * state.limb_speed,
       limb_speed: 0.4,
       is_on_ground: true,
     }),
@@ -157,7 +158,7 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
       age: state.age + dt * 20,
       time: (state.time + dt * 20) % 27720,
       frame_time: dt,
-      limb_swing: state.limb_swing + dt * 20 * 1.2, // Faster pace
+      limb_swing: state.limb_swing + dt * 20 * state.limb_speed,
       limb_speed: 1.0,
       is_sprinting: true,
       is_on_ground: true,
@@ -193,6 +194,7 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
         frame_time: dt,
         swing_progress: newProgress,
         is_aggressive: true,
+        limb_swing: state.limb_swing + dt * 20 * 0.2,
         limb_speed: 0.2, // Slight movement during attack
       };
     },
@@ -267,7 +269,7 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
       age: state.age + dt * 20,
       time: (state.time + dt * 20) % 27720,
       frame_time: dt,
-      limb_swing: state.limb_swing + dt * 20 * 0.8,
+      limb_swing: state.limb_swing + dt * 20 * state.limb_speed,
       limb_speed: 0.6,
       is_in_water: true,
       is_on_ground: false,
@@ -293,7 +295,7 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
       age: state.age + dt * 20,
       time: (state.time + dt * 20) % 27720,
       frame_time: dt,
-      limb_swing: state.limb_swing + dt * 20 * 0.4, // Slow sneak pace
+      limb_swing: state.limb_swing + dt * 20 * state.limb_speed,
       limb_speed: 0.25,
       is_sneaking: true,
       is_on_ground: true,
@@ -344,7 +346,7 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
       age: state.age + dt * 20,
       time: (state.time + dt * 20) % 27720,
       frame_time: dt,
-      limb_swing: state.limb_swing + dt * 20 * 0.3, // Subtle bob
+      limb_swing: state.limb_swing + dt * 20 * state.limb_speed,
       limb_speed: 0.3,
       is_riding: true,
       is_on_ground: false,
@@ -372,7 +374,7 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
       age: state.age + dt * 20,
       time: (state.time + dt * 20) % 27720,
       frame_time: dt,
-      limb_swing: state.limb_swing + dt * 20 * 0.5,
+      limb_swing: state.limb_swing + dt * 20 * state.limb_speed,
       limb_speed: 0.5,
       is_aggressive: true,
       anger_time: 100,
@@ -397,7 +399,7 @@ export const ANIMATION_PRESETS: AnimationPreset[] = [
       age: state.age + dt * 20,
       time: (state.time + dt * 20) % 27720,
       frame_time: dt,
-      limb_swing: state.limb_swing + dt * 20 * 0.8, // Faster baby steps
+      limb_swing: state.limb_swing + dt * 20 * state.limb_speed,
       limb_speed: 0.5,
       is_child: true,
       is_on_ground: true,

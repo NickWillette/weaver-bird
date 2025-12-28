@@ -80,11 +80,12 @@ export function getAvailableAnimationPresetIdsForAnimationLayers(
 
   if (used.has("limb_swing") || used.has("limb_speed")) {
     available.add("walking");
-  }
-
-  if (used.has("is_sprinting")) {
+    // Many CEM packs infer running from limb_speed thresholds rather than
+    // `is_sprinting`, so expose sprinting when movement vars are used.
     available.add("sprinting");
   }
+
+  if (used.has("is_sprinting")) available.add("sprinting");
 
   if (used.has("swing_progress") || used.has("is_aggressive")) {
     available.add("attacking");
@@ -126,4 +127,3 @@ export function getAvailableAnimationPresetIdsForAnimationLayers(
     (preset) => preset.id,
   );
 }
-

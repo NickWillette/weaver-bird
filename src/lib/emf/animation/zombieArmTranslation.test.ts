@@ -40,8 +40,12 @@ describe("CEM translation semantics (zombie)", () => {
     const rightTy = engine.getBoneValue("right_arm", "ty");
     const leftTy = engine.getBoneValue("left_arm", "ty");
 
-    expect(rightArm!.position.y).toBeCloseTo((CEM_Y_ORIGIN - rightTy) / PX, 6);
-    expect(leftArm!.position.y).toBeCloseTo((CEM_Y_ORIGIN - leftTy) / PX, 6);
+    const rightWorld = new THREE.Vector3();
+    const leftWorld = new THREE.Vector3();
+    rightArm!.getWorldPosition(rightWorld);
+    leftArm!.getWorldPosition(leftWorld);
+
+    expect(rightWorld.y).toBeCloseTo((CEM_Y_ORIGIN - rightTy) / PX, 6);
+    expect(leftWorld.y).toBeCloseTo((CEM_Y_ORIGIN - leftTy) / PX, 6);
   });
 });
-

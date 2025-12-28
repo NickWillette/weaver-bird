@@ -76,10 +76,21 @@ export {
 } from "./triggerDiscovery";
 
 export {
+  getAvailablePoseToggleIdsForAnimationLayers,
+} from "./poseDiscovery";
+
+export {
   ANIMATION_TRIGGERS,
   getTriggerDefinition,
   type AnimationTriggerDefinition,
 } from "./triggers";
+
+export {
+  POSE_TOGGLES,
+  getPoseToggleDefinition,
+  type PoseToggleDefinition,
+  type PoseToggleId,
+} from "./poses";
 
 // Bone controller exports
 export type { BoneMap, BaseTransforms, BaseTransformMap } from "./boneController";

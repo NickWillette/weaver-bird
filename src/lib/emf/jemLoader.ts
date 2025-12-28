@@ -657,7 +657,11 @@ export function jemToThreeJS(
     !!rootGroups.front_right_leg &&
     !!rootGroups.back_left_leg &&
     !!rootGroups.back_right_leg;
-  const isQuadruped = hasQuadrupedLegs || hasDirectionalLegs;
+  const hasMiddleLegs =
+    !!rootGroups.middle_left_leg && !!rootGroups.middle_right_leg;
+  // "Quadruped" defaults are intended for 4-legged rigs; multi-leg rigs (e.g.
+  // sniffer with middle legs) author translations differently.
+  const isQuadruped = (hasQuadrupedLegs || hasDirectionalLegs) && !hasMiddleLegs;
   const hasHorseFamilyRig = isQuadruped && !!root.getObjectByName("neck2");
   if (isQuadruped) {
     const legNames = hasQuadrupedLegs

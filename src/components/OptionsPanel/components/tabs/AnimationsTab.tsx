@@ -13,7 +13,7 @@ import { Separator } from "@/ui/components/Separator/Separator";
 import { useEffect } from "react";
 import { useStore } from "@state/store";
 import { ANIMATION_PRESETS } from "@lib/emf/animation/entityState";
-import { ANIMATION_TRIGGERS } from "@lib/emf/animation";
+import { ANIMATION_TRIGGERS, POSE_TOGGLES } from "@lib/emf/animation";
 
 export const AnimationsTab = () => {
   const animationPreset = useStore((state) => state.animationPreset);
@@ -27,6 +27,8 @@ export const AnimationsTab = () => {
   const availableAnimationTriggers = useStore(
     (state) => state.availableAnimationTriggers,
   );
+  const availablePoseToggles = useStore((state) => state.availablePoseToggles);
+  const activePoseToggles = useStore((state) => state.activePoseToggles);
 
   const setAnimationPreset = useStore((state) => state.setAnimationPreset);
   const setAnimationPlaying = useStore((state) => state.setAnimationPlaying);
@@ -34,13 +36,16 @@ export const AnimationsTab = () => {
   const setEntityHeadYaw = useStore((state) => state.setEntityHeadYaw);
   const setEntityHeadPitch = useStore((state) => state.setEntityHeadPitch);
   const triggerAnimation = useStore((state) => state.triggerAnimation);
+  const setPoseToggleEnabled = useStore((state) => state.setPoseToggleEnabled);
 
   const handlePresetClick = (presetId: string) => {
     if (animationPreset === presetId) {
       // Toggle off if clicking the same preset
       setAnimationPreset(null);
+      setAnimationPlaying(false);
     } else {
       setAnimationPreset(presetId);
+      setAnimationPlaying(true);
     }
   };
 
@@ -50,6 +55,7 @@ export const AnimationsTab = () => {
 
   const handleStop = () => {
     setAnimationPreset(null);
+    setAnimationPlaying(false);
   };
 
   const handleSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,6 +81,11 @@ export const AnimationsTab = () => {
       ? []
       : ANIMATION_TRIGGERS.filter((t) => availableAnimationTriggers.includes(t.id));
 
+  const visiblePoseToggleDefs =
+    availablePoseToggles === null
+      ? []
+      : POSE_TOGGLES.filter((p) => availablePoseToggles.includes(p.id));
+
   const hiddenPresetIds = new Set<string>();
   if (availableAnimationTriggers?.includes("trigger.hurt")) hiddenPresetIds.add("hurt");
   if (availableAnimationTriggers?.includes("trigger.death")) hiddenPresetIds.add("dying");
@@ -89,8 +100,14 @@ export const AnimationsTab = () => {
       !availableAnimationPresets.includes(animationPreset)
     ) {
       setAnimationPreset(null);
+      setAnimationPlaying(false);
     }
-  }, [animationPreset, availableAnimationPresets, setAnimationPreset]);
+  }, [
+    animationPreset,
+    availableAnimationPresets,
+    setAnimationPreset,
+    setAnimationPlaying,
+  ]);
 
   return (
     <TabsContent value="animations">
@@ -185,6 +202,44 @@ export const AnimationsTab = () => {
         )}
 
         {/* Trigger overlays */}
+        <Separator className="mb-4" />
+
+        {/* Persistent pose toggles */}
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-2">Pose Toggles</label>
+          <div className="grid grid-cols-3 gap-2">
+            {visiblePoseToggleDefs.map((pose) => {
+              const enabled = !!activePoseToggles[pose.id];
+              return (
+                <button
+                  key={pose.id}
+                  onClick={() => setPoseToggleEnabled(pose.id, !enabled)}
+                  className={`
+                    p-2 rounded-md border text-left transition-colors
+                    ${
+                      enabled
+                        ? "bg-primary/20 border-primary"
+                        : "bg-background border-border hover:bg-accent"
+                    }
+                  `}
+                  title={pose.description}
+                >
+                  <span className="text-sm truncate">{pose.name}</span>
+                </button>
+              );
+            })}
+          </div>
+          {visiblePoseToggleDefs.length === 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              No pose toggles detected for this model.
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">
+            Pose toggles stay enabled until turned off and layer on top of the
+            selected preset.
+          </p>
+        </div>
+
         <Separator className="mb-4" />
         <div className="mb-4">
           <label className="block text-sm font-medium mb-2">

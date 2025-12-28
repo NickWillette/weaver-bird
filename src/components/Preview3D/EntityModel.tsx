@@ -23,6 +23,7 @@ import {
 import {
   getAvailableAnimationPresetIdsForAnimationLayers,
   getAvailableAnimationTriggerIdsForAnimationLayers,
+  getAvailablePoseToggleIdsForAnimationLayers,
 } from "@lib/emf/animation";
 import type { AnimationLayer } from "@lib/emf/jemLoader";
 import { JEMInspectorV2 } from "@lib/emf/JEMInspectorV2";
@@ -75,11 +76,15 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const animationSpeed = useStore((state) => state.animationSpeed);
   const entityHeadYaw = useStore((state) => state.entityHeadYaw);
   const entityHeadPitch = useStore((state) => state.entityHeadPitch);
+  const activePoseToggles = useStore((state) => state.activePoseToggles);
   const setAvailableAnimationPresets = useStore(
     (state) => state.setAvailableAnimationPresets,
   );
   const setAvailableAnimationTriggers = useStore(
     (state) => state.setAvailableAnimationTriggers,
+  );
+  const setAvailablePoseToggles = useStore(
+    (state) => state.setAvailablePoseToggles,
   );
 
   const animationTriggerRequestId = useStore(
@@ -227,6 +232,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           setError(`No custom entity model available for ${entityType}`);
           setAvailableAnimationPresets(null);
           setAvailableAnimationTriggers(null);
+          setAvailablePoseToggles(null);
           createPlaceholder();
           return;
         }
@@ -359,12 +365,16 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           setAvailableAnimationTriggers(
             getAvailableAnimationTriggerIdsForAnimationLayers(parsedModel.animations),
           );
+          setAvailablePoseToggles(
+            getAvailablePoseToggleIdsForAnimationLayers(parsedModel.animations),
+          );
         } else {
           setAnimationLayers(undefined);
           setAvailableAnimationPresets(null);
           setAvailableAnimationTriggers(
             getAvailableAnimationTriggerIdsForAnimationLayers(undefined),
           );
+          setAvailablePoseToggles(null);
         }
 
         // Store parsed JEM data for inspector
@@ -384,6 +394,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           setLoading(false);
           setAvailableAnimationPresets(null);
           setAvailableAnimationTriggers(null);
+          setAvailablePoseToggles(null);
           createPlaceholder();
         }
       }
@@ -398,6 +409,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
       try {
         setAvailableAnimationPresets(null);
         setAvailableAnimationTriggers(null);
+        setAvailablePoseToggles(null);
         // Create a simple cube placeholder to indicate entity position
         const geometry = new THREE.BoxGeometry(1, 1, 1);
         const material = new THREE.MeshStandardMaterial({
@@ -471,6 +483,11 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     }
     engine.setSpeed(animationSpeed);
     engine.setHeadOrientation(entityHeadYaw, entityHeadPitch);
+    engine.setPoseToggles(
+      Object.entries(activePoseToggles)
+        .filter(([, enabled]) => enabled)
+        .map(([id]) => id),
+    );
 
     return () => {
       console.log("[EntityModel] Cleaning up animation engine");
@@ -513,6 +530,17 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
 
     engine.setHeadOrientation(entityHeadYaw, entityHeadPitch);
   }, [entityHeadYaw, entityHeadPitch]);
+
+  // Sync pose toggles (persistent overlays)
+  useEffect(() => {
+    const engine = animationEngineRef.current;
+    if (!engine) return;
+
+    const active = Object.entries(activePoseToggles)
+      .filter(([, enabled]) => enabled)
+      .map(([id]) => id);
+    engine.setPoseToggles(active);
+  }, [activePoseToggles]);
 
   // Create/destroy JEM inspector based on debug mode
   useEffect(() => {

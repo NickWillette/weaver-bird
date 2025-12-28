@@ -7,6 +7,7 @@ import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { AppState, PackId, AssetId, PackMeta, AssetRecord } from "./types";
 import { clampAnimationSpeed } from "@lib/emf/animation/types";
+import { POSE_TOGGLES } from "@lib/emf/animation";
 
 interface StoreActions {
   // Pack management
@@ -96,6 +97,8 @@ interface StoreActions {
   setEntityHeadPitch: (pitch: number) => void;
   setAvailableAnimationPresets: (presets: string[] | null) => void;
   setAvailableAnimationTriggers: (triggers: string[] | null) => void;
+  setAvailablePoseToggles: (toggles: string[] | null) => void;
+  setPoseToggleEnabled: (toggleId: string, enabled: boolean) => void;
   triggerAnimation: (triggerId: string) => void;
 
   // Debug mode
@@ -106,6 +109,10 @@ interface StoreActions {
 }
 
 type WeaverbirdStore = AppState & StoreActions;
+
+const POSE_GROUP_BY_ID: Record<string, string | undefined> = Object.fromEntries(
+  POSE_TOGGLES.map((p) => [p.id, p.exclusiveGroup] as const),
+);
 
 const initialState: AppState = {
   // Entities
@@ -172,6 +179,8 @@ const initialState: AppState = {
   availableAnimationTriggers: null, // No triggers by default
   animationTriggerRequestId: null,
   animationTriggerRequestNonce: 0,
+  availablePoseToggles: null, // No pose toggles by default
+  activePoseToggles: {},
 
   // Debug mode
   jemDebugMode: false, // Debug mode disabled by default
@@ -552,6 +561,35 @@ export const useStore = create<WeaverbirdStore>()(
     setAvailableAnimationTriggers: (triggers: string[] | null) => {
       set((state) => {
         state.availableAnimationTriggers = triggers;
+      });
+    },
+
+    setAvailablePoseToggles: (toggles: string[] | null) => {
+      set((state) => {
+        state.availablePoseToggles = toggles;
+
+        const allow = toggles ? new Set(toggles) : null;
+        for (const key of Object.keys(state.activePoseToggles)) {
+          if (allow && allow.has(key)) continue;
+          delete state.activePoseToggles[key];
+        }
+      });
+    },
+
+    setPoseToggleEnabled: (toggleId: string, enabled: boolean) => {
+      set((state) => {
+        const available = state.availablePoseToggles;
+        if (!available || !available.includes(toggleId)) return;
+        const group = POSE_GROUP_BY_ID[toggleId];
+        if (enabled && group) {
+          for (const [id] of Object.entries(state.activePoseToggles)) {
+            if (id !== toggleId && POSE_GROUP_BY_ID[id] === group) {
+              delete state.activePoseToggles[id];
+            }
+          }
+        }
+        if (enabled) state.activePoseToggles[toggleId] = true;
+        else delete state.activePoseToggles[toggleId];
       });
     },
 

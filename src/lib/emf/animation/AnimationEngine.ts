@@ -35,6 +35,8 @@ import {
 import type { AnimationPreset } from "./entityState";
 import { getPresetById } from "./entityState";
 import { getTriggerDefinition } from "./triggers";
+import { getPoseToggleDefinition } from "./poses";
+import type { ASTNode } from "./types";
 
 /**
  * Compiled animation expression with metadata.
@@ -77,6 +79,26 @@ export class AnimationEngine {
    * defaults even when those bones are never assigned in JPM.
    */
   private restBoneValues: Record<string, Record<string, number>> = {};
+  private selfTranslationReads: Map<string, Set<"tx" | "ty" | "tz">> = new Map();
+  /**
+   * Subset of `selfTranslationReads` that should be seeded with pivot-like
+   * values (rather than 0) because the JPM uses them as base rotationPoint
+   * terms (commonly seen as `bone.tz + 15`, etc).
+   */
+  private selfTranslationPivotSeeds: Map<string, Set<"tx" | "ty" | "tz">> =
+    new Map();
+  /**
+   * Tracks which bones are read as rotation inputs (rx/ry/rz) in expressions.
+   * Some JPMs (notably Fresh Animations sniffer) rely on vanilla leg swing
+   * being present in `bone.rx` rather than authoring their own limb_swing math.
+   */
+  private rotationInputReads: Map<string, Set<"rx" | "ry" | "rz">> = new Map();
+  /**
+   * Tracks self-reads for rotation channels. When an expression reads its own
+   * rotation (e.g. `leg.rx*(1-testing)+...`), it is usually constructing an
+   * absolute value on top of vanilla inputs; treat that axis as absolute.
+   */
+  private selfRotationReads: Map<string, Set<"rx" | "ry" | "rz">> = new Map();
 
   private activeTriggers: Array<{
     id: string;
@@ -84,7 +106,9 @@ export class AnimationEngine {
     durationSec: number;
   }> = [];
 
-  private boneInputOverrides: Record<string, Record<string, number>> = {};
+  private triggerBoneInputOverrides: Record<string, Record<string, number>> = {};
+  private poseBoneInputOverrides: Record<string, Record<string, number>> = {};
+  private activePoseToggleIds: string[] = [];
 
   private inferredEatRuleIndex: number | null = null;
 
@@ -149,18 +173,36 @@ export class AnimationEngine {
 
     // Initialize context
     this.context = createAnimationContext();
-    this.restBoneValues = this.buildRestBoneValues();
+
+    // Compile animations if provided (needed for rest-value seeding and normalization).
+    if (animationLayers && animationLayers.length > 0) {
+      const { reads, pivotSeeds, rotationInputs, selfRotationReads } =
+        this.collectSelfTranslationReadUsage(animationLayers);
+      this.selfTranslationReads = reads;
+      this.selfTranslationPivotSeeds = pivotSeeds;
+      this.rotationInputReads = rotationInputs;
+      this.selfRotationReads = selfRotationReads;
+      this.compileAnimations(animationLayers);
+    }
+
+    this.restBoneValues = this.buildRestBoneValues(
+      this.selfTranslationReads,
+      this.selfTranslationPivotSeeds,
+    );
     this.context.boneValues = this.cloneRestBoneValues();
 
-    // Compile animations if provided
-    if (animationLayers && animationLayers.length > 0) {
-      this.compileAnimations(animationLayers);
+    if (this.animationLayers.length > 0) {
       this.applyNeutralInputDefaultsFromAnimations();
       this.inferredEatRuleIndex = this.inferEatRuleIndexFromAnimations();
       this.initializeTransformNormalization();
     }
 
     this.initialized = true;
+  }
+
+  setPoseToggles(toggleIds: string[] | null | undefined): void {
+    const next = (toggleIds ?? []).filter((id) => !!getPoseToggleDefinition(id));
+    this.activePoseToggleIds = next;
   }
 
   playTrigger(triggerId: string): void {
@@ -239,8 +281,12 @@ export class AnimationEngine {
     return false;
   }
 
-  private buildRestBoneValues(): Record<string, Record<string, number>> {
+  private buildRestBoneValues(
+    selfReads: Map<string, Set<"tx" | "ty" | "tz">> = new Map(),
+    pivotSeeds: Map<string, Set<"tx" | "ty" | "tz">> = new Map(),
+  ): Record<string, Record<string, number>> {
     const rest: Record<string, Record<string, number>> = {};
+    const CEM_Y_ORIGIN_PX = 24;
 
     for (const [name, bone] of this.bones) {
       const base = this.baseTransforms.get(name);
@@ -273,10 +319,287 @@ export class AnimationEngine {
         rest[name].tx = originPx[0];
         rest[name].ty = originPx[1];
         rest[name].tz = originPx[2];
+      } else if (originPx) {
+        // Some JPMs read translation channels on geometry bones as inputs
+        // (e.g. `leg.tz` used as a base pivot term). Seed only those channels
+        // that are referenced in expressions to avoid changing unrelated rigs.
+        const reads = selfReads.get(name);
+        if (reads && reads.size > 0) {
+          const pivots = pivotSeeds.get(name) ?? new Set<"tx" | "ty" | "tz">();
+          const invertAxis =
+            typeof (bone as any)?.userData?.invertAxis === "string"
+              ? ((bone as any).userData.invertAxis as string)
+              : "";
+
+          const baseLocal = this.baseTransforms.get(name)?.position;
+          const localPxX = (baseLocal?.x ?? 0) * 16;
+          const localPxY = (baseLocal?.y ?? 0) * 16;
+          const localPxZ = (baseLocal?.z ?? 0) * 16;
+
+          // OptiFine's `*.t?` reads are in CEM-space pivot coordinates. For X/Z
+          // this is sign-flipped by invertAxis; for Y on root parts it behaves
+          // like a rotationPointY (24 - y) when invertAxis includes Y.
+          if (reads.has("tx")) {
+            rest[name].tx = pivots.has("tx")
+              ? invertAxis.includes("x")
+                ? -localPxX
+                : localPxX
+              : 0;
+          }
+          if (reads.has("tz")) {
+            rest[name].tz = pivots.has("tz")
+              ? invertAxis.includes("z")
+                ? -localPxZ
+                : localPxZ
+              : 0;
+          }
+          if (reads.has("ty")) {
+            if (!pivots.has("ty")) {
+              rest[name].ty = 0;
+            } else {
+              const isRoot = bone.parent === this.modelGroup;
+              if (invertAxis.includes("y") && isRoot) {
+                rest[name].ty = CEM_Y_ORIGIN_PX - localPxY;
+              } else if (isRoot) {
+                rest[name].ty = localPxY + CEM_Y_ORIGIN_PX;
+              } else {
+                rest[name].ty = invertAxis.includes("y") ? -localPxY : localPxY;
+              }
+            }
+          }
+        }
       }
     }
 
     return rest;
+  }
+
+  private collectSelfTranslationReadUsage(
+    layers: ReadonlyArray<AnimationLayer>,
+  ): {
+    reads: Map<string, Set<"tx" | "ty" | "tz">>;
+    pivotSeeds: Map<string, Set<"tx" | "ty" | "tz">>;
+    rotationInputs: Map<string, Set<"rx" | "ry" | "rz">>;
+    selfRotationReads: Map<string, Set<"rx" | "ry" | "rz">>;
+  } {
+    const reads = new Map<string, Set<"tx" | "ty" | "tz">>();
+    const pivotSeeds = new Map<string, Set<"tx" | "ty" | "tz">>();
+    const rotationInputs = new Map<string, Set<"rx" | "ry" | "rz">>();
+    const selfRotationReads = new Map<string, Set<"rx" | "ry" | "rz">>();
+
+    for (const layer of layers) {
+      for (const [propertyPath, exprSource] of Object.entries(layer)) {
+        const parsedProp = parseBoneProperty(propertyPath);
+        if (!parsedProp) continue;
+        const targetBone = parsedProp.target;
+        if (targetBone === "var" || targetBone === "render" || targetBone === "varb")
+          continue;
+
+        try {
+          const parsed = compileExpression(exprSource);
+          if (isConstantExpression(parsed)) continue;
+
+          const getTargetTranslationVar = (
+            node: ASTNode,
+          ): "tx" | "ty" | "tz" | null => {
+            if (node.type !== "Variable") return null;
+            const name = node.name;
+            const dot = name.indexOf(".");
+            if (dot === -1) return null;
+            const target = name.slice(0, dot);
+            if (target !== targetBone) return null;
+            const prop = name.slice(dot + 1) as "tx" | "ty" | "tz";
+            return prop === "tx" || prop === "ty" || prop === "tz" ? prop : null;
+          };
+          const getRotationVar = (
+            node: ASTNode,
+          ): { bone: string; prop: "rx" | "ry" | "rz" } | null => {
+            if (node.type !== "Variable") return null;
+            const name = node.name;
+            const dot = name.indexOf(".");
+            if (dot === -1) return null;
+            const bone = name.slice(0, dot);
+            const prop = name.slice(dot + 1) as "rx" | "ry" | "rz";
+            if (bone === "var" || bone === "render" || bone === "varb") return null;
+            return prop === "rx" || prop === "ry" || prop === "rz" ? { bone, prop } : null;
+          };
+
+          const markRead = (prop: "tx" | "ty" | "tz") => {
+            const set = reads.get(targetBone) ?? new Set<"tx" | "ty" | "tz">();
+            set.add(prop);
+            reads.set(targetBone, set);
+          };
+          const markPivot = (prop: "tx" | "ty" | "tz") => {
+            const set =
+              pivotSeeds.get(targetBone) ?? new Set<"tx" | "ty" | "tz">();
+            set.add(prop);
+            pivotSeeds.set(targetBone, set);
+          };
+
+          const markRotationInput = (bone: string, prop: "rx" | "ry" | "rz") => {
+            const set = rotationInputs.get(bone) ?? new Set<"rx" | "ry" | "rz">();
+            set.add(prop);
+            rotationInputs.set(bone, set);
+          };
+          const markSelfRotationRead = (prop: "rx" | "ry" | "rz") => {
+            const set =
+              selfRotationReads.get(targetBone) ??
+              new Set<"rx" | "ry" | "rz">();
+            set.add(prop);
+            selfRotationReads.set(targetBone, set);
+          };
+
+          const containsSelfTranslationVar = (
+            node: ASTNode,
+            prop: "tx" | "ty" | "tz",
+          ): boolean => {
+            let found = false;
+            const visit = (n: ASTNode): void => {
+              if (found) return;
+              switch (n.type) {
+                case "Variable":
+                  found = n.name === `${targetBone}.${prop}`;
+                  return;
+                case "UnaryOp":
+                  visit(n.operand);
+                  return;
+                case "BinaryOp":
+                  visit(n.left);
+                  visit(n.right);
+                  return;
+                case "FunctionCall":
+                  for (const arg of n.args) visit(arg);
+                  return;
+                case "Ternary":
+                  visit(n.condition);
+                  visit(n.consequent);
+                  visit(n.alternate);
+                  return;
+                default:
+                  return;
+              }
+            };
+            visit(node);
+            return found;
+          };
+
+          const visitWithTarget = (node: ASTNode): void => {
+            switch (node.type) {
+              case "Literal":
+                return;
+
+              case "Variable": {
+                const prop = getTargetTranslationVar(node);
+                if (prop) markRead(prop);
+                const rot = getRotationVar(node);
+                if (rot) {
+                  markRotationInput(rot.bone, rot.prop);
+                  if (rot.bone === targetBone) markSelfRotationRead(rot.prop);
+                }
+                return;
+              }
+
+              case "UnaryOp":
+                visitWithTarget(node.operand);
+                return;
+
+              case "BinaryOp":
+                // Heuristic: if a translation channel is used in an explicit
+                // `bone.t? +/- <large literal>` form, it likely expects the
+                // bone's rest pivot value rather than a 0-offset seed.
+                if (node.operator === "+" || node.operator === "-") {
+                  const leftProp = getTargetTranslationVar(node.left);
+                  const rightProp = getTargetTranslationVar(node.right);
+
+                  const literalValue =
+                    node.left.type === "Literal"
+                      ? node.left.value
+                      : node.right.type === "Literal"
+                        ? node.right.value
+                        : null;
+                  const prop = leftProp ?? rightProp;
+
+                  if (prop && typeof literalValue === "number") {
+                    if (Math.abs(literalValue) >= 3) markPivot(prop);
+                  }
+                }
+                visitWithTarget(node.left);
+                visitWithTarget(node.right);
+                return;
+
+              case "FunctionCall":
+                if (node.name === "if" && node.args.length >= 3) {
+                  const consequent = node.args[1];
+                  const alternate = node.args[2];
+                  for (const prop of ["tx", "ty", "tz"] as const) {
+                    const consequentLiteral =
+                      consequent.type === "Literal" ? consequent.value : null;
+                    const alternateLiteral =
+                      alternate.type === "Literal" ? alternate.value : null;
+                    const isRootBone = this.bones.get(targetBone)?.parent === this.modelGroup;
+                    const userData = (this.bones.get(targetBone) as any)?.userData ?? {};
+                    const invertAxis =
+                      typeof userData.invertAxis === "string" ? (userData.invertAxis as string) : "";
+                    const basePos = this.baseTransforms.get(targetBone)?.position;
+                    const localPxY = (basePos?.y ?? 0) * 16;
+                    const expectedRotationPointY =
+                      invertAxis.includes("y") ? 24 - localPxY : localPxY + 24;
+                    const isExpectedRotationPointY =
+                      prop === "ty" &&
+                      isRootBone &&
+                      Math.abs(expectedRotationPointY) >= 3;
+
+                    const shouldTreatAsPivotLiteral = (literalValue: number): boolean => {
+                      // Default: require a "large" literal (typical pivot coords like 15, 17, etc).
+                      if (Math.abs(literalValue) >= 10) return true;
+                      // Special-case `ty` for root bones: allow small literals when they
+                      // match the part's authored rotationPointY (24 - baseY).
+                      if (isExpectedRotationPointY) {
+                        return Math.abs(literalValue - expectedRotationPointY) <= 2;
+                      }
+                      return false;
+                    };
+
+                    // Heuristic: when `if(..., 15, bone.ty*(...))`, the
+                    // translation channel is being used as a vanilla pivot
+                    // input (rotationPoint-like), so seed it as such.
+                    if (
+                      typeof consequentLiteral === "number" &&
+                      shouldTreatAsPivotLiteral(consequentLiteral) &&
+                      containsSelfTranslationVar(alternate, prop)
+                    ) {
+                      markPivot(prop);
+                    }
+                    if (
+                      typeof alternateLiteral === "number" &&
+                      shouldTreatAsPivotLiteral(alternateLiteral) &&
+                      containsSelfTranslationVar(consequent, prop)
+                    ) {
+                      markPivot(prop);
+                    }
+                  }
+                }
+                for (const arg of node.args) visitWithTarget(arg);
+                return;
+
+              case "Ternary":
+                visitWithTarget(node.condition);
+                visitWithTarget(node.consequent);
+                visitWithTarget(node.alternate);
+                return;
+
+              default:
+                return;
+            }
+          };
+          visitWithTarget(parsed.ast);
+        } catch {
+          // Ignore parse errors; compilation will surface them later.
+        }
+      }
+    }
+
+    return { reads, pivotSeeds, rotationInputs, selfRotationReads };
   }
 
   private cloneRestBoneValues(): Record<string, Record<string, number>> {
@@ -466,16 +789,81 @@ export class AnimationEngine {
       if (!bone) continue;
 
       const userData = (bone as any).userData ?? {};
-      const absoluteAxes: string =
+      const getAbsoluteAxes = (): string =>
         typeof userData.absoluteTranslationAxes === "string"
           ? (userData.absoluteTranslationAxes as string)
           : userData.absoluteTranslation === true
             ? "xyz"
             : "";
 
+      // Infer "local-absolute" translation semantics when the JPM baseline value
+      // matches the bone's rest local pivot (common for attached subparts like
+      // sniffer ears). This avoids double-applying the bone's base translate.
+      const invertAxis =
+        typeof userData.invertAxis === "string" ? (userData.invertAxis as string) : "";
+      const base = this.baseTransforms.get(boneName);
+      const localPxX = (base?.position.x ?? 0) * 16;
+      const localPxY = (base?.position.y ?? 0) * 16;
+      const localPxZ = (base?.position.z ?? 0) * 16;
+      const expectedCemX = invertAxis.includes("x") ? -localPxX : localPxX;
+      const expectedCemY = invertAxis.includes("y") ? -localPxY : localPxY;
+      const expectedCemZ = invertAxis.includes("z") ? -localPxZ : localPxZ;
+
+      const tolerancePx = 0.75;
+      const isRoot = bone.parent === this.modelGroup;
+
+      const ensureLocalAbsolute = (axis: "x" | "y" | "z") => {
+        if (getAbsoluteAxes().includes(axis)) return;
+        const baseline = this.getBaselineBoneValue(boneName, `t${axis}`);
+        const expected =
+          axis === "x" ? expectedCemX : axis === "y" ? expectedCemY : expectedCemZ;
+        // Avoid misclassifying small additive offsets (e.g. mane2.tz=1.2).
+        if (Math.abs(expected) < 3) return;
+        if (Math.abs(baseline) < 3) return;
+        if (Math.abs(baseline - expected) > tolerancePx) return;
+
+        const existing =
+          typeof userData.absoluteTranslationAxes === "string"
+            ? (userData.absoluteTranslationAxes as string)
+            : "";
+        if (!existing.includes(axis)) {
+          userData.absoluteTranslationAxes = existing + axis;
+        }
+        userData.absoluteTranslationSpace = "local";
+      };
+
+      const ensureRotationPointYAbsolute = () => {
+        if (!axesSet.has("y")) return;
+        if (getAbsoluteAxes().includes("y")) return;
+        if (!isRoot) return;
+        const wantsPivot = this.selfTranslationPivotSeeds.get(boneName)?.has("ty");
+        if (!wantsPivot) return;
+        const baseline = this.getBaselineBoneValue(boneName, "ty");
+        // For invertAxis="y", rotationPointY maps via (24 - ty).
+        const expected = invertAxis.includes("y")
+          ? 24 - localPxY
+          : localPxY + 24;
+        if (Math.abs(expected) < 3) return;
+        if (Math.abs(baseline) < 3) return;
+        if (Math.abs(baseline - expected) > tolerancePx) return;
+
+        const existing = getAbsoluteAxes();
+        userData.absoluteTranslationAxes = existing.includes("y")
+          ? existing
+          : existing + "y";
+        // Entity-space absolute (rotationPointY) uses the default 24px origin.
+        delete userData.translationOffsetYPx;
+        delete userData.translationOffsetY;
+      };
+
+      if (axesSet.has("x")) ensureLocalAbsolute("x");
+      if (axesSet.has("y")) ensureRotationPointYAbsolute();
+      if (axesSet.has("y")) ensureLocalAbsolute("y");
+      if (axesSet.has("z")) ensureLocalAbsolute("z");
+
       if (axesSet.has("x")) {
         const channel = `${boneName}.tx`;
-        if (absoluteAxes.includes("x")) {
+        if (getAbsoluteAxes().includes("x")) {
           // Absolute channels should remain absolute; do not normalize.
         } else if (
           typeof userData.translationOffsetXPx !== "number" &&
@@ -489,7 +877,7 @@ export class AnimationEngine {
 
       if (axesSet.has("y")) {
         const channel = `${boneName}.ty`;
-        if (absoluteAxes.includes("y")) {
+        if (getAbsoluteAxes().includes("y")) {
           // Absolute channels should remain absolute; do not normalize.
         } else if (
           typeof userData.translationOffsetYPx !== "number" &&
@@ -503,7 +891,7 @@ export class AnimationEngine {
 
       if (axesSet.has("z")) {
         const channel = `${boneName}.tz`;
-        if (absoluteAxes.includes("z")) {
+        if (getAbsoluteAxes().includes("z")) {
           // Absolute channels should remain absolute; do not normalize.
         } else if (
           typeof userData.translationOffsetZPx !== "number" &&
@@ -531,9 +919,36 @@ export class AnimationEngine {
             ? "xyz"
             : "";
 
+      const selfReads = this.selfRotationReads.get(boneName);
+      const ensureAbsoluteRotation = (axis: "x" | "y" | "z") => {
+        const prop = `r${axis}` as "rx" | "ry" | "rz";
+        if (!selfReads?.has(prop)) return;
+        const existing =
+          typeof userData.absoluteRotationAxes === "string"
+            ? (userData.absoluteRotationAxes as string)
+            : "";
+        if (!existing.includes(axis)) {
+          userData.absoluteRotationAxes = existing + axis;
+        }
+        // Avoid baseline-normalizing axes that are intended to be absolute
+        // (they already include vanilla base via `bone.r?` reads).
+        if (axis === "x") delete userData.rotationOffsetX;
+        if (axis === "y") delete userData.rotationOffsetY;
+        if (axis === "z") delete userData.rotationOffsetZ;
+      };
+
+      if (axesSet.has("x")) ensureAbsoluteRotation("x");
+      if (axesSet.has("y")) ensureAbsoluteRotation("y");
+      if (axesSet.has("z")) ensureAbsoluteRotation("z");
+
+      const effectiveAbsoluteRotationAxes: string =
+        typeof userData.absoluteRotationAxes === "string"
+          ? (userData.absoluteRotationAxes as string)
+          : absoluteRotationAxes;
+
       if (axesSet.has("x")) {
         const channel = `${boneName}.rx`;
-        if (absoluteRotationAxes.includes("x")) {
+        if (effectiveAbsoluteRotationAxes.includes("x")) {
           // Absolute channels should remain absolute; do not normalize.
         } else if (
           typeof userData.rotationOffsetX !== "number" &&
@@ -545,7 +960,7 @@ export class AnimationEngine {
       }
       if (axesSet.has("y")) {
         const channel = `${boneName}.ry`;
-        if (absoluteRotationAxes.includes("y")) {
+        if (effectiveAbsoluteRotationAxes.includes("y")) {
           // Absolute channels should remain absolute; do not normalize.
         } else if (
           typeof userData.rotationOffsetY !== "number" &&
@@ -557,7 +972,7 @@ export class AnimationEngine {
       }
       if (axesSet.has("z")) {
         const channel = `${boneName}.rz`;
-        if (absoluteRotationAxes.includes("z")) {
+        if (effectiveAbsoluteRotationAxes.includes("z")) {
           // Absolute channels should remain absolute; do not normalize.
         } else if (
           typeof userData.rotationOffsetZ !== "number" &&
@@ -569,6 +984,103 @@ export class AnimationEngine {
       }
 
       (bone as any).userData = userData;
+    }
+  }
+
+  private applyVanillaRotationInputSeeding(): void {
+    if (this.rotationInputReads.size === 0) return;
+
+    const state = this.context.entityState;
+    const swingAmount =
+      Math.sin(state.limb_swing * 0.6662) * 1.4 * state.limb_speed;
+
+    const setInput = (
+      boneName: string,
+      desiredThreeEuler: Partial<THREE.Euler>,
+    ) => {
+      const reads = this.rotationInputReads.get(boneName);
+      if (!reads || reads.size === 0) return;
+      const bone = this.bones.get(boneName);
+      if (!bone) return;
+      const base = this.baseTransforms.get(boneName);
+      const userData = (bone as any).userData ?? {};
+      const invertAxis =
+        typeof userData.invertAxis === "string" ? (userData.invertAxis as string) : "";
+      const signX = invertAxis.includes("x") ? -1 : 1;
+      const signY = invertAxis.includes("y") ? -1 : 1;
+      const signZ = invertAxis.includes("z") ? -1 : 1;
+
+      const x = desiredThreeEuler.x ?? base?.rotation.x ?? 0;
+      const y = desiredThreeEuler.y ?? base?.rotation.y ?? 0;
+      const z = desiredThreeEuler.z ?? base?.rotation.z ?? 0;
+
+      // Convert Three-space rotations into the CEM-space values expected by
+      // `bone.r?` reads (inverse of the sign applied in applyBoneTransform).
+      const cemRx = signX * x;
+      const cemRy = signY * y;
+      const cemRz = signZ * z;
+
+      this.context.boneValues[boneName] = {
+        ...(this.context.boneValues[boneName] ?? {}),
+        ...(reads.has("rx") ? { rx: cemRx } : {}),
+        ...(reads.has("ry") ? { ry: cemRy } : {}),
+        ...(reads.has("rz") ? { rz: cemRz } : {}),
+      };
+    };
+
+    // Head bones.
+    const yawRad = (state.head_yaw * Math.PI) / 180;
+    const pitchRad = (state.head_pitch * Math.PI) / 180;
+    for (const headName of ["head", "headwear"]) {
+      const base = this.baseTransforms.get(headName);
+      if (!base) continue;
+      setInput(headName, {
+        x: base.rotation.x + pitchRad,
+        y: base.rotation.y + yawRad,
+        z: base.rotation.z,
+      });
+    }
+
+    // Humanoid limbs.
+    const humanoid: Array<[string, number]> = [
+      ["right_arm", swingAmount],
+      ["left_arm", -swingAmount],
+      ["right_leg", -swingAmount],
+      ["left_leg", swingAmount],
+    ];
+    for (const [name, deltaX] of humanoid) {
+      const base = this.baseTransforms.get(name);
+      if (!base) continue;
+      setInput(name, { x: base.rotation.x + deltaX });
+    }
+
+    // Quadruped legs (leg1-leg4).
+    const quad: Array<[string, number]> = [
+      ["leg1", swingAmount],
+      ["leg3", swingAmount],
+      ["leg2", -swingAmount],
+      ["leg4", -swingAmount],
+    ];
+    for (const [name, deltaX] of quad) {
+      const base = this.baseTransforms.get(name);
+      if (!base) continue;
+      setInput(name, { x: base.rotation.x + deltaX });
+    }
+
+    // Directional legs (front/back).
+    const directional: Array<[string, number]> = [
+      ["front_left_leg", swingAmount],
+      ["front_right_leg", -swingAmount],
+      ["back_left_leg", -swingAmount],
+      ["back_right_leg", swingAmount],
+      // Multi-leg rigs (sniffer) use a tripod gait.
+      ["middle_left_leg", -swingAmount],
+      ["middle_right_leg", swingAmount],
+    ];
+    for (const [name, deltaX] of directional) {
+      const base = this.baseTransforms.get(name);
+      if (!base) continue;
+      setInput(name, { x: base.rotation.x + deltaX });
     }
   }
 
@@ -850,6 +1362,7 @@ export class AnimationEngine {
     this.context.entityState.frame_counter++;
 
     this.updateTriggerOverlays(scaledDelta);
+    this.updatePoseOverlays();
 
     // Evaluate animations and apply to bones
     if (this.animationLayers.length > 0) {
@@ -1083,7 +1596,20 @@ export class AnimationEngine {
     // presets or when an animation does not author every channel every frame.
     resetAllBones(this.bones, this.baseTransforms);
     this.context.boneValues = this.cloneRestBoneValues();
-    for (const [boneName, props] of Object.entries(this.boneInputOverrides)) {
+
+    // Seed bone rotation inputs with vanilla-style values where expressions
+    // read `bone.rx/ry/rz` (e.g., sniffer legs depend on vanilla limb swing).
+    this.applyVanillaRotationInputSeeding();
+
+    for (const [boneName, props] of Object.entries(
+      this.poseBoneInputOverrides,
+    )) {
+      this.context.boneValues[boneName] = {
+        ...(this.context.boneValues[boneName] ?? {}),
+        ...props,
+      };
+    }
+    for (const [boneName, props] of Object.entries(this.triggerBoneInputOverrides)) {
       this.context.boneValues[boneName] = {
         ...(this.context.boneValues[boneName] ?? {}),
         ...props,
@@ -1218,55 +1744,6 @@ export class AnimationEngine {
       }
     }
 
-    // If key vanilla parts are animated as root-level bones, they do not inherit
-    // body rotations via the scene graph. OptiFine/Minecraft applies implicit
-    // vanilla hierarchy for rotations, so we emulate that here by applying the
-    // body's animation rotation offset to those bones.
-    const bodyTransform = boneTransforms.get("body");
-    if (
-      bodyTransform &&
-      (bodyTransform.rx !== undefined ||
-        bodyTransform.ry !== undefined ||
-        bodyTransform.rz !== undefined)
-    ) {
-      const bodyBone = this.bones.get("body");
-      if (bodyBone) {
-        const order = bodyBone.rotation.order || "ZYX";
-        const animEuler = new THREE.Euler(
-          bodyTransform.rx ?? 0,
-          bodyTransform.ry ?? 0,
-          bodyTransform.rz ?? 0,
-          order,
-        );
-        const bodyAnimQuat = new THREE.Quaternion().setFromEuler(animEuler);
-
-        const vanillaChildren = [
-          "head",
-          "headwear",
-          "left_arm",
-          "right_arm",
-          "left_leg",
-          "right_leg",
-        ];
-
-        for (const childName of vanillaChildren) {
-          const child = this.bones.get(childName);
-          if (!child) continue;
-          // Only apply if the bone is still a direct child of the model root
-          // (i.e., it was skipped during applyVanillaHierarchy).
-          if (child.parent !== this.modelGroup) continue;
-          // Only apply to bones that were animated this frame to avoid accumulation.
-          if (!boneTransforms.has(childName)) continue;
-
-          child.quaternion.premultiply(bodyAnimQuat);
-          child.rotation.setFromQuaternion(
-            child.quaternion,
-            child.rotation.order,
-          );
-        }
-      }
-    }
-
     this.modelGroup.updateMatrixWorld(true);
     this.applyRootOverlay();
 
@@ -1299,7 +1776,9 @@ export class AnimationEngine {
     this.context.boneValues = this.cloneRestBoneValues();
     this.elapsedTime = 0;
     this.activeTriggers = [];
-    this.boneInputOverrides = {};
+    this.triggerBoneInputOverrides = {};
+    this.poseBoneInputOverrides = {};
+    this.activePoseToggleIds = [];
     this.rootOverlay = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
     this.modelGroup.position.copy(this.baseRootPosition);
     this.modelGroup.rotation.copy(this.baseRootRotation);
@@ -1313,8 +1792,24 @@ export class AnimationEngine {
     this.context.variables = {};
     this.context.boneValues = this.cloneRestBoneValues();
     this.activeTriggers = [];
-    this.boneInputOverrides = {};
+    this.triggerBoneInputOverrides = {};
     this.context.randomCache.clear();
+  }
+
+  private updatePoseOverlays(): void {
+    this.poseBoneInputOverrides = {};
+
+    for (const toggleId of this.activePoseToggleIds) {
+      const def = getPoseToggleDefinition(toggleId);
+      if (!def?.boneInputs) continue;
+      const inputs = def.boneInputs(this.context.entityState);
+      for (const [boneName, props] of Object.entries(inputs)) {
+        this.poseBoneInputOverrides[boneName] = {
+          ...(this.poseBoneInputOverrides[boneName] ?? {}),
+          ...props,
+        };
+      }
+    }
   }
 
   private updateTriggerOverlays(deltaSec: number): void {
@@ -1335,7 +1830,7 @@ export class AnimationEngine {
     }
 
     // Build per-frame bone input overrides from active triggers.
-    this.boneInputOverrides = {};
+    this.triggerBoneInputOverrides = {};
     this.rootOverlay = { x: 0, y: 0, z: 0, rx: 0, ry: 0, rz: 0 };
     const baseRuleIndex = this.context.entityState.rule_index;
     let forceRuleIndex: number | null = null;
@@ -1373,8 +1868,8 @@ export class AnimationEngine {
         const neutral = 4;
         const target = -4;
         const value = neutral + (target - neutral) * envelope;
-        this.boneInputOverrides.neck ??= {};
-        this.boneInputOverrides.neck.ty = value;
+        this.triggerBoneInputOverrides.neck ??= {};
+        this.triggerBoneInputOverrides.neck.ty = value;
       }
 
       if (trig.id === "trigger.eat") {
@@ -1389,8 +1884,8 @@ export class AnimationEngine {
           const neutral = 4;
           const target = 11;
           const value = neutral + (target - neutral) * envelope;
-          this.boneInputOverrides.neck ??= {};
-          this.boneInputOverrides.neck.ty = value;
+          this.triggerBoneInputOverrides.neck ??= {};
+          this.triggerBoneInputOverrides.neck.ty = value;
         }
 
         // Sheep/cow-family: driven by placeholder `head.rx` (and often compared to head_pitch).
@@ -1398,8 +1893,8 @@ export class AnimationEngine {
           const headPitchRad = (this.context.entityState.head_pitch * Math.PI) / 180;
           // Push away from `torad(head_pitch)` to satisfy `head.rx - torad(head_pitch) != 0`.
           const value = headPitchRad + 1.2 * envelope;
-          this.boneInputOverrides.head ??= {};
-          this.boneInputOverrides.head.rx = value;
+          this.triggerBoneInputOverrides.head ??= {};
+          this.triggerBoneInputOverrides.head.rx = value;
         }
       }
 

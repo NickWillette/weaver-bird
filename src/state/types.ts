@@ -148,6 +148,10 @@ export interface UIState {
   animationTriggerRequestId: string | null; // Trigger to play (engine consumes)
   animationTriggerRequestNonce: number; // Monotonic counter to re-trigger same ID
 
+  // Entity pose toggles (persistent overlays)
+  availablePoseToggles: string[] | null; // Pose toggles relevant to current model (null = show none)
+  activePoseToggles: Record<string, boolean>; // Active pose toggle IDs
+
   // Debug mode
   jemDebugMode: boolean; // Enable JEM model inspector for debugging entity models
 }
