@@ -145,12 +145,12 @@ export function resolveEntityCompositeSchema(
     allAssetIds,
   );
   let baseAssetId = baseFromLayer ?? selectedAssetId;
+  const ns = baseAssetId.includes(":") ? baseAssetId.split(":")[0] : "minecraft";
 
   // Treat decorated pot patterns as feature variants of the base pot.
   // This keeps feature state stable even if a user deep-links to a specific
   // pottery pattern texture.
   {
-    const ns = baseAssetId.includes(":") ? baseAssetId.split(":")[0] : "minecraft";
     const path = stripNamespace(baseAssetId);
     if (path.startsWith("entity/decorated_pot/") && !path.endsWith("/decorated_pot_base")) {
       const candidate = `${ns}:entity/decorated_pot/decorated_pot_base` as AssetId;
@@ -158,10 +158,150 @@ export function resolveEntityCompositeSchema(
     }
   }
 
+  // Canonicalize base entity textures for directories that represent variant families
+  // so they render as a single resource card with selectors.
+  {
+    const entityPath = getEntityPath(baseAssetId);
+    if (entityPath) {
+      const direct = getDirectEntityDirAndLeaf(entityPath);
+      // Generic "pure variant" directories (axolotl/frog/chicken/etc).
+      if (direct && direct.dir !== "bee" && direct.dir !== "banner") {
+        const variantLeaves: string[] = [];
+        for (const id of all) {
+          if (isEntityFeatureLayerTextureAssetId(id)) continue;
+          const p = getEntityPath(id);
+          if (!p) continue;
+          const d = getDirectEntityDirAndLeaf(p);
+          if (!d) continue;
+          if (d.dir !== direct.dir) continue;
+          variantLeaves.push(d.leaf);
+        }
+
+        const uniqueLeavesRaw = stableUnique(variantLeaves);
+        const isPatternDir =
+          uniqueLeavesRaw.length > 1 &&
+          uniqueLeavesRaw.every((l) => isEntityVariantLeaf(direct.dir, l));
+        const isDyeDir =
+          uniqueLeavesRaw.length > 1 && allLeavesInSet(uniqueLeavesRaw, DYE_COLOR_IDS);
+        const isWoodDir =
+          uniqueLeavesRaw.length > 1 && allLeavesInSet(uniqueLeavesRaw, WOOD_TYPE_IDS);
+        const isCatDir =
+          direct.dir === "cat" &&
+          uniqueLeavesRaw.length > 1 &&
+          allLeavesInSet(uniqueLeavesRaw, CAT_SKIN_IDS);
+        const isVariantDir = isPatternDir || isDyeDir || isWoodDir || isCatDir;
+
+        if (isVariantDir) {
+          const preferredDyeOrder = DYE_COLORS.map((d) => d.id);
+          const preferredWoodOrder = Array.from(WOOD_TYPE_IDS);
+          const preferredCatOrder = Array.from(CAT_SKIN_IDS);
+
+          const canonicalLeaf = (() => {
+            if (isDyeDir) {
+              // Many vanilla dye-able entities default to red (beds, banners, etc).
+              if (uniqueLeavesRaw.includes("red")) return "red";
+              return (
+                sortByPreferredOrder(uniqueLeavesRaw, preferredDyeOrder)[0] ??
+                uniqueLeavesRaw[0] ??
+                direct.leaf
+              );
+            }
+            if (isWoodDir) {
+              if (uniqueLeavesRaw.includes("oak")) return "oak";
+              return (
+                sortByPreferredOrder(uniqueLeavesRaw, preferredWoodOrder)[0] ??
+                uniqueLeavesRaw[0] ??
+                direct.leaf
+              );
+            }
+            if (isCatDir) {
+              if (uniqueLeavesRaw.includes("tabby")) return "tabby";
+              return (
+                sortByPreferredOrder(uniqueLeavesRaw, preferredCatOrder)[0] ??
+                uniqueLeavesRaw[0] ??
+                direct.leaf
+              );
+            }
+            // Frog skins: prefer temperate when present.
+            if (direct.dir === "frog" && uniqueLeavesRaw.includes("temperate_frog")) {
+              return "temperate_frog";
+            }
+            // Prefer a leaf that matches the directory name when available.
+            if (uniqueLeavesRaw.includes(direct.dir)) return direct.dir;
+            return uniqueLeavesRaw[0] ?? direct.leaf;
+          })();
+
+          const canonical =
+            findAssetId(
+              ns,
+              [
+                `entity/${direct.dir}/${canonicalLeaf}`,
+              ],
+              all,
+            ) ?? null;
+          if (canonical) baseAssetId = canonical;
+        }
+      }
+
+      // Fox textures are stored as multiple state variants in one directory
+      // (snow + sleeping). Normalize to `fox` so we can render a single card.
+      if (entityPath.startsWith("fox/")) {
+        const canonical =
+          findAssetId(ns, ["entity/fox/fox"], all) ?? null;
+        if (canonical) baseAssetId = canonical;
+      }
+
+      // Llama skins are separate textures in the llama folder (creamy/white/etc).
+      // Normalize to a stable default so we can expose a fur color selector.
+      if (entityPath.startsWith("llama/")) {
+        const leaves: string[] = [];
+        for (const id of all) {
+          if (isEntityFeatureLayerTextureAssetId(id)) continue;
+          const p = getEntityPath(id);
+          if (!p) continue;
+          const d = getDirectEntityDirAndLeaf(p);
+          if (!d) continue;
+          if (d.dir !== "llama") continue;
+          leaves.push(d.leaf);
+        }
+        const unique = stableUnique(leaves);
+        const preferred = unique.includes("creamy")
+          ? "creamy"
+          : unique.includes("white")
+            ? "white"
+            : unique[0];
+        const canonical =
+          preferred ? findAssetId(ns, [`entity/llama/${preferred}`], all) : null;
+        if (canonical) baseAssetId = canonical;
+      }
+
+      // Horse coats + markings share a folder. Normalize to a stable coat texture.
+      if (entityPath.startsWith("horse/")) {
+        const coats: string[] = [];
+        for (const id of all) {
+          if (isEntityFeatureLayerTextureAssetId(id)) continue;
+          const p = getEntityPath(id);
+          if (!p) continue;
+          const d = getDirectEntityDirAndLeaf(p);
+          if (!d) continue;
+          if (d.dir !== "horse") continue;
+          if (!d.leaf.startsWith("horse_")) continue;
+          if (d.leaf.startsWith("horse_markings_")) continue;
+          coats.push(d.leaf);
+        }
+        const unique = stableUnique(coats);
+        const preferred = unique.includes("horse_brown")
+          ? "horse_brown"
+          : unique[0];
+        const canonical =
+          preferred ? findAssetId(ns, [`entity/horse/${preferred}`], all) : null;
+        if (canonical) baseAssetId = canonical;
+      }
+    }
+  }
+
   const entityPath = getEntityPath(baseAssetId);
   if (!entityPath) return null;
-
-  const ns = baseAssetId.includes(":") ? baseAssetId.split(":")[0] : "minecraft";
   const folderRoot = getEntityRoot(entityPath);
   const { dir, leaf } = getDirAndLeaf(entityPath);
   const entityType = leaf;
@@ -195,7 +335,7 @@ export function resolveEntityCompositeSchema(
   // while keeping geometry tied to the selected entity.
   // -----------------------------------------------------------------------
   const direct = getDirectEntityDirAndLeaf(entityPath);
-  if (direct && direct.dir !== "bee" && direct.dir !== "banner") {
+  if (direct && direct.dir !== "bee" && direct.dir !== "banner" && direct.dir !== "horse") {
     const variantLeaves: string[] = [];
     for (const id of all) {
       if (isEntityFeatureLayerTextureAssetId(id)) continue;
@@ -252,6 +392,134 @@ export function resolveEntityCompositeSchema(
         const candidate = `${ns}:entity/${direct.dir}/${chosen}` as AssetId;
         return all.has(candidate) ? candidate : baseAssetId;
       };
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Fox: consolidate snow/sleep variants into selectors.
+  // -----------------------------------------------------------------------
+  if (folderRoot === "fox") {
+    const hasSnow = all.has(`${ns}:entity/fox/snow_fox` as AssetId);
+    const hasFoxSleep = all.has(`${ns}:entity/fox/fox_sleep` as AssetId);
+    const hasSnowSleep = all.has(`${ns}:entity/fox/snow_fox_sleep` as AssetId);
+
+    if (hasSnow) {
+      controls.push({
+        kind: "select",
+        id: "fox.type",
+        label: "Type",
+        defaultValue: "fox",
+        options: [
+          { value: "fox", label: "Red" },
+          { value: "snow_fox", label: "Snow" },
+        ],
+      });
+    }
+    if (hasFoxSleep || hasSnowSleep) {
+      controls.push({
+        kind: "toggle",
+        id: "fox.sleeping",
+        label: "Sleeping",
+        defaultValue: false,
+      });
+    }
+
+    if (hasSnow || hasFoxSleep || hasSnowSleep) {
+      getBaseTextureAssetId = (state) => {
+        const type = getSelect(state, "fox.type", "fox");
+        const sleeping = getToggle(state, "fox.sleeping", false);
+        const baseLeaf = hasSnow && type === "snow_fox" ? "snow_fox" : "fox";
+        const sleepLeaf = `${baseLeaf}_sleep`;
+        const candidate = `${ns}:entity/fox/${sleeping ? sleepLeaf : baseLeaf}` as AssetId;
+        return all.has(candidate) ? candidate : (`${ns}:entity/fox/${baseLeaf}` as AssetId);
+      };
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Llama: consolidate fur colors into a selector.
+  // -----------------------------------------------------------------------
+  if (folderRoot === "llama") {
+    const furLeaves: string[] = [];
+    for (const id of all) {
+      if (isEntityFeatureLayerTextureAssetId(id)) continue;
+      const p = getEntityPath(id);
+      if (!p) continue;
+      const d = getDirectEntityDirAndLeaf(p);
+      if (!d) continue;
+      if (d.dir !== "llama") continue;
+      furLeaves.push(d.leaf);
+    }
+    const furColors = stableUnique(furLeaves);
+    if (furColors.length > 1) {
+      controls.push({
+        kind: "select",
+        id: "llama.fur_color",
+        label: "Fur Color",
+        defaultValue: furColors.includes("creamy")
+          ? "creamy"
+          : furColors.includes("white")
+            ? "white"
+            : furColors[0]!,
+        options: furColors.map((c) => ({ value: c, label: titleLabel(c) })),
+      });
+      getBaseTextureAssetId = (state) => {
+        const chosen = getSelect(state, "llama.fur_color", furColors[0]!);
+        const candidate = `${ns}:entity/llama/${chosen}` as AssetId;
+        return all.has(candidate) ? candidate : baseAssetId;
+      };
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Horse: coat + markings composition.
+  // -----------------------------------------------------------------------
+  if (folderRoot === "horse") {
+    const coatLeaves: string[] = [];
+    const markingsLeaves: string[] = [];
+    for (const id of all) {
+      if (isEntityFeatureLayerTextureAssetId(id)) continue;
+      const p = getEntityPath(id);
+      if (!p) continue;
+      const d = getDirectEntityDirAndLeaf(p);
+      if (!d) continue;
+      if (d.dir !== "horse") continue;
+      if (d.leaf.startsWith("horse_markings_")) markingsLeaves.push(d.leaf);
+      else if (d.leaf.startsWith("horse_")) coatLeaves.push(d.leaf);
+    }
+    const coats = stableUnique(coatLeaves);
+    const markings = stableUnique(markingsLeaves);
+    if (coats.length > 1) {
+      controls.push({
+        kind: "select",
+        id: "horse.coat",
+        label: "Coat",
+        defaultValue: coats.includes("horse_brown") ? "horse_brown" : coats[0]!,
+        options: coats.map((c) => ({
+          value: c,
+          label: titleLabel(c.replace(/^horse_/, "")),
+        })),
+      });
+      getBaseTextureAssetId = (state) => {
+        const chosen = getSelect(state, "horse.coat", coats[0]!);
+        const candidate = `${ns}:entity/horse/${chosen}` as AssetId;
+        return all.has(candidate) ? candidate : baseAssetId;
+      };
+    }
+    if (markings.length > 0) {
+      controls.push({
+        kind: "select",
+        id: "horse.markings",
+        label: "Markings",
+        defaultValue: "none",
+        options: [
+          { value: "none", label: "None" },
+          ...markings.map((m) => ({
+            value: m,
+            label: titleLabel(m.replace(/^horse_markings_/, "")),
+          })),
+        ],
+      });
     }
   }
 
@@ -568,6 +836,47 @@ export function resolveEntityCompositeSchema(
   }
 
   // -----------------------------------------------------------------------
+  // Breeze: optional wind entities (separate textures + CEM models).
+  // -----------------------------------------------------------------------
+  let breezeWindTexture: AssetId | null = null;
+  let breezeWindChargeTexture: AssetId | null = null;
+  if (folderRoot === "breeze") {
+    breezeWindTexture = findAssetId(
+      ns,
+      [
+        "entity/breeze/breeze_wind",
+        "entity/breeze/wind",
+        "entity/breeze/breeze_air",
+      ],
+      all,
+    );
+    breezeWindChargeTexture = findAssetId(
+      ns,
+      [
+        "entity/breeze/breeze_wind_charge",
+        "entity/breeze/wind_charge",
+      ],
+      all,
+    );
+    if (breezeWindTexture) {
+      controls.push({
+        kind: "toggle",
+        id: "breeze.wind",
+        label: "Wind",
+        defaultValue: false,
+      });
+    }
+    if (breezeWindChargeTexture) {
+      controls.push({
+        kind: "toggle",
+        id: "breeze.wind_charge",
+        label: "Wind Charge",
+        defaultValue: false,
+      });
+    }
+  }
+
+  // -----------------------------------------------------------------------
   // Creeper charge overlay (generic `_armor` texture + optional charge JEM)
   // -----------------------------------------------------------------------
   let creeperArmor: AssetId | null = null;
@@ -857,6 +1166,15 @@ export function resolveEntityCompositeSchema(
       defaultValue: false,
     });
   }
+  // Donkey: chest toggle (model includes chest bones).
+  if (folderRoot === "donkey") {
+    controls.push({
+      kind: "toggle",
+      id: "donkey.chest",
+      label: "Chest",
+      defaultValue: false,
+    });
+  }
 
   // Happy ghast: harness toggle + color select.
   let happyGhastHarnessColors: string[] = [];
@@ -953,6 +1271,13 @@ export function resolveEntityCompositeSchema(
   let llamaDecorColors: string[] = [];
   const isLlamaFamily = folderRoot === "llama" || folderRoot === "trader_llama";
   if (isLlamaFamily) {
+    // Llamas can have side chests (model includes both).
+    controls.push({
+      kind: "toggle",
+      id: "llama.chest",
+      label: "Chest",
+      defaultValue: false,
+    });
     for (const id of all) {
       if (!id.startsWith(`${ns}:entity/equipment/llama_body/`)) continue;
       const leafName = stripNamespace(id).split("/").pop();
@@ -980,6 +1305,48 @@ export function resolveEntityCompositeSchema(
         })),
       });
     }
+  }
+
+  // Hide optional chest bones by default unless enabled.
+  if (folderRoot === "donkey" || isLlamaFamily) {
+    const existing = getBoneRenderOverrides;
+    getBoneRenderOverrides = (state) => {
+      const base = (existing ? existing(state) : {}) as Record<
+        string,
+        { visible?: boolean }
+      >;
+      const overrides: Record<string, { visible?: boolean }> = { ...base };
+
+      if (folderRoot === "donkey") {
+        const hasChest = getToggle(state, "donkey.chest", false);
+        if (!hasChest) {
+          const donkeyChestBones = [
+            "left_chest",
+            "right_chest",
+            "left_chest2",
+            "right_chest2",
+            "mule_left_chest",
+            "mule_right_chest",
+          ];
+          for (const bone of donkeyChestBones) overrides[bone] = { visible: false };
+        }
+      }
+
+      if (isLlamaFamily) {
+        const hasChest = getToggle(state, "llama.chest", false);
+        if (!hasChest) {
+          const llamaChestBones = [
+            "chest_left",
+            "chest_right",
+            "chest_left_rotation",
+            "chest_right_rotation",
+          ];
+          for (const bone of llamaChestBones) overrides[bone] = { visible: false };
+        }
+      }
+
+      return overrides;
+    };
   }
 
   // -----------------------------------------------------------------------
@@ -1200,6 +1567,55 @@ export function resolveEntityCompositeSchema(
 
   const getActiveLayers = (state: EntityFeatureStateView): EntityLayerDefinition[] => {
     const layers: EntityLayerDefinition[] = [];
+
+    if (folderRoot === "breeze") {
+      if (breezeWindTexture && getToggle(state, "breeze.wind", false)) {
+        layers.push({
+          id: "breeze_wind",
+          label: "Wind",
+          kind: "cemModel",
+          cemEntityTypeCandidates: ["breeze_wind", "breeze_air", "wind"],
+          textureAssetId: breezeWindTexture,
+          blend: "additive",
+          zIndex: 170,
+          opacity: 1,
+          materialMode: { kind: "emissive", intensity: 0.9 },
+        });
+      }
+      if (breezeWindChargeTexture && getToggle(state, "breeze.wind_charge", false)) {
+        layers.push({
+          id: "breeze_wind_charge",
+          label: "Wind Charge",
+          kind: "cemModel",
+          cemEntityTypeCandidates: ["breeze_wind_charge", "wind_charge"],
+          textureAssetId: breezeWindChargeTexture,
+          blend: "additive",
+          zIndex: 175,
+          opacity: 1,
+          materialMode: { kind: "emissive", intensity: 1 },
+        });
+      }
+    }
+
+    // Horse markings are rendered as a same-UV overlay on top of the coat.
+    if (folderRoot === "horse") {
+      const chosen = getSelect(state, "horse.markings", "none");
+      if (chosen !== "none") {
+        const tex = `${ns}:entity/horse/${chosen}` as AssetId;
+        if (all.has(tex)) {
+          layers.push({
+            id: "horse_markings",
+            label: "Markings",
+            kind: "cloneTexture",
+            textureAssetId: tex,
+            blend: "normal",
+            zIndex: 80,
+            opacity: 1,
+            materialMode: { kind: "default" },
+          });
+        }
+      }
+    }
 
     // Equipment armor: when an underlay is enabled, render armor as overlays so
     // the base rig can animate (walking/sprinting). Without an underlay, only

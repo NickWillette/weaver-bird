@@ -66,6 +66,7 @@ export class AnimationEngine {
    * without relying on bone-name special cases.
    */
   private baselineBoneValues: Map<string, number> = new Map();
+  private baselineBoneValuesWater: Map<string, number> = new Map();
 
   /** Tracks which bones animate translation axes (tx/ty/tz). */
   private translationAxesByBone: Map<string, Set<"x" | "y" | "z">> = new Map();
@@ -772,6 +773,7 @@ export class AnimationEngine {
    */
  		  private initializeTransformNormalization(): void {
 	    this.baselineBoneValues.clear();
+	    this.baselineBoneValuesWater.clear();
 
 	    const baselineContext = createAnimationContext();
 	    baselineContext.boneValues = this.cloneRestBoneValues();
@@ -805,6 +807,29 @@ export class AnimationEngine {
 	          altBaselineValues.set(`${boneName}.ty`, transform.ty);
 	        if (transform.tz !== undefined)
 	          altBaselineValues.set(`${boneName}.tz`, transform.tz);
+	      }
+	    }
+
+	    // For aquatic entities, many rigs include "on ground" fallback poses that
+	    // use large angles (e.g. dolphins flopping). These should not be treated
+	    // as calibration constants for the in-water pose, so capture a second
+	    // baseline with `is_in_water=true`.
+	    {
+	      const waterContext = createAnimationContext();
+	      waterContext.boneValues = this.cloneRestBoneValues();
+	      waterContext.entityState.frame_counter = 1;
+	      waterContext.entityState.frame_time = 0;
+	      waterContext.entityState.is_in_water = true;
+	      waterContext.entityState.is_on_ground = false;
+	      this.applyVanillaRotationInputSeeding(waterContext);
+	      const waterTransforms = this.evaluateLayersToTransforms(waterContext);
+	      for (const [boneName, transform] of waterTransforms) {
+	        if (transform.rx !== undefined)
+	          this.baselineBoneValuesWater.set(`${boneName}.rx`, transform.rx);
+	        if (transform.ry !== undefined)
+	          this.baselineBoneValuesWater.set(`${boneName}.ry`, transform.ry);
+	        if (transform.rz !== undefined)
+	          this.baselineBoneValuesWater.set(`${boneName}.rz`, transform.rz);
 	      }
 	    }
 
@@ -1345,6 +1370,12 @@ export class AnimationEngine {
 		        // This catches common coordinate-space corrections (≈75–180°) while
 		        // preserving intentional limb poses like axolotl leg splay (≈70°).
 		        if (Math.abs(baseline) < 1.25) return;
+		        // If the in-water baseline is small, the large default baseline likely
+		        // comes from an alternate state pose (e.g. on-ground flop) rather than
+		        // a calibration constant. Don't convert it into a rotationOffset.
+		        const water =
+		          this.baselineBoneValuesWater.get(`${boneName}.${prop}`) ?? 0;
+		        if (Math.abs(water) < 1.25) return;
 
 		        if (axis === "x" && typeof userData.rotationOffsetX !== "number") {
 		          userData.rotationOffsetX = baseline;

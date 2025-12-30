@@ -34,6 +34,37 @@ interface Props {
   positionOffset?: [number, number, number];
 }
 
+const buildVersionFolderCandidates = (
+  targetVersion: string | null | undefined,
+  knownFolders: string[] | undefined,
+): string[] => {
+  const out: string[] = [];
+  const add = (v: string) => {
+    const trimmed = v.trim().replace(/^\/+|\/+$/g, "");
+    if (!trimmed) return;
+    if (!out.includes(trimmed)) out.push(trimmed);
+  };
+
+  if (targetVersion) {
+    add(targetVersion);
+    if (targetVersion.startsWith("1.")) add(targetVersion.slice(2));
+    const m = targetVersion.replace(/^1\./, "").match(/^(\d+\.\d+)/);
+    if (m?.[1]) add(m[1]);
+
+    // Fresh Animations sometimes uses dashed version folders (e.g. `21-5`).
+    const snapshot = [...out];
+    for (const v of snapshot) {
+      add(v.replace(/\./g, "-"));
+    }
+  }
+
+  if (knownFolders && knownFolders.length > 0) {
+    for (const v of knownFolders) add(v);
+  }
+
+  return out;
+};
+
 /**
  * Component for rendering entity models (chests, shulker boxes, mobs, etc.)
  *
@@ -449,6 +480,12 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
         const texturePath = baseTextureAssetId.replace(/^minecraft:/, "");
         console.log("[EntityModel] Loading texture:", texturePath);
 
+        const versionFolders = buildVersionFolderCandidates(
+          targetMinecraftVersion,
+          entityVersionVariants[cemEntityType] ??
+            (cemParentEntity ? entityVersionVariants[cemParentEntity] : undefined),
+        );
+
         // Load the texture
         let texture: THREE.Texture | null = null;
 
@@ -458,6 +495,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
             resolvedPack.path,
             `minecraft:${texturePath}`,
             resolvedPack.is_zip,
+            versionFolders,
           );
         }
 
@@ -468,6 +506,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
             modelPack.path,
             `minecraft:${texturePath}`,
             modelPack.is_zip,
+            versionFolders,
           );
         }
 
@@ -523,6 +562,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
               modelPack.path,
               texId,
               modelPack.is_zip,
+              versionFolders,
             );
           }
           if (!extraTex && resolvedPack && packsDir) {
@@ -530,6 +570,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
               resolvedPack.path,
               texId,
               resolvedPack.is_zip,
+              versionFolders,
             );
           }
           if (!extraTex) {
@@ -790,7 +831,18 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
 
       let tex: THREE.Texture | null = null;
       if (pack) {
-        tex = await loadPackTexture(pack.path, texAssetId, pack.is_zip);
+        const info = getEntityInfoFromAssetId(baseTextureAssetId);
+        const baseEntityType = cemEntityOverride?.entityType ?? info?.variant ?? "";
+        const baseParentEntity =
+          cemEntityOverride?.parentEntity === undefined
+            ? info?.parent
+            : cemEntityOverride?.parentEntity ?? null;
+        const versionFolders = buildVersionFolderCandidates(
+          targetMinecraftVersion,
+          entityVersionVariants[baseEntityType] ??
+            (baseParentEntity ? entityVersionVariants[baseParentEntity] : undefined),
+        );
+        tex = await loadPackTexture(pack.path, texAssetId, pack.is_zip, versionFolders);
       }
       if (!tex) {
         tex = await loadVanillaTexture(texAssetId);
@@ -1084,6 +1136,8 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     };
   }, [
     activeEntityLayers,
+    baseTextureAssetId,
+    cemEntityOverride,
     disabledPackIds,
     entityFeatureSchema,
     cemSourcePack,

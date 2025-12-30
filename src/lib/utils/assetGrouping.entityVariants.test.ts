@@ -17,7 +17,7 @@ describe("assetGrouping (entity variants)", () => {
     expect(groups[0]!.variantIds).toHaveLength(5);
   });
 
-  it("does not group mixed entity directories (e.g. horse + donkey)", () => {
+  it("does not merge donkey into the horse coat group", () => {
     const ids = [
       "minecraft:entity/horse/horse_brown",
       "minecraft:entity/horse/horse_black",
@@ -25,7 +25,8 @@ describe("assetGrouping (entity variants)", () => {
     ];
 
     const groups = groupAssetsByVariant(ids);
-    expect(groups.some((g) => g.baseId === "entity/horse")).toBe(false);
+    expect(groups.some((g) => g.baseId === "entity/horse")).toBe(true);
+    expect(groups.some((g) => g.baseId === "entity/horse/donkey")).toBe(true);
   });
 
   it("groups bed colors into a single variant family", () => {
@@ -87,5 +88,46 @@ describe("assetGrouping (entity variants)", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]!.baseId).toBe("entity/decorated_pot");
     expect(groups[0]!.variantIds).toHaveLength(3);
+  });
+
+  it("groups fox states (snow/sleep) into a single resource card", () => {
+    const ids = [
+      "minecraft:entity/fox/fox",
+      "minecraft:entity/fox/fox_sleep",
+      "minecraft:entity/fox/snow_fox",
+      "minecraft:entity/fox/snow_fox_sleep",
+    ];
+
+    const groups = groupAssetsByVariant(ids);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.baseId).toBe("entity/fox");
+    expect(groups[0]!.variantIds).toHaveLength(4);
+  });
+
+  it("groups llama fur colors into a single resource card", () => {
+    const ids = [
+      "minecraft:entity/llama/creamy",
+      "minecraft:entity/llama/white",
+      "minecraft:entity/llama/brown",
+    ];
+
+    const groups = groupAssetsByVariant(ids);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.baseId).toBe("entity/llama");
+    expect(groups[0]!.variantIds).toHaveLength(3);
+  });
+
+  it("groups horse coats but not donkey/mule textures in the same folder", () => {
+    const ids = [
+      "minecraft:entity/horse/horse_brown",
+      "minecraft:entity/horse/horse_black",
+      "minecraft:entity/horse/donkey",
+      "minecraft:entity/horse/mule",
+    ];
+
+    const groups = groupAssetsByVariant(ids);
+    expect(groups.some((g) => g.baseId === "entity/horse")).toBe(true);
+    expect(groups.some((g) => g.baseId === "entity/horse/donkey")).toBe(true);
+    expect(groups.some((g) => g.baseId === "entity/horse/mule")).toBe(true);
   });
 });

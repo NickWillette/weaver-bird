@@ -41,6 +41,21 @@ function getEntityAliasGroupKey(path: string): string | null {
     if (path === "entity/banner_base" || path.startsWith("entity/banner/")) {
         return "entity/banner";
     }
+    // Fox textures encode multiple states in a single folder (snow/sleep).
+    // Group them into a single resource card.
+    if (path.startsWith("entity/fox/")) {
+        return "entity/fox";
+    }
+    // Llama fur colors are stored as multiple textures in `entity/llama/*`
+    // (creamy/white/etc). Group them into a single resource card.
+    if (path.startsWith("entity/llama/")) {
+        return "entity/llama";
+    }
+    // Horses store multiple coat textures inside the `entity/horse/` folder,
+    // alongside *other* entities (donkey/mule). Only group the `horse_*` coats.
+    if (path.startsWith("entity/horse/horse_")) {
+        return "entity/horse";
+    }
     // Decorated pots have many texture variants in a dedicated directory
     // (pottery pattern masks). Group them into a single resource card.
     if (path.startsWith("entity/decorated_pot/")) {

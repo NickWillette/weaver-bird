@@ -46,6 +46,14 @@ export function isEntityFeatureLayerTextureAssetId(assetId: AssetId): boolean {
     }
   }
 
+  // Breeze wind/charge textures are rendered as optional feature layers on breeze.
+  if (entityPath.startsWith("breeze/")) {
+    const leaf = entityPath.split("/").pop() ?? "";
+    if (leaf === "breeze_wind" || leaf === "breeze_wind_charge" || leaf === "breeze_air") {
+      return true;
+    }
+  }
+
   // Villager feature layers
   if (entityPath.startsWith("villager/type/")) return true;
   if (entityPath.startsWith("villager/profession/")) return true;
@@ -65,6 +73,12 @@ export function isEntityFeatureLayerTextureAssetId(assetId: AssetId): boolean {
 
   // Common overlay suffixes (same-UV layers)
   const leaf = entityPath.split("/").pop() ?? "";
+  // Horse markings are composited on top of the base coat texture.
+  if (leaf.startsWith("horse_markings_")) return true;
+  // Fresh Animations includes a few misfiled entity textures under cow/ that
+  // are not intended to be rendered as standalone entities.
+  if (entityPath.startsWith("cow/") && (leaf === "red_mushroom" || leaf === "brown_mushroom"))
+    return true;
   if (
     leaf.endsWith("_eyes") ||
     leaf.endsWith("_overlay") ||
