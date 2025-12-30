@@ -40,11 +40,13 @@ import { ItemDisplayTab } from "./components/tabs/ItemDisplayTab";
 import { BlockStateTab } from "./components/tabs/BlockStateTab";
 import { EntityVariantTab } from "./components/tabs/EntityVariantTab";
 import { AnimationsTab } from "./components/tabs/AnimationsTab";
+import { EntityFeaturesTab } from "./components/tabs/EntityFeaturesTab";
 import { PotTab } from "./components/tabs/PotTab";
 import { SignOptionsTab } from "./components/tabs/SignOptionsTab";
 import { TextureVariantTab } from "./components/tabs/TextureVariantTab";
 import { PackVariantsTab } from "./components/tabs/PackVariantsTab";
 import { AdvancedTab } from "./components/tabs/AdvancedTab";
+import { resolveEntityCompositeSchema } from "@lib/entityComposite";
 import {
   isPainting,
   isPotteryShard,
@@ -154,6 +156,12 @@ export const OptionsPanel = ({
   const isEntityDecoratedPotAsset = isEntityDecoratedPot(assetId);
   const isSign = assetId ? isSignTexture(assetId) : false;
   const isHangingSignAsset = assetId ? isHangingSign(assetId) : false;
+
+  const allAssetIds = useMemo(() => allAssets.map((a) => a.id), [allAssets]);
+  const entityFeatureSchema = useMemo(() => {
+    if (!assetId) return null;
+    return resolveEntityCompositeSchema(assetId, allAssetIds);
+  }, [assetId, allAssetIds]);
 
   const packsDir = useSelectPacksDir();
   const blockStateAssetId =
@@ -270,6 +278,11 @@ export const OptionsPanel = ({
     ? getEntityVariants(assetId).length > 0
     : false;
   const shouldShowAnimationsTab = assetId ? isEntityTexture(assetId) : false;
+  const shouldShowEntityFeaturesTab =
+    assetId != null &&
+    assetId.includes("entity/") &&
+    entityFeatureSchema != null &&
+    entityFeatureSchema.controls.length > 0;
   const shouldShowItemTab =
     isItem && !isPotteryShardAsset && !isEntityDecoratedPotAsset;
   const shouldShowPaintingTab = isPaintingAsset && allAssets.length > 0;
@@ -331,6 +344,9 @@ export const OptionsPanel = ({
           )}
           {shouldShowAnimationsTab && (
             <TabIcon icon="🎬" label="Animations" value="animations" />
+          )}
+          {shouldShowEntityFeaturesTab && (
+            <TabIcon icon="🧩" label="Features" value="entity-features" />
           )}
           {shouldShowPotTab && <TabIcon icon="🌱" label="Pot" value="pot" />}
           {hasTextureVariants && onSelectVariant && (
@@ -395,6 +411,10 @@ export const OptionsPanel = ({
         {shouldShowEntityVariantTab && <EntityVariantTab assetId={assetId} />}
 
         {shouldShowAnimationsTab && <AnimationsTab />}
+
+        {shouldShowEntityFeaturesTab && entityFeatureSchema && (
+          <EntityFeaturesTab schema={entityFeatureSchema} />
+        )}
 
         {shouldShowPotTab && (
           <PotTab showPot={showPot} onShowPotChange={setShowPot} />

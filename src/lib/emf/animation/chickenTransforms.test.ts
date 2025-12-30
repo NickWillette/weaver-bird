@@ -39,10 +39,20 @@ describe("Fresh Animations (chicken) root translation semantics", () => {
     const bodyAfter = group.getObjectByName("body") as THREE.Object3D | null;
     expect(bodyAfter).toBeTruthy();
 
-    expect(bodyAfter!.position.y).toBeCloseTo(snapY, 6);
-
     const bodyUserData = (bodyAfter as any).userData ?? {};
-    expect(typeof bodyUserData.translationOffsetYPx).toBe("number");
+    const axes =
+      typeof bodyUserData.absoluteTranslationAxes === "string"
+        ? (bodyUserData.absoluteTranslationAxes as string)
+        : "";
+    expect(axes).toContain("y");
+    expect(bodyUserData.absoluteTranslationSpace).toBe("entity");
+
+    const bodyTy = engine.getBoneValue("body", "ty");
+    const expectedY = 24 / 16 - bodyTy / 16;
+    expect(bodyAfter!.position.y).toBeCloseTo(expectedY, 6);
+
+    // Keep the initial pose close to the JEM rest pose (should not "sink").
+    expect(Math.abs(bodyAfter!.position.y - snapY)).toBeLessThan(0.08);
   });
 
   it("does not drift the body far from rest under the idle preset", () => {

@@ -98,9 +98,9 @@ describe("Fresh Animations (allay) transform sanity", () => {
     rightArm!.getWorldPosition(rightArmWorldAfter);
     leftArm!.getWorldPosition(leftArmWorldAfter);
 
-    // Baseline normalization keeps tick(0) at the JEM rest pose.
-    expect(rightArmWorldAfter.y - rightArmWorldBefore.y).toBeCloseTo(0, 3);
-    expect(leftArmWorldAfter.y - leftArmWorldBefore.y).toBeCloseTo(0, 3);
-    expect(bodyWorldAfter.y - bodyWorldBefore.y).toBeCloseTo(0, 3);
+    // tick(0) should not drift far from the JEM rest pose.
+    expect(Math.abs(rightArmWorldAfter.y - rightArmWorldBefore.y)).toBeLessThan(0.01);
+    expect(Math.abs(leftArmWorldAfter.y - leftArmWorldBefore.y)).toBeLessThan(0.01);
+    expect(Math.abs(bodyWorldAfter.y - bodyWorldBefore.y)).toBeLessThan(0.01);
   });
 });

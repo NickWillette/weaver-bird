@@ -1,11 +1,11 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import {
   useSelectWinner,
   useSelectPack,
-  useSelectPacksInOrder,
   useSelectPacksDir,
+  useSelectAllAssets,
 } from "@state/selectors";
 import {
   loadEntityModel,
@@ -13,6 +13,7 @@ import {
   isEntityTexture,
   jemToThreeJS,
 } from "@lib/emf";
+import { resolveEntityCompositeSchema } from "@lib/entityComposite";
 import { loadPackTexture, loadVanillaTexture } from "@lib/three/textureLoader";
 import { useStore } from "@state/store";
 import { getEntityVersionVariants } from "@lib/tauri";
@@ -42,6 +43,16 @@ interface Props {
 function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const groupRef = useRef<THREE.Group>(null);
   const [entityGroup, setEntityGroup] = useState<THREE.Group | null>(null);
+  const [layerGroups, setLayerGroups] = useState<
+    Array<{ id: string; group: THREE.Group; dispose: "materials" | "all" }>
+  >([]);
+  const [cemSourcePack, setCemSourcePack] = useState<
+    | { id: string; path: string; is_zip: boolean; pack_format?: number }
+    | null
+  >(null);
+  const layerGroupsRef = useRef<
+    Array<{ id: string; group: THREE.Group; dispose: "materials" | "all" }>
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -50,6 +61,13 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const [animationLayers, setAnimationLayers] = useState<
     AnimationLayer[] | undefined
   >(undefined);
+  const [packAnimationLayers, setPackAnimationLayers] = useState<
+    AnimationLayer[] | undefined
+  >(undefined);
+  const baseBoneMapRef = useRef<Map<string, THREE.Object3D>>(new Map());
+  const overlayBoneMapsRef = useRef<Record<string, Map<string, THREE.Object3D>>>(
+    {},
+  );
 
   // JEM Inspector state
   const jemInspectorRef = useRef<JEMInspectorV2 | null>(null);
@@ -60,7 +78,6 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const storeWinnerPack = useSelectPack(storeWinnerPackId || "");
   const vanillaPack = useSelectPack("minecraft:vanilla");
   const packsDir = useSelectPacksDir();
-  const packsInOrder = useSelectPacksInOrder();
 
   // Get target version from store
   const targetMinecraftVersion = useStore(
@@ -87,6 +104,10 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     (state) => state.setAvailablePoseToggles,
   );
 
+  const entityAnimationVariant = useStore(
+    (state) => state.entityAnimationVariantByAssetId[assetId] ?? "pack",
+  );
+
   const animationTriggerRequestId = useStore(
     (state) => state.animationTriggerRequestId,
   );
@@ -105,6 +126,53 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
   const resolvedPackId =
     storeWinnerPackId ?? (vanillaPack ? "minecraft:vanilla" : undefined);
   const resolvedPack = storeWinnerPackId ? storeWinnerPack : vanillaPack;
+
+  const allAssets = useSelectAllAssets();
+  const entityFeatureStateByAssetId = useStore(
+    (state) => state.entityFeatureStateByAssetId,
+  );
+  const packOrder = useStore((state) => state.packOrder);
+  const providersByAsset = useStore((state) => state.providersByAsset);
+  const overrides = useStore((state) => state.overrides);
+  const disabledPackIds = useStore((state) => state.disabledPackIds);
+  const packsById = useStore((state) => state.packs);
+
+  useEffect(() => {
+    layerGroupsRef.current = layerGroups;
+  }, [layerGroups]);
+
+  const disposeGroupMaterials = (group: THREE.Group) => {
+    group.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      if (Array.isArray(obj.material)) obj.material.forEach((mat) => mat.dispose());
+      else obj.material?.dispose();
+    });
+  };
+
+  const disposeGroupAll = (group: THREE.Group) => {
+    group.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      obj.geometry?.dispose();
+      if (Array.isArray(obj.material)) obj.material.forEach((mat) => mat.dispose());
+      else obj.material?.dispose();
+    });
+  };
+
+  const allAssetIds = useMemo(() => allAssets.map((a) => a.id), [allAssets]);
+  const entityFeatureSchema = useMemo(
+    () => resolveEntityCompositeSchema(assetId, allAssetIds),
+    [assetId, allAssetIds],
+  );
+  const entityFeatureState = entityFeatureSchema
+    ? entityFeatureStateByAssetId[entityFeatureSchema.baseAssetId]
+    : undefined;
+  const activeEntityLayers = useMemo(() => {
+    if (!entityFeatureSchema) return [];
+    return entityFeatureSchema.getActiveLayers({
+      toggles: entityFeatureState?.toggles ?? {},
+      selects: entityFeatureState?.selects ?? {},
+    });
+  }, [entityFeatureSchema, entityFeatureState]);
 
   // Load entity version variants when packs directory changes
   useEffect(() => {
@@ -180,30 +248,28 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           | { id: string; path: string; is_zip: boolean; pack_format?: number }
           | null = null;
 
-        const modelCandidates = packsInOrder.filter(
-          (p) => p && p.id !== "minecraft:vanilla",
-        );
-
-        for (const pack of modelCandidates) {
+        // Load model/animations from the selected (winning) pack variant only.
+        // This avoids accidentally mixing geometry from one pack with animations
+        // from another (e.g. Fresh Animations leaking into the vanilla variant).
+        if (resolvedPack && resolvedPackId !== "minecraft:vanilla") {
           const attempt = await loadEntityModel(
             entityType!,
-            pack.path,
-            pack.is_zip,
+            resolvedPack.path,
+            resolvedPack.is_zip,
             targetMinecraftVersion,
             entityVersionVariants,
             parentEntity,
-            pack.pack_format,
+            resolvedPack.pack_format,
             selectedEntityVariant,
           );
           if (attempt) {
             parsedModel = attempt;
             modelPack = {
-              id: pack.id,
-              path: pack.path,
-              is_zip: pack.is_zip,
-              pack_format: pack.pack_format,
+              id: resolvedPackId!,
+              path: resolvedPack.path,
+              is_zip: resolvedPack.is_zip,
+              pack_format: resolvedPack.pack_format,
             };
-            break;
           }
         }
 
@@ -353,34 +419,23 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
         // Position the model - entity models sit on the ground plane
         group.position.y = 0;
 
-        // Store animation layers from parsed model
+        // Store pack-provided animation layers (variant selection decides whether
+        // they are applied).
         if (parsedModel.animations && parsedModel.animations.length > 0) {
           console.log(
             `[EntityModel] Found ${parsedModel.animations.length} animation layers`,
           );
-          setAnimationLayers(parsedModel.animations);
-          setAvailableAnimationPresets(
-            getAvailableAnimationPresetIdsForAnimationLayers(parsedModel.animations),
-          );
-          setAvailableAnimationTriggers(
-            getAvailableAnimationTriggerIdsForAnimationLayers(parsedModel.animations),
-          );
-          setAvailablePoseToggles(
-            getAvailablePoseToggleIdsForAnimationLayers(parsedModel.animations),
-          );
+          setPackAnimationLayers(parsedModel.animations);
         } else {
-          setAnimationLayers(undefined);
-          setAvailableAnimationPresets(null);
-          setAvailableAnimationTriggers(
-            getAvailableAnimationTriggerIdsForAnimationLayers(undefined),
-          );
-          setAvailablePoseToggles(null);
+          setPackAnimationLayers(undefined);
         }
 
         // Store parsed JEM data for inspector
         setParsedJemData(parsedModel);
 
         setEntityGroup(group);
+        setCemSourcePack(modelPack);
+        setLayerGroups([]);
         setLoading(false);
         console.log("=== [EntityModel] Entity Model Load Complete ===");
       } catch (err) {
@@ -395,6 +450,7 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
           setAvailableAnimationPresets(null);
           setAvailableAnimationTriggers(null);
           setAvailablePoseToggles(null);
+          setPackAnimationLayers(undefined);
           createPlaceholder();
         }
       }
@@ -427,7 +483,10 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
         group.add(mesh);
 
         setEntityGroup(group);
+        setCemSourcePack(null);
+        setLayerGroups([]);
         setLoading(false);
+        setPackAnimationLayers(undefined);
       } catch (err) {
         console.error("[EntityModel] Error creating placeholder:", err);
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -442,16 +501,11 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
 
       // Clean up on unmount or dependency change
       if (entityGroup) {
-        entityGroup.traverse((obj) => {
-          if (obj instanceof THREE.Mesh) {
-            obj.geometry?.dispose();
-            if (Array.isArray(obj.material)) {
-              obj.material.forEach((mat) => mat.dispose());
-            } else {
-              obj.material?.dispose();
-            }
-          }
-        });
+        disposeGroupAll(entityGroup);
+      }
+      for (const layer of layerGroupsRef.current) {
+        if (layer.dispose === "materials") disposeGroupMaterials(layer.group);
+        else disposeGroupAll(layer.group);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -460,10 +514,318 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     resolvedPackId,
     resolvedPack,
     packsDir,
-    packsInOrder,
     targetMinecraftVersion,
     entityVersionVariants,
     selectedEntityVariant,
+  ]);
+
+  // Apply selected animation variant (pack vs vanilla) without reloading geometry.
+  useEffect(() => {
+    const effectiveLayers =
+      entityAnimationVariant === "vanilla" ? undefined : packAnimationLayers;
+    setAnimationLayers(effectiveLayers);
+    setAvailableAnimationPresets(
+      getAvailableAnimationPresetIdsForAnimationLayers(effectiveLayers),
+    );
+    setAvailableAnimationTriggers(
+      getAvailableAnimationTriggerIdsForAnimationLayers(effectiveLayers),
+    );
+    setAvailablePoseToggles(
+      getAvailablePoseToggleIdsForAnimationLayers(effectiveLayers),
+    );
+  }, [
+    entityAnimationVariant,
+    packAnimationLayers,
+    setAvailableAnimationPresets,
+    setAvailableAnimationTriggers,
+    setAvailablePoseToggles,
+  ]);
+
+  useEffect(() => {
+    const map = new Map<string, THREE.Object3D>();
+    if (entityGroup) {
+      entityGroup.traverse((obj) => {
+        if (obj instanceof THREE.Group && obj.name && obj.name !== "jem_entity") {
+          map.set(obj.name, obj);
+        }
+      });
+    }
+    baseBoneMapRef.current = map;
+  }, [entityGroup]);
+
+  useEffect(() => {
+    const maps: Record<string, Map<string, THREE.Object3D>> = {};
+    for (const layer of layerGroups) {
+      const map = new Map<string, THREE.Object3D>();
+      layer.group.traverse((obj) => {
+        if (obj instanceof THREE.Group && obj.name && obj.name !== "jem_entity") {
+          map.set(obj.name, obj);
+        }
+      });
+      maps[layer.id] = map;
+    }
+    overlayBoneMapsRef.current = maps;
+  }, [layerGroups]);
+
+  // Build/refresh entity feature layers when the base model or feature state changes.
+  useEffect(() => {
+    if (!entityGroup || !packsDir || !entityFeatureSchema) {
+      setLayerGroups([]);
+      return;
+    }
+
+    if (activeEntityLayers.length === 0) {
+      setLayerGroups([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const disabledSet = new Set(disabledPackIds);
+    const getWinnerPackId = (texAssetId: string): string | undefined => {
+      const override = overrides[texAssetId];
+      if (override && !disabledSet.has(override.packId)) return override.packId;
+      const providers = (providersByAsset[texAssetId] ?? []).filter(
+        (id) => !disabledSet.has(id),
+      );
+      if (providers.length === 0) return undefined;
+      const sorted = [...providers].sort(
+        (a, b) => packOrder.indexOf(a) - packOrder.indexOf(b),
+      );
+      return sorted[0];
+    };
+
+    const loadTextureByAssetId = async (
+      texAssetId: string,
+    ): Promise<THREE.Texture | null> => {
+      const packId = getWinnerPackId(texAssetId);
+      const pack = packId ? packsById[packId] : undefined;
+
+      let tex: THREE.Texture | null = null;
+      if (pack) {
+        tex = await loadPackTexture(pack.path, texAssetId, pack.is_zip);
+      }
+      if (!tex) {
+        tex = await loadVanillaTexture(texAssetId);
+      }
+      return tex;
+    };
+
+    const normalizeJemTextureId = (jemTex: string): string => {
+      let namespace = "minecraft";
+      let path = jemTex.replace(/\\/g, "/");
+      if (path.includes(":")) {
+        const split = path.split(":");
+        namespace = split[0] || namespace;
+        path = split.slice(1).join(":");
+      }
+      if (path.startsWith("textures/")) {
+        path = path.slice("textures/".length);
+      }
+      path = path.replace(/\.png$/i, "");
+      return `${namespace}:${path}`;
+    };
+
+    const makeOverlayMaterial = (
+      tex: THREE.Texture | null,
+      layer: (typeof activeEntityLayers)[number],
+      side: THREE.Side = THREE.FrontSide,
+    ): THREE.Material => {
+      if (tex) {
+        tex.magFilter = THREE.NearestFilter;
+        tex.minFilter = THREE.NearestFilter;
+        tex.colorSpace = THREE.SRGBColorSpace;
+      }
+
+      const opacity = layer.opacity ?? 1;
+      const blending =
+        layer.blend === "additive" ? THREE.AdditiveBlending : THREE.NormalBlending;
+      const isAdditive = layer.blend === "additive";
+
+      const mode = layer.materialMode ?? { kind: "default" as const };
+
+      if (mode.kind === "emissive") {
+        const mat = new THREE.MeshBasicMaterial({
+          map: tex ?? undefined,
+          transparent: true,
+          alphaTest: 0.1,
+          opacity,
+          blending,
+          depthWrite: false,
+          depthTest: true,
+          toneMapped: false,
+          side,
+        });
+        return mat;
+      }
+
+      const color =
+        mode.kind === "tint"
+          ? new THREE.Color(mode.color.r, mode.color.g, mode.color.b).convertSRGBToLinear()
+          : new THREE.Color(1, 1, 1);
+
+      const mat = new THREE.MeshStandardMaterial({
+        map: tex ?? undefined,
+        // Prefer cutout rendering for layer textures to avoid transparent sorting
+        // artifacts when stacking multiple entity groups.
+        transparent: isAdditive || opacity < 1,
+        opacity,
+        blending,
+        depthWrite: !isAdditive && opacity >= 1,
+        depthTest: true,
+        alphaTest: 0.1,
+        color,
+        emissive:
+          isAdditive
+            ? new THREE.Color(1, 1, 1)
+            : new THREE.Color(0, 0, 0),
+        emissiveIntensity: isAdditive ? 0.7 : 0,
+        side,
+      });
+      mat.polygonOffset = true;
+      // Use a small, stable polygon offset to avoid z-fighting without pulling
+      // the layer "in front" of unrelated geometry.
+      const offset = 1 + layer.zIndex / 1000;
+      mat.polygonOffsetFactor = -offset;
+      mat.polygonOffsetUnits = -offset;
+      return mat;
+    };
+
+    const cloneGroupWithTexture = (
+      base: THREE.Group,
+      tex: THREE.Texture | null,
+      layer: (typeof activeEntityLayers)[number],
+    ) => {
+      const clone = base.clone(true);
+      clone.traverse((obj) => {
+        if (!(obj instanceof THREE.Mesh)) return;
+        const prior = obj.material;
+        const side = Array.isArray(prior)
+          ? prior[0]?.side ?? THREE.FrontSide
+          : prior?.side ?? THREE.FrontSide;
+        obj.material = makeOverlayMaterial(tex, layer, side);
+      });
+      return clone;
+    };
+
+    const tryLoadCemOverlay = async (
+      candidates: string[],
+    ): Promise<ReturnType<typeof loadEntityModel> | null> => {
+      for (const cemEntityType of candidates) {
+        if (cemSourcePack) {
+          const attempt = await loadEntityModel(
+            cemEntityType,
+            cemSourcePack.path,
+            cemSourcePack.is_zip,
+            targetMinecraftVersion,
+            entityVersionVariants,
+            null,
+            cemSourcePack.pack_format,
+            selectedEntityVariant,
+          );
+          if (attempt) return attempt;
+        }
+
+        const vanillaAttempt = await loadEntityModel(
+          cemEntityType,
+          undefined,
+          undefined,
+          targetMinecraftVersion,
+          entityVersionVariants,
+          null,
+          undefined,
+          selectedEntityVariant,
+        );
+        if (vanillaAttempt) return vanillaAttempt;
+      }
+
+      return null;
+    };
+
+    const buildLayers = async () => {
+      for (const prev of layerGroupsRef.current) {
+        if (prev.dispose === "materials") disposeGroupMaterials(prev.group);
+        else disposeGroupAll(prev.group);
+      }
+
+      const built: Array<{
+        id: string;
+        group: THREE.Group;
+        dispose: "materials" | "all";
+      }> = [];
+
+      for (const layer of activeEntityLayers) {
+        const tex = await loadTextureByAssetId(layer.textureAssetId);
+        if (cancelled) return;
+
+        if (layer.kind === "cloneTexture") {
+          const g = cloneGroupWithTexture(entityGroup, tex, layer);
+          g.position.copy(entityGroup.position);
+          g.rotation.copy(entityGroup.rotation);
+          g.scale.copy(entityGroup.scale);
+          built.push({ id: layer.id, group: g, dispose: "materials" });
+          continue;
+        }
+
+        const overlayModel = await tryLoadCemOverlay(layer.cemEntityTypeCandidates);
+        if (cancelled) return;
+        if (!overlayModel) continue;
+
+        const extraTexturePaths = new Set<string>();
+        const collectTextures = (part: any) => {
+          if (part.texturePath) extraTexturePaths.add(part.texturePath);
+          if (part.children) part.children.forEach(collectTextures);
+        };
+        overlayModel.parts.forEach(collectTextures);
+        extraTexturePaths.delete(overlayModel.texturePath);
+        extraTexturePaths.delete("");
+
+        const textureMap: Record<string, THREE.Texture> = {};
+        for (const jemTexPath of extraTexturePaths) {
+          const texId = normalizeJemTextureId(jemTexPath);
+          const extra = await loadTextureByAssetId(texId);
+          if (extra) textureMap[jemTexPath] = extra;
+        }
+
+        const g = jemToThreeJS(overlayModel, tex, textureMap);
+        g.position.copy(entityGroup.position);
+        g.rotation.copy(entityGroup.rotation);
+        g.scale.copy(entityGroup.scale);
+        g.traverse((obj) => {
+          if (!(obj instanceof THREE.Mesh)) return;
+          const prior = obj.material;
+          const side = Array.isArray(prior)
+            ? prior[0]?.side ?? THREE.FrontSide
+            : prior?.side ?? THREE.FrontSide;
+          obj.material = makeOverlayMaterial(tex, layer, side);
+          if (Array.isArray(prior)) prior.forEach((m) => m.dispose());
+          else prior?.dispose();
+        });
+        built.push({ id: layer.id, group: g, dispose: "all" });
+      }
+
+      if (!cancelled) setLayerGroups(built);
+    };
+
+    buildLayers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeEntityLayers,
+    disabledPackIds,
+    entityFeatureSchema,
+    cemSourcePack,
+    entityGroup,
+    entityVersionVariants,
+    overrides,
+    packOrder,
+    packsById,
+    packsDir,
+    providersByAsset,
+    selectedEntityVariant,
+    targetMinecraftVersion,
   ]);
 
   // Create animation engine when entity group or animation layers change
@@ -488,6 +850,11 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
         .filter(([, enabled]) => enabled)
         .map(([id]) => id),
     );
+
+    // Ensure the very first render after loading reflects the same transforms
+    // we use during playback (some rigs need a tick(0) to align correctly even
+    // when no preset is selected).
+    engine.tick(0);
 
     return () => {
       console.log("[EntityModel] Cleaning up animation engine");
@@ -592,6 +959,29 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
 
     // Tick the animation engine
     engine.tick(delta);
+
+    // Sync overlay layers to the base pose (single engine drives all layers).
+    if (!entityGroup) return;
+    const baseBones = baseBoneMapRef.current;
+    const overlayMaps = overlayBoneMapsRef.current;
+    for (const layer of layerGroupsRef.current) {
+      layer.group.position.copy(entityGroup.position);
+      layer.group.rotation.copy(entityGroup.rotation);
+      layer.group.scale.copy(entityGroup.scale);
+
+      const overlayBones = overlayMaps[layer.id];
+      if (!overlayBones) continue;
+
+      for (const [name, dst] of overlayBones) {
+        const src = baseBones.get(name);
+        if (!src) continue;
+        dst.position.copy(src.position);
+        dst.rotation.copy(src.rotation);
+        dst.scale.copy(src.scale);
+        dst.visible = src.visible;
+      }
+      layer.group.updateMatrixWorld(true);
+    }
   });
 
   if (error) {
@@ -612,6 +1002,9 @@ function EntityModel({ assetId, positionOffset = [0, 0, 0] }: Props) {
     return (
       <group ref={groupRef} position={positionOffset}>
         <primitive object={entityGroup} />
+        {layerGroups.map((layer) => (
+          <primitive key={layer.id} object={layer.group} />
+        ))}
       </group>
     );
   } catch (err) {

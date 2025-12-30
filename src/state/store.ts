@@ -5,7 +5,14 @@
 
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
-import { AppState, PackId, AssetId, PackMeta, AssetRecord } from "./types";
+import {
+  AppState,
+  PackId,
+  AssetId,
+  PackMeta,
+  AssetRecord,
+  EntityAnimationVariant,
+} from "./types";
 import { clampAnimationSpeed } from "@lib/emf/animation/types";
 import { POSE_TOGGLES } from "@lib/emf/animation";
 
@@ -101,6 +108,24 @@ interface StoreActions {
   setPoseToggleEnabled: (toggleId: string, enabled: boolean) => void;
   triggerAnimation: (triggerId: string) => void;
 
+  // Entity feature layers
+  setEntityFeatureToggle: (
+    baseAssetId: AssetId,
+    toggleId: string,
+    enabled: boolean,
+  ) => void;
+  setEntityFeatureSelect: (
+    baseAssetId: AssetId,
+    selectId: string,
+    value: string,
+  ) => void;
+
+  // Entity animation variant (pack vs vanilla)
+  setEntityAnimationVariant: (
+    assetId: AssetId,
+    variant: EntityAnimationVariant,
+  ) => void;
+
   // Debug mode
   setJemDebugMode: (enabled: boolean) => void;
 
@@ -181,6 +206,12 @@ const initialState: AppState = {
   animationTriggerRequestNonce: 0,
   availablePoseToggles: null, // No pose toggles by default
   activePoseToggles: {},
+
+  // Entity feature layers
+  entityFeatureStateByAssetId: {},
+
+  // Entity animation variant selection
+  entityAnimationVariantByAssetId: {},
 
   // Debug mode
   jemDebugMode: false, // Debug mode disabled by default
@@ -597,6 +628,33 @@ export const useStore = create<WeaverbirdStore>()(
       set((state) => {
         state.animationTriggerRequestId = triggerId;
         state.animationTriggerRequestNonce += 1;
+      });
+    },
+
+    setEntityFeatureToggle: (baseAssetId, toggleId, enabled) => {
+      set((state) => {
+        state.entityFeatureStateByAssetId[baseAssetId] ??= {
+          toggles: {},
+          selects: {},
+        };
+        state.entityFeatureStateByAssetId[baseAssetId].toggles[toggleId] =
+          enabled;
+      });
+    },
+
+    setEntityFeatureSelect: (baseAssetId, selectId, value) => {
+      set((state) => {
+        state.entityFeatureStateByAssetId[baseAssetId] ??= {
+          toggles: {},
+          selects: {},
+        };
+        state.entityFeatureStateByAssetId[baseAssetId].selects[selectId] = value;
+      });
+    },
+
+    setEntityAnimationVariant: (assetId, variant) => {
+      set((state) => {
+        state.entityAnimationVariantByAssetId[assetId] = variant;
       });
     },
 

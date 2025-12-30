@@ -66,6 +66,10 @@ export class AnimationEngine {
    * without relying on bone-name special cases.
    */
   private baselineBoneValues: Map<string, number> = new Map();
+  private crossBoneTranslationReadsByBone: Map<string, Set<"x" | "y" | "z">> =
+    new Map();
+  private crossBoneRotationReadsByBone: Map<string, Set<"x" | "y" | "z">> =
+    new Map();
 
   /** Tracks which bones animate translation axes (tx/ty/tz). */
   private translationAxesByBone: Map<string, Set<"x" | "y" | "z">> = new Map();
@@ -742,23 +746,49 @@ export class AnimationEngine {
    * - For any bone axis that is animated in rotation, store baseline offsets so
    *   the baseline evaluates to the model's rest pose.
    */
-  private initializeTransformNormalization(): void {
-    this.baselineBoneValues.clear();
+		  private initializeTransformNormalization(): void {
+	    this.baselineBoneValues.clear();
 
-    const baselineContext = createAnimationContext();
-    baselineContext.boneValues = this.cloneRestBoneValues();
+	    const baselineContext = createAnimationContext();
+	    baselineContext.boneValues = this.cloneRestBoneValues();
     // Baselines should reflect the first evaluation performed by tick(0), which
     // increments the frame counter before evaluating expressions.
     baselineContext.entityState.frame_counter = 1;
     baselineContext.entityState.frame_time = 0;
+    this.applyVanillaRotationInputSeeding(baselineContext);
 
-    const baselineTransforms = this.evaluateLayersToTransforms(baselineContext);
+		    const baselineTransforms = this.evaluateLayersToTransforms(baselineContext);
 
-    for (const [boneName, transform] of baselineTransforms) {
-      if (transform.tx !== undefined)
-        this.baselineBoneValues.set(`${boneName}.tx`, transform.tx);
-      if (transform.ty !== undefined)
-        this.baselineBoneValues.set(`${boneName}.ty`, transform.ty);
+	    // Some rigs (notably Fresh Animations humanoids) use cross-bone translation reads
+	    // (e.g. `headwear.tx = body.tx`) where the baseline differs between pose-like
+	    // conditions (idle vs walking). Subtracting a single baseline can amplify
+	    // motion when those conditions switch. To detect this, we sample a second
+	    // baseline with walking-like limb values.
+	    const altBaselineValues = new Map<string, number>();
+	    {
+	      const altContext = createAnimationContext();
+	      altContext.boneValues = this.cloneRestBoneValues();
+	      altContext.entityState.frame_counter = 1;
+	      altContext.entityState.frame_time = 0;
+	      altContext.entityState.limb_speed = 0.4;
+	      altContext.entityState.limb_swing = 0;
+	      this.applyVanillaRotationInputSeeding(altContext);
+		      const altTransforms = this.evaluateLayersToTransforms(altContext);
+	      for (const [boneName, transform] of altTransforms) {
+	        if (transform.tx !== undefined)
+	          altBaselineValues.set(`${boneName}.tx`, transform.tx);
+	        if (transform.ty !== undefined)
+	          altBaselineValues.set(`${boneName}.ty`, transform.ty);
+	        if (transform.tz !== undefined)
+	          altBaselineValues.set(`${boneName}.tz`, transform.tz);
+	      }
+	    }
+
+	    for (const [boneName, transform] of baselineTransforms) {
+	      if (transform.tx !== undefined)
+	        this.baselineBoneValues.set(`${boneName}.tx`, transform.tx);
+	      if (transform.ty !== undefined)
+	        this.baselineBoneValues.set(`${boneName}.ty`, transform.ty);
       if (transform.tz !== undefined)
         this.baselineBoneValues.set(`${boneName}.tz`, transform.tz);
       if (transform.rx !== undefined)
@@ -769,9 +799,9 @@ export class AnimationEngine {
         this.baselineBoneValues.set(`${boneName}.rz`, transform.rz);
     }
 
-    // Determine which channels are constant-only (these are often intended as
-    // authored offsets and should not be normalized away).
-    const isConstantByChannel = new Map<string, boolean>();
+	    // Determine which channels are constant-only (these are often intended as
+	    // authored offsets and should not be normalized away).
+	    const isConstantByChannel = new Map<string, boolean>();
     for (const layer of this.animationLayers) {
       for (const anim of layer) {
         if (anim.targetType !== "bone") continue;
@@ -783,10 +813,174 @@ export class AnimationEngine {
       }
     }
 
-    // Normalize additive translations by subtracting tick(0) baselines.
-    for (const [boneName, axesSet] of this.translationAxesByBone) {
-      const bone = this.bones.get(boneName);
-      if (!bone) continue;
+		    // Normalize additive translations by subtracting tick(0) baselines.
+	    // Some rigs (notably Fresh Animations humanoids) author translations in
+	    // entity-space by explicitly referencing other bones' translation channels
+	    // (e.g. `arm.tx = body.tx + cos(body.ry)*5`). These should be treated as
+	    // absolute rotationPoint-like values rather than additive offsets, or the
+	    // model will drift as the referenced bone moves.
+		    const translationCrossReadsByBone = new Map<string, Set<"x" | "y" | "z">>();
+		    const rotationCrossReadsByBone = new Map<string, Set<"x" | "y" | "z">>();
+		    const translationChannelDeps = new Map<string, Set<string>>();
+
+    const recordAxis = (
+      map: Map<string, Set<"x" | "y" | "z">>,
+      boneName: string,
+      axis: "x" | "y" | "z",
+    ) => {
+      const set = map.get(boneName) ?? new Set<"x" | "y" | "z">();
+      set.add(axis);
+      map.set(boneName, set);
+    };
+
+	    const collectRefs = (
+	      node: ASTNode,
+	      opts: {
+	        writingBone: string;
+	        writingProp: "tx" | "ty" | "tz" | "rx" | "ry" | "rz" | string;
+	        isTranslationWrite: boolean;
+	      },
+	    ): void => {
+      switch (node.type) {
+        case "Variable": {
+          const name = node.name;
+          const dot = name.indexOf(".");
+          if (dot === -1) return;
+          const bone = name.slice(0, dot);
+          const prop = name.slice(dot + 1);
+	          if (bone === "var" || bone === "render" || bone === "varb") return;
+	          if (prop === "tx" || prop === "ty" || prop === "tz") {
+	            const axis = prop[1] as "x" | "y" | "z";
+	            if (bone !== opts.writingBone) {
+	              recordAxis(translationCrossReadsByBone, bone, axis);
+	            }
+	            if (
+	              opts.isTranslationWrite &&
+	              (opts.writingProp === "tx" ||
+	                opts.writingProp === "ty" ||
+	                opts.writingProp === "tz") &&
+	              bone !== opts.writingBone
+	            ) {
+	              const key = `${opts.writingBone}.${opts.writingProp}`;
+	              const deps = translationChannelDeps.get(key) ?? new Set<string>();
+	              deps.add(`${bone}.${prop}`);
+	              translationChannelDeps.set(key, deps);
+	            }
+
+	          }
+	          if (prop === "rx" || prop === "ry" || prop === "rz") {
+	            const axis = prop[1] as "x" | "y" | "z";
+	            if (bone !== opts.writingBone) {
+	              recordAxis(rotationCrossReadsByBone, bone, axis);
+	            }
+	          }
+	          return;
+	        }
+        case "UnaryOp":
+          collectRefs(node.operand, opts);
+          return;
+        case "BinaryOp":
+          collectRefs(node.left, opts);
+          collectRefs(node.right, opts);
+          return;
+        case "FunctionCall":
+          for (const arg of node.args) collectRefs(arg, opts);
+          return;
+        case "Ternary":
+          collectRefs(node.condition, opts);
+          collectRefs(node.consequent, opts);
+          collectRefs(node.alternate, opts);
+          return;
+        default:
+          return;
+      }
+    };
+
+	    for (const layer of this.animationLayers) {
+	      for (const anim of layer) {
+	        if (anim.targetType !== "bone") continue;
+	        if (!("ast" in anim.expression)) continue;
+	        const isTranslationWrite =
+	          anim.propertyName === "tx" || anim.propertyName === "ty" || anim.propertyName === "tz";
+	        collectRefs(anim.expression.ast, {
+	          writingBone: anim.targetName,
+	          writingProp: anim.propertyName,
+	          isTranslationWrite,
+	        });
+	      }
+	    }
+	    this.crossBoneTranslationReadsByBone = translationCrossReadsByBone;
+	    this.crossBoneRotationReadsByBone = rotationCrossReadsByBone;
+
+	    // If a translation channel is used as an entity-space source (read by other
+	    // bones) and its baseline differs meaningfully between idle and walking-like
+	    // contexts, subtracting a single baseline offset can exaggerate motion when
+	    // conditions switch. Treat such channels (and any channels derived from them)
+	    // as "authored" and do not baseline-normalize them.
+	    const poseDependentTranslationChannels = new Set<string>();
+	    const poseDeltaTolerancePx = 0.75;
+	    for (const [boneName, axes] of translationCrossReadsByBone) {
+	      for (const axis of axes) {
+	        const key = `${boneName}.t${axis}` as const;
+	        const alt = altBaselineValues.get(key);
+	        if (typeof alt !== "number") continue;
+	        const base = this.baselineBoneValues.get(key) ?? 0;
+	        if (Math.abs(base - alt) > poseDeltaTolerancePx) {
+	          poseDependentTranslationChannels.add(`${boneName}.t${axis}`);
+	        }
+	      }
+	    }
+
+	    if (poseDependentTranslationChannels.size > 0 && translationChannelDeps.size > 0) {
+	      let changed = true;
+	      while (changed) {
+	        changed = false;
+	        for (const [target, deps] of translationChannelDeps) {
+	          if (poseDependentTranslationChannels.has(target)) continue;
+	          for (const dep of deps) {
+	            if (poseDependentTranslationChannels.has(dep)) {
+	              poseDependentTranslationChannels.add(target);
+	              changed = true;
+	              break;
+	            }
+	          }
+	        }
+	      }
+	    }
+
+	    // Some rigs author small `ty` offsets (e.g. head/body bob) that are read by
+	    // other bones (`body.ty = head.ty + ...`). Baseline-normalizing the source
+	    // but not the derived channels causes attachment drift (e.g. headwear).
+	    // Treat these channels (and any channels derived from them) as authored and
+	    // do not baseline-normalize them.
+	    const smallSharedTyChannels = new Set<string>();
+	    for (const [boneName, axes] of translationCrossReadsByBone) {
+	      if (!axes.has("y")) continue;
+	      const key = `${boneName}.ty`;
+	      const base = this.baselineBoneValues.get(key) ?? 0;
+	      if (Math.abs(base) < 3) smallSharedTyChannels.add(key);
+	    }
+
+	    if (smallSharedTyChannels.size > 0 && translationChannelDeps.size > 0) {
+	      let changed = true;
+	      while (changed) {
+	        changed = false;
+	        for (const [target, deps] of translationChannelDeps) {
+	          if (smallSharedTyChannels.has(target)) continue;
+	          for (const dep of deps) {
+	            if (smallSharedTyChannels.has(dep)) {
+	              smallSharedTyChannels.add(target);
+	              changed = true;
+	              break;
+	            }
+	          }
+	        }
+	      }
+	    }
+
+	    for (const [boneName, axesSet] of this.translationAxesByBone) {
+	      const bone = this.bones.get(boneName);
+	      if (!bone) continue;
 
       const userData = (bone as any).userData ?? {};
       const getAbsoluteAxes = (): string =>
@@ -796,27 +990,53 @@ export class AnimationEngine {
             ? "xyz"
             : "";
 
-      // Infer "local-absolute" translation semantics when the JPM baseline value
-      // matches the bone's rest local pivot (common for attached subparts like
-      // sniffer ears). This avoids double-applying the bone's base translate.
-      const invertAxis =
-        typeof userData.invertAxis === "string" ? (userData.invertAxis as string) : "";
-      const base = this.baseTransforms.get(boneName);
-      const localPxX = (base?.position.x ?? 0) * 16;
-      const localPxY = (base?.position.y ?? 0) * 16;
-      const localPxZ = (base?.position.z ?? 0) * 16;
-      const expectedCemX = invertAxis.includes("x") ? -localPxX : localPxX;
-      const expectedCemY = invertAxis.includes("y") ? -localPxY : localPxY;
-      const expectedCemZ = invertAxis.includes("z") ? -localPxZ : localPxZ;
+	      const isRoot = bone.parent === this.modelGroup;
 
-      const tolerancePx = 0.75;
-      const isRoot = bone.parent === this.modelGroup;
+	      // Infer "local-absolute" translation semantics when the JPM baseline value
+	      // matches the bone's rest local pivot (common for attached subparts like
+	      // sniffer ears). This avoids double-applying the bone's base translate.
+	      const invertAxis =
+	        typeof userData.invertAxis === "string" ? (userData.invertAxis as string) : "";
+	      const base = this.baseTransforms.get(boneName);
+	      const localPxX = (base?.position.x ?? 0) * 16;
+	      const localPxY = (base?.position.y ?? 0) * 16;
+	      const localPxZ = (base?.position.z ?? 0) * 16;
+	      const expectedCemX = invertAxis.includes("x") ? -localPxX : localPxX;
+	      const expectedCemY = invertAxis.includes("y") ? -localPxY : localPxY;
+	      const expectedCemZ = invertAxis.includes("z") ? -localPxZ : localPxZ;
+	      const originPx = Array.isArray(userData.originPx)
+	        ? (userData.originPx as [number, number, number])
+	        : ([0, 0, 0] as [number, number, number]);
+	      const expectedCemEntityX = invertAxis.includes("x") ? -originPx[0] : originPx[0];
+	      const expectedCemEntityZ = invertAxis.includes("z") ? -originPx[2] : originPx[2];
 
-      const ensureLocalAbsolute = (axis: "x" | "y" | "z") => {
-        if (getAbsoluteAxes().includes(axis)) return;
-        const baseline = this.getBaselineBoneValue(boneName, `t${axis}`);
-        const expected =
-          axis === "x" ? expectedCemX : axis === "y" ? expectedCemY : expectedCemZ;
+	      const tolerancePx = 0.75;
+
+	      const ensureEntityAbsolute = (axis: "x" | "z") => {
+	        if (getAbsoluteAxes().includes(axis)) return;
+	        const baseline = this.getBaselineBoneValue(boneName, `t${axis}`);
+	        const expected =
+	          axis === "x" ? expectedCemEntityX : expectedCemEntityZ;
+	        // Avoid classifying zero-origin bones where this yields no real signal.
+	        if (Math.abs(expected) < 1.5) return;
+	        if (Math.abs(baseline) < 1.5) return;
+	        if (Math.abs(baseline - expected) > tolerancePx) return;
+
+	        const existing =
+	          typeof userData.absoluteTranslationAxes === "string"
+	            ? (userData.absoluteTranslationAxes as string)
+	            : "";
+	        if (!existing.includes(axis)) {
+	          userData.absoluteTranslationAxes = existing + axis;
+	        }
+	        userData.absoluteTranslationSpace = "entity";
+	      };
+
+	      const ensureLocalAbsolute = (axis: "x" | "y" | "z") => {
+	        if (getAbsoluteAxes().includes(axis)) return;
+	        const baseline = this.getBaselineBoneValue(boneName, `t${axis}`);
+	        const expected =
+	          axis === "x" ? expectedCemX : axis === "y" ? expectedCemY : expectedCemZ;
         // Avoid misclassifying small additive offsets (e.g. mane2.tz=1.2).
         if (Math.abs(expected) < 3) return;
         if (Math.abs(baseline) < 3) return;
@@ -829,15 +1049,13 @@ export class AnimationEngine {
         if (!existing.includes(axis)) {
           userData.absoluteTranslationAxes = existing + axis;
         }
-        userData.absoluteTranslationSpace = "local";
-      };
+	        userData.absoluteTranslationSpace = "local";
+	      };
 
       const ensureRotationPointYAbsolute = () => {
         if (!axesSet.has("y")) return;
         if (getAbsoluteAxes().includes("y")) return;
         if (!isRoot) return;
-        const wantsPivot = this.selfTranslationPivotSeeds.get(boneName)?.has("ty");
-        if (!wantsPivot) return;
         const baseline = this.getBaselineBoneValue(boneName, "ty");
         // For invertAxis="y", rotationPointY maps via (24 - ty).
         const expected = invertAxis.includes("y")
@@ -851,146 +1069,326 @@ export class AnimationEngine {
         userData.absoluteTranslationAxes = existing.includes("y")
           ? existing
           : existing + "y";
+        if (typeof userData.absoluteTranslationSpace !== "string") {
+          userData.absoluteTranslationSpace = "entity";
+        }
         // Entity-space absolute (rotationPointY) uses the default 24px origin.
         delete userData.translationOffsetYPx;
         delete userData.translationOffsetY;
       };
 
-      if (axesSet.has("x")) ensureLocalAbsolute("x");
-      if (axesSet.has("y")) ensureRotationPointYAbsolute();
-      if (axesSet.has("y")) ensureLocalAbsolute("y");
-      if (axesSet.has("z")) ensureLocalAbsolute("z");
+	      if (axesSet.has("x")) ensureEntityAbsolute("x");
+	      if (axesSet.has("y")) ensureRotationPointYAbsolute();
+	      if (axesSet.has("z")) ensureEntityAbsolute("z");
+	      if (axesSet.has("x")) ensureLocalAbsolute("x");
+	      if (axesSet.has("y")) ensureLocalAbsolute("y");
+	      if (axesSet.has("z")) ensureLocalAbsolute("z");
 
-      if (axesSet.has("x")) {
-        const channel = `${boneName}.tx`;
-        if (getAbsoluteAxes().includes("x")) {
-          // Absolute channels should remain absolute; do not normalize.
-        } else if (
-          typeof userData.translationOffsetXPx !== "number" &&
-          typeof userData.translationOffsetX !== "number" &&
-          isConstantByChannel.get(channel) !== true
-        ) {
-          const tx0 = this.getBaselineBoneValue(boneName, "tx");
-          if (Math.abs(tx0) > 1e-6) userData.translationOffsetXPx = tx0;
-        }
-      }
+		      if (axesSet.has("x")) {
+		        const channel = `${boneName}.tx`;
+		        if (getAbsoluteAxes().includes("x")) {
+		          // Absolute channels should remain absolute; do not normalize.
+		        } else if (poseDependentTranslationChannels.has(channel)) {
+		          // Pose-dependent channel: avoid baseline subtraction.
+		        } else if (
+		          typeof userData.translationOffsetXPx !== "number" &&
+		          typeof userData.translationOffsetX !== "number" &&
+		          isConstantByChannel.get(channel) !== true
+		        ) {
+		          const tx0 = this.getBaselineBoneValue(boneName, "tx");
+		          if (Math.abs(tx0) > 1e-6) userData.translationOffsetXPx = tx0;
+		        }
+		      }
 
-      if (axesSet.has("y")) {
-        const channel = `${boneName}.ty`;
-        if (getAbsoluteAxes().includes("y")) {
-          // Absolute channels should remain absolute; do not normalize.
-        } else if (
-          typeof userData.translationOffsetYPx !== "number" &&
-          typeof userData.translationOffsetY !== "number" &&
-          isConstantByChannel.get(channel) !== true
-        ) {
-          const ty0 = this.getBaselineBoneValue(boneName, "ty");
-          if (Math.abs(ty0) > 1e-6) userData.translationOffsetYPx = ty0;
-        }
-      }
+				      if (axesSet.has("y")) {
+				        const channel = `${boneName}.ty`;
+				        if (getAbsoluteAxes().includes("y")) {
+				          // Absolute channels should remain absolute; do not normalize.
+				        } else if (smallSharedTyChannels.has(channel)) {
+				          // Authored small offsets (and their derived channels): do not baseline-normalize.
+				        } else if (
+				          typeof userData.translationOffsetYPx !== "number" &&
+				          typeof userData.translationOffsetY !== "number"
+				        ) {
+				          const ty0 = this.getBaselineBoneValue(boneName, "ty");
+				          const isConstant = isConstantByChannel.get(channel) === true;
 
-      if (axesSet.has("z")) {
-        const channel = `${boneName}.tz`;
-        if (getAbsoluteAxes().includes("z")) {
-          // Absolute channels should remain absolute; do not normalize.
-        } else if (
-          typeof userData.translationOffsetZPx !== "number" &&
-          typeof userData.translationOffsetZ !== "number" &&
-          isConstantByChannel.get(channel) !== true
-        ) {
-          const tz0 = this.getBaselineBoneValue(boneName, "tz");
-          if (Math.abs(tz0) > 1e-6) userData.translationOffsetZPx = tz0;
-        }
-      }
+				          // Some rigs author child ty constants that effectively cancel a
+				          // parent's 24px-origin (e.g. villager arms_rotation.ty≈-24.8).
+				          // Treat these as baselines even if constant-only, or the part
+				          // will jump upward by ~24px when applied additively.
+				          const parentOriginPx = Array.isArray(
+				            (bone.parent as any)?.userData?.originPx,
+				          )
+				            ? (((bone.parent as any).userData.originPx as [
+				                number,
+				                number,
+				                number,
+				              ]) satisfies [number, number, number])
+				            : ([0, 0, 0] as [number, number, number]);
+				          const cancelsParentOriginY =
+				            !isRoot &&
+				            invertAxis.includes("y") &&
+				            parentOriginPx[1] >= 16 &&
+				            Math.abs(ty0) >= 8 &&
+				            Math.abs(ty0 + parentOriginPx[1]) <= 2;
 
-      (bone as any).userData = userData;
-    }
+				          if (cancelsParentOriginY) {
+				            if (Math.abs(ty0) > 1e-6) userData.translationOffsetYPx = ty0;
+				          } else if (!isConstant) {
+				            if (Math.abs(ty0) > 1e-6) userData.translationOffsetYPx = ty0;
+				          }
+				        }
+				      }
 
-    // Normalize additive rotations by subtracting tick(0) baselines.
-    for (const [boneName, axesSet] of this.rotationAxesByBone) {
-      const bone = this.bones.get(boneName);
-      if (!bone) continue;
-
-      const userData = (bone as any).userData ?? {};
-      const absoluteRotationAxes: string =
-        typeof userData.absoluteRotationAxes === "string"
-          ? (userData.absoluteRotationAxes as string)
-          : userData.absoluteRotation === true
-            ? "xyz"
-            : "";
-
-      const selfReads = this.selfRotationReads.get(boneName);
-      const ensureAbsoluteRotation = (axis: "x" | "y" | "z") => {
-        const prop = `r${axis}` as "rx" | "ry" | "rz";
-        if (!selfReads?.has(prop)) return;
-        const existing =
-          typeof userData.absoluteRotationAxes === "string"
-            ? (userData.absoluteRotationAxes as string)
-            : "";
-        if (!existing.includes(axis)) {
-          userData.absoluteRotationAxes = existing + axis;
-        }
-        // Avoid baseline-normalizing axes that are intended to be absolute
-        // (they already include vanilla base via `bone.r?` reads).
-        if (axis === "x") delete userData.rotationOffsetX;
-        if (axis === "y") delete userData.rotationOffsetY;
-        if (axis === "z") delete userData.rotationOffsetZ;
-      };
-
-      if (axesSet.has("x")) ensureAbsoluteRotation("x");
-      if (axesSet.has("y")) ensureAbsoluteRotation("y");
-      if (axesSet.has("z")) ensureAbsoluteRotation("z");
-
-      const effectiveAbsoluteRotationAxes: string =
-        typeof userData.absoluteRotationAxes === "string"
-          ? (userData.absoluteRotationAxes as string)
-          : absoluteRotationAxes;
-
-      if (axesSet.has("x")) {
-        const channel = `${boneName}.rx`;
-        if (effectiveAbsoluteRotationAxes.includes("x")) {
-          // Absolute channels should remain absolute; do not normalize.
-        } else if (
-          typeof userData.rotationOffsetX !== "number" &&
-          isConstantByChannel.get(channel) !== true
-        ) {
-          const rx0 = this.getBaselineBoneValue(boneName, "rx");
-          if (Math.abs(rx0) > 1e-6) userData.rotationOffsetX = rx0;
-        }
-      }
-      if (axesSet.has("y")) {
-        const channel = `${boneName}.ry`;
-        if (effectiveAbsoluteRotationAxes.includes("y")) {
-          // Absolute channels should remain absolute; do not normalize.
-        } else if (
-          typeof userData.rotationOffsetY !== "number" &&
-          isConstantByChannel.get(channel) !== true
-        ) {
-          const ry0 = this.getBaselineBoneValue(boneName, "ry");
-          if (Math.abs(ry0) > 1e-6) userData.rotationOffsetY = ry0;
-        }
-      }
-      if (axesSet.has("z")) {
-        const channel = `${boneName}.rz`;
-        if (effectiveAbsoluteRotationAxes.includes("z")) {
-          // Absolute channels should remain absolute; do not normalize.
-        } else if (
-          typeof userData.rotationOffsetZ !== "number" &&
-          isConstantByChannel.get(channel) !== true
-        ) {
-          const rz0 = this.getBaselineBoneValue(boneName, "rz");
-          if (Math.abs(rz0) > 1e-6) userData.rotationOffsetZ = rz0;
-        }
-      }
+		      if (axesSet.has("z")) {
+		        const channel = `${boneName}.tz`;
+		        if (getAbsoluteAxes().includes("z")) {
+		          // Absolute channels should remain absolute; do not normalize.
+		        } else if (poseDependentTranslationChannels.has(channel)) {
+		          // Pose-dependent channel: avoid baseline subtraction.
+		        } else if (
+		          typeof userData.translationOffsetZPx !== "number" &&
+		          typeof userData.translationOffsetZ !== "number" &&
+		          isConstantByChannel.get(channel) !== true
+		        ) {
+		          const tz0 = this.getBaselineBoneValue(boneName, "tz");
+		          if (Math.abs(tz0) > 1e-6) userData.translationOffsetZPx = tz0;
+		        }
+	      }
 
       (bone as any).userData = userData;
     }
-  }
 
-  private applyVanillaRotationInputSeeding(): void {
+	    // Rotations are applied in authored CEM space. Only mark axes as absolute
+	    // when the JPM expression explicitly self-reads `bone.r?` (meaning it
+	    // already includes the vanilla/base rotation input we seeded).
+		    for (const [boneName, axesSet] of this.rotationAxesByBone) {
+		      const bone = this.bones.get(boneName);
+		      if (!bone) continue;
+
+		      const userData = (bone as any).userData ?? {};
+		      const base = this.baseTransforms.get(boneName);
+		      const invertAxis =
+		        typeof userData.invertAxis === "string"
+		          ? (userData.invertAxis as string)
+		          : "";
+		      const signX = invertAxis.includes("x") ? -1 : 1;
+		      const signY = invertAxis.includes("y") ? -1 : 1;
+		      const signZ = invertAxis.includes("z") ? -1 : 1;
+		      const selfReads = this.selfRotationReads.get(boneName);
+		      const ensureAbsoluteRotation = (axis: "x" | "y" | "z") => {
+		        const prop = `r${axis}` as "rx" | "ry" | "rz";
+		        if (!selfReads?.has(prop)) return;
+	        const existing =
+	          typeof userData.absoluteRotationAxes === "string"
+	            ? (userData.absoluteRotationAxes as string)
+	            : "";
+	        if (!existing.includes(axis)) {
+		          userData.absoluteRotationAxes = existing + axis;
+		        }
+		      };
+
+		      const ensureAbsoluteWhenBaselineMatchesRest = (axis: "x" | "y" | "z") => {
+		        const prop = `r${axis}` as "rx" | "ry" | "rz";
+		        const baseline = this.getBaselineBoneValue(boneName, prop);
+		        const rest =
+		          axis === "x"
+		            ? signX * (base?.rotation.x ?? 0)
+		            : axis === "y"
+		              ? signY * (base?.rotation.y ?? 0)
+		              : signZ * (base?.rotation.z ?? 0);
+		        if (Math.abs(baseline - rest) > 1e-4) return;
+
+		        const existing =
+		          typeof userData.absoluteRotationAxes === "string"
+		            ? (userData.absoluteRotationAxes as string)
+		            : "";
+		        if (!existing.includes(axis)) {
+		          userData.absoluteRotationAxes = existing + axis;
+		        }
+		      };
+
+		      const ensureRotationOffsetWhenBaselineDuplicatesChildRest = (
+		        axis: "x" | "y" | "z",
+		      ) => {
+		        const absAxes: string =
+		          typeof userData.absoluteRotationAxes === "string"
+		            ? (userData.absoluteRotationAxes as string)
+		            : "";
+		        if (absAxes.includes(axis)) return;
+
+		        const prop = `r${axis}` as "rx" | "ry" | "rz";
+		        const baseline = this.getBaselineBoneValue(boneName, prop);
+		        if (Math.abs(baseline) < 0.4) return;
+
+		        const boneRest =
+		          axis === "x"
+		            ? base?.rotation.x ?? 0
+		            : axis === "y"
+		              ? base?.rotation.y ?? 0
+		              : base?.rotation.z ?? 0;
+		        // If the parent bone already has a non-zero rest rotation, allow the
+		        // authored baseline to apply on top (it's more likely a true pose).
+		        if (Math.abs(boneRest) > 1e-4) return;
+
+		        const matchesChildRest = (obj: THREE.Object3D): boolean => {
+		          const childBase = this.baseTransforms.get(obj.name);
+		          if (!childBase) return false;
+		          const childInvertAxis =
+		            typeof (obj as any).userData?.invertAxis === "string"
+		              ? ((obj as any).userData.invertAxis as string)
+		              : "";
+		          const childSign =
+		            axis === "x"
+		              ? childInvertAxis.includes("x")
+		                ? -1
+		                : 1
+		              : axis === "y"
+		                ? childInvertAxis.includes("y")
+		                  ? -1
+		                  : 1
+		                : childInvertAxis.includes("z")
+		                  ? -1
+		                  : 1;
+		          const childRest =
+		            axis === "x"
+		              ? childSign * (childBase.rotation.x ?? 0)
+		              : axis === "y"
+		                ? childSign * (childBase.rotation.y ?? 0)
+		                : childSign * (childBase.rotation.z ?? 0);
+		          return Math.abs(childRest - baseline) <= 1e-4;
+		        };
+
+		        const stack: THREE.Object3D[] = [...bone.children];
+		        while (stack.length > 0) {
+		          const next = stack.pop()!;
+		          if (matchesChildRest(next)) {
+		            if (axis === "x") userData.rotationOffsetX = baseline;
+		            if (axis === "y") userData.rotationOffsetY = baseline;
+		            if (axis === "z") userData.rotationOffsetZ = baseline;
+		            return;
+		          }
+		          stack.push(...next.children);
+		        }
+		      };
+
+			      const ensureRotationOffsetForLargeBaseline = (axis: "x" | "y" | "z") => {
+			        const absAxes: string =
+			          typeof userData.absoluteRotationAxes === "string"
+			            ? (userData.absoluteRotationAxes as string)
+			            : "";
+		        if (absAxes.includes(axis)) return;
+
+		        const prop = `r${axis}` as "rx" | "ry" | "rz";
+		        const baseline = this.getBaselineBoneValue(boneName, prop);
+		        // Only treat very large baselines (typically ±90°) as "rest calibration"
+		        // constants; smaller angles are often intentional idle poses.
+		        // Heuristic: treat baselines above ~72° as calibration constants.
+		        // This catches common coordinate-space corrections (≈75–180°) while
+		        // preserving intentional limb poses like axolotl leg splay (≈70°).
+		        if (Math.abs(baseline) < 1.25) return;
+
+		        if (axis === "x" && typeof userData.rotationOffsetX !== "number") {
+		          userData.rotationOffsetX = baseline;
+		        }
+		        if (axis === "y" && typeof userData.rotationOffsetY !== "number") {
+		          userData.rotationOffsetY = baseline;
+		        }
+			        if (axis === "z" && typeof userData.rotationOffsetZ !== "number") {
+			          userData.rotationOffsetZ = baseline;
+			        }
+			      };
+
+			      const ensureRotationOffsetForModerateBaselineOnPivotBone = (
+			        axis: "x" | "y" | "z",
+			      ) => {
+			        const absAxes: string =
+			          typeof userData.absoluteRotationAxes === "string"
+			            ? (userData.absoluteRotationAxes as string)
+			            : "";
+			        if (absAxes.includes(axis)) return;
+
+			        const prop = `r${axis}` as "rx" | "ry" | "rz";
+			        const baseline = this.getBaselineBoneValue(boneName, prop);
+			        // Only consider moderate angles (≈30–65°) that often represent
+			        // baked posture on pivot-only bones (e.g. villager arms root),
+			        // not extreme calibration constants (handled elsewhere).
+			        const absBaseline = Math.abs(baseline);
+			        if (absBaseline < 0.52 || absBaseline > 1.15) return;
+
+			        const boneRest =
+			          axis === "x"
+			            ? base?.rotation.x ?? 0
+			            : axis === "y"
+			              ? base?.rotation.y ?? 0
+			              : base?.rotation.z ?? 0;
+			        if (Math.abs(boneRest) > 1e-4) return;
+
+			        const originPx = Array.isArray(userData.originPx)
+			          ? (userData.originPx as [number, number, number])
+			          : ([0, 0, 0] as [number, number, number]);
+			        // Focus on large-pivot bones (biped/villager roots are at 24px).
+			        if (originPx[1] < 16) return;
+
+			        // Only apply when a descendant has a substantial rest rotation on
+			        // the same axis, indicating this is a posture pivot rather than
+			        // a true limb bone.
+			        const hasRotatedDescendant = (obj: THREE.Object3D): boolean => {
+			          const childBase = this.baseTransforms.get(obj.name);
+			          if (childBase) {
+			            const childRest =
+			              axis === "x"
+			                ? childBase.rotation.x ?? 0
+			                : axis === "y"
+			                  ? childBase.rotation.y ?? 0
+			                  : childBase.rotation.z ?? 0;
+			            if (Math.abs(childRest) > 0.35) return true;
+			          }
+			          for (const c of obj.children) {
+			            if (hasRotatedDescendant(c)) return true;
+			          }
+			          return false;
+			        };
+			        if (!hasRotatedDescendant(bone)) return;
+
+			        if (axis === "x" && typeof userData.rotationOffsetX !== "number") {
+			          userData.rotationOffsetX = baseline;
+			        }
+			        if (axis === "y" && typeof userData.rotationOffsetY !== "number") {
+			          userData.rotationOffsetY = baseline;
+			        }
+			        if (axis === "z" && typeof userData.rotationOffsetZ !== "number") {
+			          userData.rotationOffsetZ = baseline;
+			        }
+			      };
+
+			      if (axesSet.has("x")) ensureAbsoluteRotation("x");
+			      if (axesSet.has("y")) ensureAbsoluteRotation("y");
+			      if (axesSet.has("z")) ensureAbsoluteRotation("z");
+			      if (axesSet.has("x")) ensureAbsoluteWhenBaselineMatchesRest("x");
+		      if (axesSet.has("y")) ensureAbsoluteWhenBaselineMatchesRest("y");
+		      if (axesSet.has("z")) ensureAbsoluteWhenBaselineMatchesRest("z");
+			      if (axesSet.has("x")) ensureRotationOffsetWhenBaselineDuplicatesChildRest("x");
+			      if (axesSet.has("y")) ensureRotationOffsetWhenBaselineDuplicatesChildRest("y");
+			      if (axesSet.has("z")) ensureRotationOffsetWhenBaselineDuplicatesChildRest("z");
+			      if (axesSet.has("x")) ensureRotationOffsetForModerateBaselineOnPivotBone("x");
+			      if (axesSet.has("y")) ensureRotationOffsetForModerateBaselineOnPivotBone("y");
+			      if (axesSet.has("z")) ensureRotationOffsetForModerateBaselineOnPivotBone("z");
+			      if (axesSet.has("x")) ensureRotationOffsetForLargeBaseline("x");
+			      if (axesSet.has("y")) ensureRotationOffsetForLargeBaseline("y");
+			      if (axesSet.has("z")) ensureRotationOffsetForLargeBaseline("z");
+
+			      (bone as any).userData = userData;
+		    }
+		  }
+
+  private applyVanillaRotationInputSeeding(
+    context: AnimationContext = this.context,
+  ): void {
     if (this.rotationInputReads.size === 0) return;
 
-    const state = this.context.entityState;
+    const state = context.entityState;
     const swingAmount =
       Math.sin(state.limb_swing * 0.6662) * 1.4 * state.limb_speed;
 
@@ -1020,8 +1418,8 @@ export class AnimationEngine {
       const cemRy = signY * y;
       const cemRz = signZ * z;
 
-      this.context.boneValues[boneName] = {
-        ...(this.context.boneValues[boneName] ?? {}),
+      context.boneValues[boneName] = {
+        ...(context.boneValues[boneName] ?? {}),
         ...(reads.has("rx") ? { rx: cemRx } : {}),
         ...(reads.has("ry") ? { ry: cemRy } : {}),
         ...(reads.has("rz") ? { rz: cemRz } : {}),
@@ -1587,6 +1985,134 @@ export class AnimationEngine {
   /** Frame counter for debug logging */
   private debugFrameCount = 0;
 
+  // ==========================================================================
+  // Rig Corrections (universal heuristics)
+  // ==========================================================================
+
+  /**
+   * Some rigs author limb translations such that the "torso" and limbs only line
+   * up after applying a small additional offset (common in multi-mode rigs like
+   * axolotl). We keep this data-driven to avoid per-part name hacks.
+   *
+   * Offsets are applied after evaluating the JPM each frame (so they don't
+   * affect expression inputs), and are stored per-bone in local space.
+   */
+  private rigCorrectionOffsets = new Map<string, THREE.Vector3>();
+  private didInferRigCorrections = false;
+
+  private applyRigCorrections(): void {
+    if (this.rigCorrectionOffsets.size === 0) return;
+    for (const [boneName, offset] of this.rigCorrectionOffsets) {
+      const bone = this.bones.get(boneName);
+      if (!bone) continue;
+      bone.position.add(offset);
+    }
+  }
+
+  private inferRigCorrectionsFromCurrentPose(): boolean {
+    // Run only once per engine instance.
+    if (this.didInferRigCorrections) return false;
+    this.didInferRigCorrections = true;
+
+    // Collect mesh bounds and find a "torso" mesh (largest by AABB volume).
+    let torsoMesh: THREE.Object3D | null = null;
+    let torsoBox: THREE.Box3 | null = null;
+    let torsoVolume = 0;
+    this.modelGroup.traverse((obj) => {
+      if ((obj as any).isMesh !== true) return;
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const volume = Math.max(0, size.x) * Math.max(0, size.y) * Math.max(0, size.z);
+      if (volume > torsoVolume + 1e-9) {
+        torsoVolume = volume;
+        torsoMesh = obj;
+        torsoBox = box;
+      }
+    });
+    if (!torsoMesh || !torsoBox || torsoVolume <= 1e-9) return false;
+
+    const torsoSize = new THREE.Vector3();
+    torsoBox.getSize(torsoSize);
+
+    // The correction is applied to the direct child of the modelGroup that owns
+    // the torso mesh, so the torso (and its attachments) move together.
+    let torsoRoot: THREE.Object3D | null = torsoMesh;
+    while (torsoRoot && torsoRoot.parent && torsoRoot.parent !== this.modelGroup) {
+      torsoRoot = torsoRoot.parent;
+    }
+    if (!torsoRoot || torsoRoot.parent !== this.modelGroup) return false;
+
+    // Identify likely limb roots among top-level siblings: smaller volumes,
+    // below the torso, and not part of the torso subtree.
+    const limbCandidates: Array<{ bone: THREE.Object3D; box: THREE.Box3; volume: number }> =
+      [];
+    for (const child of this.modelGroup.children) {
+      if (child === torsoRoot) continue;
+
+      let hasMeshDescendant = false;
+      child.traverse((obj) => {
+        if ((obj as any).isMesh === true) hasMeshDescendant = true;
+      });
+      if (!hasMeshDescendant) continue;
+
+      const box = new THREE.Box3().setFromObject(child);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const volume = Math.max(0, size.x) * Math.max(0, size.y) * Math.max(0, size.z);
+      if (volume <= 1e-9) continue;
+
+      // Must be plausibly below the torso's lower half.
+      if (box.max.y > torsoBox.min.y + torsoSize.y * 0.75) continue;
+      // Prefer smaller elements (legs/limbs) over large sibling shells.
+      if (volume > torsoVolume * 0.8) continue;
+
+      limbCandidates.push({ bone: child, box, volume });
+    }
+    if (limbCandidates.length < 4) return false;
+
+    limbCandidates.sort((a, b) => a.volume - b.volume);
+    const limbs = limbCandidates.slice(0, 6); // keep a few smallest (legs often dominate)
+
+    const limbUnion = new THREE.Box3();
+    for (const limb of limbs) limbUnion.union(limb.box);
+
+    const limbSize = new THREE.Vector3();
+    limbUnion.getSize(limbSize);
+
+    // Compute gaps (positive means separated).
+    const gapY = torsoBox.min.y - limbUnion.max.y;
+    const protrusionZ = limbUnion.max.z - torsoBox.max.z;
+
+    // Only intervene when there's a clear vertical separation AND the limbs
+    // protrude far beyond the torso (avoids affecting typical quadrupeds where
+    // legs overlap into the torso volume).
+    if (gapY <= 0.03) return false;
+    if (protrusionZ <= 0.25) return false;
+
+    const offset = new THREE.Vector3(0, 0, 0);
+
+    // Aim for legs to overlap into the torso a bit (Minecraft rigs usually do).
+    const desiredOverlapY = limbSize.y * 0.75;
+    if (gapY > 0.03) {
+      offset.y -= gapY + desiredOverlapY;
+    }
+
+    // Keep some forward limb protrusion, but cap extreme cases.
+    const desiredProtrusionZ = torsoSize.z * 0.3;
+    if (protrusionZ > desiredProtrusionZ + 0.03) {
+      offset.z += protrusionZ - desiredProtrusionZ;
+    }
+
+    // Clamp to avoid pathological shifts on unusual rigs.
+    offset.y = THREE.MathUtils.clamp(offset.y, -0.4, 0.2);
+    offset.z = THREE.MathUtils.clamp(offset.z, -0.4, 0.4);
+    if (offset.lengthSq() < 1e-6) return false;
+
+    this.rigCorrectionOffsets.set(torsoRoot.name, offset);
+    return true;
+  }
+
   /**
    * Evaluate all animation expressions and apply to bones.
    */
@@ -1662,14 +2188,14 @@ export class AnimationEngine {
             // Could be used for shadow rendering if implemented
             break;
 
-          case "bone":
-            // OptiFine supports boolean variables via `varb.*`. Treat these like
-            // variables rather than bone transforms.
-            if (animation.targetName === "varb") {
-              this.context.boneValues.varb ??= {};
-              this.context.boneValues.varb[animation.propertyName] = value;
-              break;
-            }
+	          case "bone":
+	            // OptiFine supports boolean variables via `varb.*`. Treat these like
+	            // variables rather than bone transforms.
+	            if (animation.targetName === "varb") {
+	              this.context.boneValues.varb ??= {};
+	              this.context.boneValues.varb[animation.propertyName] = value;
+	              break;
+	            }
             // Bone transform - accumulate
             if (isBoneTransformProperty(animation.propertyName)) {
               let transform = boneTransforms.get(animation.targetName);
@@ -1695,18 +2221,18 @@ export class AnimationEngine {
                 );
               }
 
-              // Also store in context for expression references
-              if (!this.context.boneValues[animation.targetName]) {
-                this.context.boneValues[animation.targetName] = {};
-              }
-              this.context.boneValues[animation.targetName][
-                animation.propertyName
-              ] = value;
-            }
-            break;
-        }
-      }
-    }
+	              // Also store in context for expression references
+	              if (!this.context.boneValues[animation.targetName]) {
+	                this.context.boneValues[animation.targetName] = {};
+	              }
+		              this.context.boneValues[animation.targetName][
+		                animation.propertyName
+		              ] = value;
+		            }
+		            break;
+		        }
+	      }
+	    }
 
     // Log final transforms before applying
     if (shouldLogThisFrame) {
@@ -1744,7 +2270,20 @@ export class AnimationEngine {
       }
     }
 
+    // Apply any post-eval rig corrections (do not affect expression inputs).
+    this.applyRigCorrections();
+
     this.modelGroup.updateMatrixWorld(true);
+
+    // Infer and apply rig corrections once, based on the first posed frame.
+    // This handles rigs where the authored animation pose expects a small
+    // additional torso offset relative to independent limbs.
+    const inferred = this.inferRigCorrectionsFromCurrentPose();
+    if (inferred) {
+      this.applyRigCorrections();
+      this.modelGroup.updateMatrixWorld(true);
+    }
+
     this.applyRootOverlay();
 
     if (shouldLogThisFrame) {

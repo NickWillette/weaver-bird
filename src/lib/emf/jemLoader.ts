@@ -617,10 +617,7 @@ export function jemToThreeJS(
 
   log.section("Converting to Three.js");
 
-  const materialCache = new Map<
-    THREE.Texture | null,
-    THREE.MeshStandardMaterial
-  >();
+  const materialCache = new Map<string, THREE.MeshStandardMaterial>();
 
   const rootGroups: Record<string, THREE.Group> = {};
   for (const part of model.parts) {
@@ -630,19 +627,19 @@ export function jemToThreeJS(
   }
 
   // Mark translation semantics for common vanilla parts.
-  // Legs: absolute rotationPoint on all axes (Fresh Animations uses full pivot values).
-  for (const limbName of ["left_leg", "right_leg"]) {
-    const limb = rootGroups[limbName];
-    if (limb) limb.userData.absoluteTranslationAxes = "xyz";
-  }
-  // Arms: humanoid rigs author tx/ty as absolute rotationPoint values (e.g. ty≈2.5),
-  // while small/flying rigs tend to use additive offsets for ty. Use a pivot-height
-  // heuristic to distinguish them.
-  for (const limbName of ["left_arm", "right_arm"]) {
-    const limb = rootGroups[limbName];
-    if (!limb) continue;
-    const pivotYPx = limb.position.y * PIXELS_PER_UNIT;
-    limb.userData.absoluteTranslationAxes = pivotYPx >= 16 ? "xy" : "x";
+  const hasHumanoidLimbs =
+    !!rootGroups.left_arm &&
+    !!rootGroups.right_arm &&
+    !!rootGroups.left_leg &&
+    !!rootGroups.right_leg;
+  if (hasHumanoidLimbs) {
+    // Arms: humanoid rigs author tx/ty as absolute rotationPoint values (e.g. ty≈2.5).
+    for (const limbName of ["left_arm", "right_arm"]) {
+      const limb = rootGroups[limbName];
+      if (!limb) continue;
+      const pivotYPx = limb.position.y * PIXELS_PER_UNIT;
+      limb.userData.absoluteTranslationAxes = pivotYPx >= 16 ? "xy" : "x";
+    }
   }
 
   // Quadruped-style skeletons (cow, sheep, pig, mooshroom, creeper): leg1-leg4.
@@ -672,29 +669,100 @@ export function jemToThreeJS(
       if (leg) leg.userData.absoluteTranslationAxes = "xyz";
     }
 
+    // Some rigs (e.g. axolotl) include leg1-leg4 but explicitly zero out
+    // body translations in the JPM (body.tx/ty/tz = 0), which should preserve
+    // the JEM rest pose instead of snapping to rotationPoint(0). Only apply
+    // the quadruped body translation default when the animation does not
+    // explicitly treat these channels as additive-zeroed.
+    const isZeroConst = (expr: unknown): boolean => {
+      if (typeof expr === "number") return Math.abs(expr) < 1e-9;
+      if (typeof expr !== "string") return false;
+      const s = expr.trim();
+      if (!/^-?\d+(\.\d+)?$/.test(s)) return false;
+      const n = Number(s);
+      return Number.isFinite(n) && Math.abs(n) < 1e-9;
+    };
+    const hasZeroedBodyTranslation =
+      Array.isArray(model.animations) &&
+      model.animations.some((layer) => {
+        if (!layer || typeof layer !== "object") return false;
+        const rec = layer as Record<string, unknown>;
+        return (
+          isZeroConst(rec["body.tx"]) ||
+          isZeroConst(rec["body.ty"]) ||
+          isZeroConst(rec["body.tz"])
+        );
+      });
+
     const body = rootGroups.body;
-    if (body) body.userData.absoluteTranslationAxes = "xyz";
+    if (body && !hasZeroedBodyTranslation) {
+      body.userData.absoluteTranslationAxes = "xyz";
+    }
   }
 
   // Collect bones that are explicitly animated so we don't re-parent them.
   const animatedBones = new Set<string>();
+  const referencedBonesByTarget = new Map<string, Set<string>>();
+  const referencedTranslationBonesByTarget = new Map<string, Set<string>>();
   if (model.animations) {
     for (const layer of model.animations) {
-      for (const property of Object.keys(layer)) {
+      for (const [property, expression] of Object.entries(layer)) {
         const dot = property.indexOf(".");
         if (dot === -1) continue;
         const target = property.slice(0, dot);
         if (target === "var" || target === "render") continue;
         animatedBones.add(target);
+
+        if (typeof expression === "string") {
+          const refs = referencedBonesByTarget.get(target) ?? new Set<string>();
+          const tRefs =
+            referencedTranslationBonesByTarget.get(target) ?? new Set<string>();
+          const re = /\b([A-Za-z0-9_]+)\.([tr])[xyz]\b/g;
+          let m: RegExpExecArray | null;
+          while ((m = re.exec(expression))) {
+            const ref = m[1];
+            const kind = m[2] as "t" | "r";
+            if (!ref || ref === "var" || ref === "render" || ref === "varb")
+              continue;
+            refs.add(ref);
+            if (kind === "t") tRefs.add(ref);
+          }
+          if (refs.size > 0) referencedBonesByTarget.set(target, refs);
+          if (tRefs.size > 0)
+            referencedTranslationBonesByTarget.set(target, tRefs);
+        }
       }
     }
   }
 
   // Apply implicit vanilla hierarchy for common skeletons.
   // Many CEM animations assume vanilla parent-child relationships for non-animated overlays.
-  applyVanillaHierarchy(root, rootGroups, animatedBones);
+  applyVanillaHierarchy(
+    root,
+    rootGroups,
+    animatedBones,
+    referencedBonesByTarget,
+    referencedTranslationBonesByTarget,
+  );
 
   // Fix translation semantics for specific animated submodels.
+  const hasNegativeHead2TyBaseline = (() => {
+    if (!isQuadruped || !Array.isArray(model.animations)) return false;
+    for (const layer of model.animations) {
+      if (!layer || typeof layer !== "object") continue;
+      const expr = (layer as Record<string, unknown>)["head2.ty"];
+      if (typeof expr === "number") {
+        if (expr <= -3) return true;
+        continue;
+      }
+      if (typeof expr !== "string") continue;
+      // Many FA quadruped rigs author head2.ty with a large leading negative
+      // constant like `-20 ...` to indicate rotationPoint-like coordinates.
+      if (/^\s*-\s*\d/.test(expr.trimStart())) return true;
+    }
+    return false;
+  })();
+
   root.traverse((obj) => {
     if (!(obj instanceof THREE.Group)) return;
     if (obj.name === "eyes") {
@@ -923,7 +991,7 @@ export function jemToThreeJS(
       const isBodyRotationRig =
         Array.isArray(obj.parent?.children) &&
         obj.parent.children.some((c) => c.name === "body_rotation");
-      if (!isBodyRotationRig) {
+      if (!isBodyRotationRig && hasNegativeHead2TyBaseline) {
         const existing =
           typeof obj.userData.absoluteTranslationAxes === "string"
             ? (obj.userData.absoluteTranslationAxes as string)
@@ -953,18 +1021,33 @@ function applyVanillaHierarchy(
   root: THREE.Group,
   rootGroups: Record<string, THREE.Group>,
   animatedBones: Set<string>,
+  referencedBonesByTarget: Map<string, Set<string>>,
+  referencedTranslationBonesByTarget: Map<string, Set<string>>,
 ): void {
   const hasBody = !!rootGroups.body;
   if (!hasBody) return;
 
+  const hasMeshDescendant = (obj: THREE.Object3D): boolean => {
+    let hasMesh = false;
+    obj.traverse((child) => {
+      if (child !== obj && (child as any).isMesh === true) hasMesh = true;
+    });
+    return hasMesh;
+  };
+
   const hasArms = !!rootGroups.left_arm && !!rootGroups.right_arm;
   const hasLegs = !!rootGroups.left_leg && !!rootGroups.right_leg;
+  const hasVillagerArms = !!rootGroups.arms;
+  const hasVillagerLegs = !!rootGroups.left_leg && !!rootGroups.right_leg;
 
   // Vanilla biped-style skeletons (body + arms + legs)
   const hasHumanoidLimbs = hasArms && hasLegs;
 
   // Flying/humanoid-lite skeletons (body + arms, but no legs)
   const hasArmsOnly = hasArms && !hasLegs;
+
+  // Villager-style skeletons (body + arms + legs, but arms are a single bone)
+  const hasVillagerLimbs = hasVillagerArms && hasVillagerLegs;
 
   const hasQuadrupedLegs =
     !!rootGroups.leg1 &&
@@ -979,16 +1062,14 @@ function applyVanillaHierarchy(
   const isQuadruped = hasQuadrupedLegs || hasDirectionalLegs;
 
   let parentMap: Record<string, string>;
-  let shouldSkipAnimated: (boneName: string) => boolean;
 
   if (hasHumanoidLimbs) {
+    // For CEM/JPM animation, Fresh Animations commonly authors body motion
+    // (translations/rotations) as offsets relative to the limbs, and drives
+    // attachments via explicit cross-bone references instead of relying on an
+    // inherited hierarchy. Only re-parent true overlays to their base bones.
     parentMap = {
-      head: "body",
-      headwear: "head",
-      left_arm: "body",
-      right_arm: "body",
-      left_leg: "body",
-      right_leg: "body",
+      ...(rootGroups.headwear ? { headwear: "head" } : {}),
       jacket: "body",
       left_ear: "head",
       right_ear: "head",
@@ -997,23 +1078,45 @@ function applyVanillaHierarchy(
       left_pants: "left_leg",
       right_pants: "right_leg",
     };
-    shouldSkipAnimated = (boneName) => animatedBones.has(boneName);
   } else if (hasArmsOnly) {
     // Allay/Vex-style rigs: animations expect arms to inherit body motion via hierarchy.
     parentMap = {
       left_arm: "body",
       right_arm: "body",
     };
-    // For arms-only rigs, re-parent the arms even if they are animated.
-    shouldSkipAnimated = () => false;
+  } else if (hasVillagerLimbs) {
+    // Villager rigs are authored with an empty `head` bone and put the actual
+    // head cubes in `headwear` as a separate root part. Animations target
+    // `head.*`, so swap the names to animate the real head geometry without
+    // forcing a hard-coded pivot translation.
+    if (rootGroups.head && rootGroups.headwear) {
+      const head = rootGroups.head;
+      const headwear = rootGroups.headwear;
+      if (!hasMeshDescendant(head) && hasMeshDescendant(headwear)) {
+        let pivotName = "head_pivot";
+        while (rootGroups[pivotName]) pivotName = `${pivotName}_`;
+        head.name = pivotName;
+        rootGroups[pivotName] = head;
+        delete rootGroups.head;
+
+        headwear.name = "head";
+        rootGroups.head = headwear;
+        delete rootGroups.headwear;
+      }
+    }
+
+    // Villager rigs rely on the vanilla head attachments hierarchy so facial
+    // overlays inherit head motion.
+    parentMap = {
+      ...(rootGroups.headwear ? { headwear: "head" } : {}),
+      ...(rootGroups.nose ? { nose: "head" } : {}),
+    };
   } else if (isQuadruped) {
     // Quadruped overlays (e.g. horse saddle) are authored as separate root parts
     // but should inherit body motion via the vanilla hierarchy.
     parentMap = {
       saddle: "body",
     };
-    shouldSkipAnimated = (boneName) =>
-      boneName !== "saddle" && animatedBones.has(boneName);
   } else {
     return;
   }
@@ -1035,12 +1138,39 @@ function applyVanillaHierarchy(
     localMatrix.decompose(child.position, child.quaternion, child.scale);
   };
 
+  const getAncestorChain = (name: string): string[] => {
+    const chain: string[] = [];
+    let cur: string | undefined = name;
+    while (cur) {
+      chain.push(cur);
+      cur = parentMap[cur];
+    }
+    return chain;
+  };
+
   for (const [childName, parentName] of Object.entries(parentMap)) {
     const child = rootGroups[childName];
     const parent = rootGroups[parentName];
     if (!child || !parent) continue;
     if (child.parent === parent) continue;
-    if (shouldSkipAnimated(childName)) continue;
+
+    if (!hasArmsOnly && !hasVillagerLimbs) {
+      // If the child animation already references any would-be ancestor transforms,
+      // re-parenting would double-apply those transforms (common in Fresh Animations).
+      const childRefs = referencedBonesByTarget.get(childName);
+      const ancestors = getAncestorChain(parentName);
+      const childReferencesAncestor =
+        animatedBones.has(childName) &&
+        !!childRefs &&
+        ancestors.some((a) => childRefs.has(a));
+      if (childReferencesAncestor) continue;
+
+      // If the parent drives its own translations from the child's translations,
+      // parenting the child under the parent will double-apply translations.
+      const parentTranslationRefs =
+        referencedTranslationBonesByTarget.get(parentName);
+      if (parentTranslationRefs?.has(childName)) continue;
+    }
 
     // Mark these as vanilla skeleton parts for animation semantics.
     child.userData.vanillaPart = true;
@@ -1068,7 +1198,7 @@ function convertPart(
   part: ParsedPart,
   texture: THREE.Texture | null,
   textureMap: Record<string, THREE.Texture>,
-  materialCache: Map<THREE.Texture | null, THREE.MeshStandardMaterial>,
+  materialCache: Map<string, THREE.MeshStandardMaterial>,
   parentOrigin: [number, number, number] | null,
 ): THREE.Group {
   const group = new THREE.Group();
@@ -1167,7 +1297,7 @@ function convertPart(
 function createBoxMesh(
   box: ParsedBox,
   texture: THREE.Texture | null,
-  materialCache: Map<THREE.Texture | null, THREE.MeshStandardMaterial>,
+  materialCache: Map<string, THREE.MeshStandardMaterial>,
   groupOrigin: [number, number, number],
   partName: string,
   boxIdx: number,
@@ -1184,6 +1314,43 @@ function createBoxMesh(
   const rawDepthPx = to[2] - from[2];
   if (rawWidthPx < 0 || rawHeightPx < 0 || rawDepthPx < 0) return null;
   if (rawWidthPx === 0 && rawHeightPx === 0 && rawDepthPx === 0) return null;
+  // Treat "inflated planes" (size=0 with sizeAdd>0) as planar for rendering.
+  // Fresh Animations frequently uses a tiny inflate to prevent z-fighting while
+  // still expecting the part to be visible from both sides.
+  const inflatePx = box.inflate ?? 0;
+  const originalWidthPx = rawWidthPx - inflatePx * 2;
+  const originalHeightPx = rawHeightPx - inflatePx * 2;
+  const originalDepthPx = rawDepthPx - inflatePx * 2;
+  const PLANAR_EPS_PX = 1e-6;
+  const isPlanar =
+    Math.abs(originalWidthPx) <= PLANAR_EPS_PX ||
+    Math.abs(originalHeightPx) <= PLANAR_EPS_PX ||
+    Math.abs(originalDepthPx) <= PLANAR_EPS_PX;
+
+  // For planar boxes, OptiFine/Blockbench rigs frequently only specify one of the
+  // opposing faces (e.g. `uvNorth` for a 0-depth plane). Blockbench still
+  // renders these from both sides in practice, so duplicate the UV to the
+  // opposite face to preserve expected two-sided appearance.
+  if (isPlanar) {
+    const uv = box.uv;
+    const isZero = (r: [number, number, number, number]) => r.every((v) => v === 0);
+    const planarAxis =
+      Math.abs(originalWidthPx) <= PLANAR_EPS_PX
+        ? "x"
+        : Math.abs(originalHeightPx) <= PLANAR_EPS_PX
+          ? "y"
+          : "z";
+    if (planarAxis === "x") {
+      if (!isZero(uv.east) && isZero(uv.west)) uv.west = [...uv.east];
+      if (!isZero(uv.west) && isZero(uv.east)) uv.east = [...uv.west];
+    } else if (planarAxis === "y") {
+      if (!isZero(uv.up) && isZero(uv.down)) uv.down = [...uv.up];
+      if (!isZero(uv.down) && isZero(uv.up)) uv.up = [...uv.down];
+    } else {
+      if (!isZero(uv.north) && isZero(uv.south)) uv.south = [...uv.north];
+      if (!isZero(uv.south) && isZero(uv.north)) uv.north = [...uv.south];
+    }
+  }
 
   const fromPx: [number, number, number] = [...from];
   const toPx: [number, number, number] = [...to];
@@ -1217,18 +1384,22 @@ function createBoxMesh(
     box.uv[face.name].every((v) => v === 0),
   );
   if (hasDisabledFaces) {
+    const originalIndex = geometry.index;
+    if (!originalIndex) return null;
+    const src = Array.from(originalIndex.array as ArrayLike<number>);
+
     const indices: number[] = [];
     for (const face of faces) {
       const faceUV = box.uv[face.name];
       if (!faceUV || faceUV.every((v) => v === 0)) continue;
-      const base = face.index * 4;
+      const start = face.index * 6;
       indices.push(
-        base + 0,
-        base + 2,
-        base + 1,
-        base + 2,
-        base + 3,
-        base + 1,
+        src[start + 0],
+        src[start + 1],
+        src[start + 2],
+        src[start + 3],
+        src[start + 4],
+        src[start + 5],
       );
     }
     if (indices.length === 0) return null;
@@ -1236,20 +1407,26 @@ function createBoxMesh(
   }
 
   // Material
-  let material = materialCache.get(texture);
+  const side = isPlanar ? THREE.DoubleSide : THREE.FrontSide;
+  const texKey = texture ? texture.uuid : "null";
+  const cacheKey = `${texKey}:${side}`;
+  let material = materialCache.get(cacheKey);
   if (!material) {
     material = texture
       ? new THREE.MeshStandardMaterial({
           map: texture,
-          transparent: true,
+          // Minecraft entity rendering is predominantly cutout (not blended).
+          // Keeping `transparent=false` avoids Three.js transparent sorting issues
+          // that cause z-order artifacts when layering multiple entity groups.
+          transparent: false,
           alphaTest: 0.1,
-          side: THREE.DoubleSide,
+          side,
         })
       : new THREE.MeshStandardMaterial({
           color: 0x8b4513,
-          side: THREE.DoubleSide,
+          side,
         });
-    materialCache.set(texture, material);
+    materialCache.set(cacheKey, material);
   }
 
   const mesh = new THREE.Mesh(geometry, material);
@@ -1292,6 +1469,11 @@ function applyUVs(
   const uvAttr = geometry.attributes.uv;
   if (!uvAttr) return;
 
+  // Blockbench applies a tiny inset for box-UV mapped entity textures to avoid
+  // sampling exactly on pixel boundaries, which can cause Nearest sampling to
+  // "spill" into adjacent texels (especially noticeable on thin/flat boxes).
+  const BLEED_MARGIN_PX = 1 / 64;
+
   const faces: { name: keyof typeof uv; index: number }[] = [
     { name: "east", index: 0 },
     { name: "west", index: 1 },
@@ -1306,6 +1488,20 @@ function applyUVs(
     if (!faceUV || faceUV.every((v) => v === 0)) continue;
 
     let [u1, v1, u2, v2] = faceUV;
+
+    // Fight texture bleeding by nudging UVs slightly inwards, respecting
+    // reversed rectangles (e.g. u2 < u1 for mirrored faces).
+    if (u1 !== u2) {
+      const marginU = u1 > u2 ? -BLEED_MARGIN_PX : BLEED_MARGIN_PX;
+      u1 += marginU;
+      u2 -= marginU;
+    }
+    if (v1 !== v2) {
+      const marginV = v1 > v2 ? -BLEED_MARGIN_PX : BLEED_MARGIN_PX;
+      v1 += marginV;
+      v2 -= marginV;
+    }
+
     let uvU1 = u1 / texWidth,
       uvV1 = 1 - v1 / texHeight;
     let uvU2 = u2 / texWidth,

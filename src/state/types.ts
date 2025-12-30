@@ -80,6 +80,8 @@ export interface LauncherInfo {
  */
 export type CanvasRenderMode = "3D" | "2D" | "Item";
 
+export type EntityAnimationVariant = "pack" | "vanilla";
+
 /**
  * UI/interaction state
  */
@@ -151,6 +153,18 @@ export interface UIState {
   // Entity pose toggles (persistent overlays)
   availablePoseToggles: string[] | null; // Pose toggles relevant to current model (null = show none)
   activePoseToggles: Record<string, boolean>; // Active pose toggle IDs
+
+  // Entity feature layers (multi-part entities / overlays)
+  entityFeatureStateByAssetId: Record<
+    AssetId,
+    {
+      toggles: Record<string, boolean>;
+      selects: Record<string, string>;
+    }
+  >;
+
+  // Entity animation source selection (per entity texture asset)
+  entityAnimationVariantByAssetId: Record<AssetId, EntityAnimationVariant>;
 
   // Debug mode
   jemDebugMode: boolean; // Enable JEM model inspector for debugging entity models

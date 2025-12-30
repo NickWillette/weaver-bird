@@ -90,11 +90,19 @@ async function loadJpmFile(
   jpmFileName: string,
   packPath: string,
   isZip: boolean,
+  jemDir: string,
 ): Promise<JPMFile | null> {
   const { invoke } = await import("@tauri-apps/api/core");
 
   try {
-    const jpmPath = `assets/minecraft/optifine/cem/${jpmFileName}`;
+    const ref = jpmFileName.replace(/\\/g, "/");
+    const resolved =
+      ref.startsWith("assets/") || ref.startsWith("minecraft/")
+        ? ref.startsWith("assets/")
+          ? ref
+          : `assets/${ref}`
+        : `${jemDir}${ref}`;
+    const jpmPath = resolved;
     console.log(`[EMF] Loading JPM file: ${jpmPath}`);
 
     const jpmContent = await invoke<string>("read_pack_file", {
@@ -231,12 +239,70 @@ function normalizeEntityName(entityName: string): string {
   return normalizations[entityName] || entityName;
 }
 
+function getJemDir(jemPath: string): string {
+  const normalized = jemPath.replace(/\\/g, "/");
+  const idx = normalized.lastIndexOf("/");
+  if (idx === -1) return "";
+  return normalized.slice(0, idx + 1);
+}
+
+function parseVersionParts(value: string): number[] | null {
+  const cleaned = value.replace(/^v/i, "").replace(/^1\./, "");
+  const parts = cleaned
+    .split(".")
+    .map((p) => (p.match(/^\d+$/) ? parseInt(p, 10) : NaN));
+  if (parts.length === 0 || parts.some((n) => Number.isNaN(n))) return null;
+  return parts;
+}
+
+function compareVersionFoldersDesc(a: string, b: string): number {
+  const ap = parseVersionParts(a);
+  const bp = parseVersionParts(b);
+  if (!ap && !bp) return a.localeCompare(b);
+  if (!ap) return 1;
+  if (!bp) return -1;
+  const len = Math.max(ap.length, bp.length);
+  for (let i = 0; i < len; i++) {
+    const av = ap[i] ?? 0;
+    const bv = bp[i] ?? 0;
+    if (av !== bv) return bv - av;
+  }
+  return 0;
+}
+
+function getVersionFolderCandidates(
+  targetVersion: string | null | undefined,
+  knownFolders: string[] | undefined,
+): string[] {
+  const out: string[] = [];
+  const add = (v: string) => {
+    const trimmed = v.trim();
+    if (!trimmed) return;
+    if (!out.includes(trimmed)) out.push(trimmed);
+  };
+
+  if (targetVersion) {
+    add(targetVersion);
+    if (targetVersion.startsWith("1.")) add(targetVersion.slice(2));
+    // Also add major.minor (e.g. 1.21.4 -> 21.4) if present
+    const m = targetVersion.replace(/^1\./, "").match(/^(\d+\.\d+)/);
+    if (m?.[1]) add(m[1]);
+  }
+
+  if (knownFolders && knownFolders.length > 0) {
+    const sorted = [...knownFolders].sort(compareVersionFoldersDesc);
+    for (const v of sorted) add(v);
+  }
+
+  return out;
+}
+
 export async function loadEntityModel(
   entityType: string,
   packPath?: string,
   isZip?: boolean,
-  _targetVersion?: string | null,
-  _entityVersionVariants?: Record<string, string[]>,
+  targetVersion?: string | null,
+  entityVersionVariants?: Record<string, string[]>,
   parentEntity?: string | null,
   packFormat?: number,
   selectedVariant?: string,
@@ -246,7 +312,7 @@ export async function loadEntityModel(
   const normalizedEntityType = normalizeEntityName(entityType);
 
   // Create cache key from all parameters that affect the result
-  const cacheKey = `${normalizedEntityType}:${packPath || "vanilla"}:${isZip}:${parentEntity || "none"}:${packFormat || "default"}:${selectedVariant || "default"}`;
+  const cacheKey = `${normalizedEntityType}:${packPath || "vanilla"}:${isZip}:${parentEntity || "none"}:${packFormat || "default"}:${selectedVariant || "default"}:${targetVersion || "auto"}`;
 
   // Check cache first
   if (entityModelCache.has(cacheKey)) {
@@ -265,14 +331,12 @@ export async function loadEntityModel(
 
   const { invoke } = await import("@tauri-apps/api/core");
 
-  const tryLoadJem = async (
-    jemName: string,
+  const tryLoadJemPath = async (
+    jemPath: string,
+    jemNameForVanillaPivot: string,
     source: string,
-  ): Promise<
-    (ParsedEntityModel & { jemSource: string; usedLegacyJem: boolean }) | null
-  > => {
+  ): Promise<(ParsedEntityModel & { jemSource: string; usedLegacyJem: boolean }) | null> => {
     try {
-      const jemPath = `assets/minecraft/optifine/cem/${jemName}.jem`;
       console.log(`[EMF] Trying ${source} JEM:`, jemPath);
 
       const jemContent = await invoke<string>("read_pack_file", {
@@ -293,6 +357,7 @@ export async function loadEntityModel(
       // Load external JPM files for animations and optional geometry.
       if (packPath && jemData.models) {
         const jpmCache = new Map<string, JPMFile | null>();
+        const jemDir = getJemDir(jemPath);
 
         const partMap = new Map<string, ParsedPart>();
         const indexPart = (p: ParsedPart) => {
@@ -335,9 +400,13 @@ export async function loadEntityModel(
         };
 
         for (const modelPart of jemData.models) {
-          if (!modelPart.model || !modelPart.model.endsWith(".jpm")) continue;
+          if (
+            !modelPart.model ||
+            !/\.jpm$/i.test(String(modelPart.model).trim())
+          )
+            continue;
 
-          const jpmFileName = modelPart.model;
+          const jpmFileName = String(modelPart.model).trim();
           const childName =
             modelPart.id ||
             modelPart.part ||
@@ -346,14 +415,17 @@ export async function loadEntityModel(
           const isAttach =
             modelPart.attach === true || modelPart.attach === "true";
 
-          let jpmData = jpmCache.get(jpmFileName);
+          // Cache by resolved path (JEM-relative), not by raw reference.
+          const cacheKey = `${jemDir}:${jpmFileName}`;
+          let jpmData = jpmCache.get(cacheKey);
           if (jpmData === undefined) {
             jpmData = await loadJpmFile(
               jpmFileName,
               packPath,
               isZip ?? false,
+              jemDir,
             );
-            jpmCache.set(jpmFileName, jpmData);
+            jpmCache.set(cacheKey, jpmData);
           }
 
           if (jpmData?.animations && jpmData.animations.length > 0) {
@@ -441,26 +513,38 @@ export async function loadEntityModel(
       // If this pack uses `attach:true`, merge vanilla pivots into any empty
       // placeholder parts so JPM expressions can read correct bone values.
       if (hasAttachModel) {
-        const vanilla = await tryLoadVanillaJem(jemName);
+        const vanilla = await tryLoadVanillaJem(jemNameForVanillaPivot);
         if (vanilla) {
           mergeVanillaPivotsIntoAttachPlaceholders(parsed, vanilla);
         }
       }
 
-      const hasValidBoxes = parsed.parts.some((part) => part.boxes.length > 0);
-      if (!hasValidBoxes) {
-        console.log(
-          `[EMF] ✗ ${source} JEM has no valid boxes (likely texture-only variant):`,
-          jemName,
-        );
+      const subtreeHasBoxes = (p: ParsedPart): boolean => {
+        if (p.boxes.length > 0) return true;
+        for (const c of p.children) {
+          if (subtreeHasBoxes(c)) return true;
+        }
+        return false;
+      };
 
-        // Prevent infinite loop: don't try to merge an entity with itself
-        if (parentEntity && packPath && parentEntity !== jemName) {
+      const hasValidBoxes = parsed.parts.some(subtreeHasBoxes);
+        if (!hasValidBoxes) {
           console.log(
-            `[EMF] Attempting to merge textures from ${jemName} with geometry from ${parentEntity}`,
+            `[EMF] ✗ ${source} JEM has no valid boxes (likely texture-only variant):`,
+            jemNameForVanillaPivot,
           );
 
-          const baseModel = await tryLoadJem(
+        // Prevent infinite loop: don't try to merge an entity with itself
+        if (
+          parentEntity &&
+          packPath &&
+          parentEntity !== jemNameForVanillaPivot
+        ) {
+          console.log(
+            `[EMF] Attempting to merge textures from ${jemNameForVanillaPivot} with geometry from ${parentEntity}`,
+          );
+
+          const baseModel = await tryLoadJemByName(
             parentEntity,
             "parent for texture merge",
           );
@@ -468,7 +552,7 @@ export async function loadEntityModel(
           if (baseModel) {
             const merged = mergeVariantTextures(baseModel, jemData);
             console.log(
-              `[EMF] ✓ Successfully merged ${jemName} textures with ${parentEntity} geometry`,
+              `[EMF] ✓ Successfully merged ${jemNameForVanillaPivot} textures with ${parentEntity} geometry`,
             );
 
             // Preserve animations from the original parsed model
@@ -479,7 +563,7 @@ export async function loadEntityModel(
             return {
               ...merged,
               texturePath: merged.texturePath || `entity/${entityType}`,
-              jemSource: `${jemName} (merged with ${parentEntity})`,
+              jemSource: `${jemNameForVanillaPivot} (merged with ${parentEntity})`,
               usedLegacyJem: false,
             };
           }
@@ -491,13 +575,39 @@ export async function loadEntityModel(
       return {
         ...parsed,
         texturePath: parsed.texturePath || `entity/${entityType}`,
-        jemSource: jemName,
+        jemSource: jemPath,
         usedLegacyJem: false,
       };
     } catch {
-      console.log(`[EMF] ${source} JEM not found:`, jemName);
+      console.log(`[EMF] ${source} JEM not found:`, jemPath);
       return null;
     }
+  };
+
+  const tryLoadJemByName = async (
+    jemName: string,
+    source: string,
+  ): Promise<(ParsedEntityModel & { jemSource: string; usedLegacyJem: boolean }) | null> => {
+    const baseName = normalizeEntityName(jemName);
+    const known = entityVersionVariants?.[baseName];
+    const versionFolders = getVersionFolderCandidates(targetVersion, known);
+
+    // Prefer versioned folders first (Fresh Animations commonly stores newer
+    // entities in version directories), then fall back to root.
+    const candidates: string[] = [];
+    const add = (p: string) => {
+      if (!candidates.includes(p)) candidates.push(p);
+    };
+    for (const folder of versionFolders) {
+      add(`assets/minecraft/optifine/cem/${folder}/${baseName}.jem`);
+    }
+    add(`assets/minecraft/optifine/cem/${baseName}.jem`);
+
+    for (const jemPath of candidates) {
+      const result = await tryLoadJemPath(jemPath, baseName, source);
+      if (result) return result;
+    }
+    return null;
   };
 
   const tryLoadVanillaJem = async (
@@ -538,7 +648,7 @@ export async function loadEntityModel(
     if (selectedVariant) {
       if (entityType.includes("_hanging_sign")) {
         const woodType = entityType.replace("_hanging_sign", "");
-        const result = await tryLoadJem(
+        const result = await tryLoadJemByName(
           `${woodType}/${selectedVariant}_hanging_sign`,
           `selected variant (${selectedVariant})`,
         );
@@ -549,7 +659,7 @@ export async function loadEntityModel(
       }
     }
 
-    let result = await tryLoadJem(normalizedEntityType, "variant");
+    let result = await tryLoadJemByName(normalizedEntityType, "variant");
     if (result) {
       entityModelCache.set(cacheKey, result);
       return result;
@@ -557,7 +667,7 @@ export async function loadEntityModel(
 
     if (parentEntity) {
       const normalizedParent = normalizeEntityName(parentEntity);
-      result = await tryLoadJem(normalizedParent, "parent");
+      result = await tryLoadJemByName(normalizedParent, "parent");
       if (result) {
         entityModelCache.set(cacheKey, result);
         return result;
@@ -576,7 +686,7 @@ export async function loadEntityModel(
       if (legacyVersion) {
         const versionedName = `${parentEntity || normalizedEntityType}_${legacyVersion}`;
 
-        result = await tryLoadJem(versionedName, "legacy versioned");
+        result = await tryLoadJemByName(versionedName, "legacy versioned");
         if (result) {
           result.usedLegacyJem = true;
           entityModelCache.set(cacheKey, result);

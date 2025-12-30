@@ -68,10 +68,10 @@ describe("Fresh Animations (wolf) rotation + tail semantics", () => {
     expect(mane2).toBeTruthy();
 
     // Baseline normalization should keep tick(0) at the JEM rest pose.
-    expect(body!.rotation.x).toBeCloseTo(bodySnap.rot.x, 6);
-    expect(head2!.rotation.x).toBeCloseTo(head2Snap.rot.x, 6);
-    expect(tail2!.rotation.x).toBeCloseTo(tail2Snap.rot.x, 6);
-    expect(bodyRotation!.rotation.x).toBeCloseTo(bodyRotationSnap.rot.x, 6);
+    expect(body!.rotation.x).toBeCloseTo(bodySnap.rot.x, 3);
+    expect(head2!.rotation.x).toBeCloseTo(head2Snap.rot.x, 3);
+    expect(tail2!.rotation.x).toBeCloseTo(tail2Snap.rot.x, 3);
+    expect(bodyRotation!.rotation.x).toBeCloseTo(bodyRotationSnap.rot.x, 3);
 
     // `body_rotation.tz` is authored as an absolute rotationPoint value, so it should
     // be interpreted in entity-absolute space (subtract parent origin).

@@ -4,6 +4,31 @@ import { join } from "path";
 import * as THREE from "three";
 import { parseJEM, jemToThreeJS, type JEMFile } from "../jemLoader";
 
+function triangleNormal(
+  geometry: THREE.BufferGeometry,
+  indexOffset: number,
+): THREE.Vector3 {
+  const posAttr = geometry.getAttribute(
+    "position",
+  ) as THREE.BufferAttribute | null;
+  const idxAttr = geometry.index as THREE.BufferAttribute | null;
+  expect(posAttr).toBeTruthy();
+  expect(idxAttr).toBeTruthy();
+
+  const idx = Array.from(idxAttr!.array as ArrayLike<number>);
+  const ia = idx[indexOffset + 0];
+  const ib = idx[indexOffset + 1];
+  const ic = idx[indexOffset + 2];
+
+  const a = new THREE.Vector3().fromBufferAttribute(posAttr!, ia);
+  const b = new THREE.Vector3().fromBufferAttribute(posAttr!, ib);
+  const c = new THREE.Vector3().fromBufferAttribute(posAttr!, ic);
+
+  const ab = b.clone().sub(a);
+  const ac = c.clone().sub(a);
+  return ab.cross(ac).normalize();
+}
+
 function expectFaceUvRect(
   geometry: THREE.BufferGeometry,
   faceIndex: number,
@@ -14,7 +39,21 @@ function expectFaceUvRect(
   const uvAttr = geometry.getAttribute("uv") as THREE.BufferAttribute | null;
   expect(uvAttr).toBeTruthy();
 
-  const [u1, v1, u2, v2] = rect;
+  let [u1, v1, u2, v2] = rect;
+
+  // Match `applyUVs` Blockbench-style bleed insetting (1/64 px).
+  const margin = 1 / 64;
+  if (u1 !== u2) {
+    const m = u1 > u2 ? -margin : margin;
+    u1 += m;
+    u2 -= m;
+  }
+  if (v1 !== v2) {
+    const m = v1 > v2 ? -margin : margin;
+    v1 += m;
+    v2 -= m;
+  }
+
   const expU1 = u1 / texWidth;
   const expV1 = 1 - v1 / texHeight;
   const expU2 = u2 / texWidth;
@@ -47,12 +86,32 @@ describe("Fresh Animations (allay) wing UVs", () => {
     expect(leftWingMesh).toBeTruthy();
     expect(rightWingMesh).toBeTruthy();
 
+    // Wing boxes are authored as planes; these should render double-sided.
+    expect((leftWingMesh!.material as THREE.MeshStandardMaterial).side).toBe(
+      THREE.DoubleSide,
+    );
+    expect((rightWingMesh!.material as THREE.MeshStandardMaterial).side).toBe(
+      THREE.DoubleSide,
+    );
+
     const leftGeom = leftWingMesh!.geometry as THREE.BufferGeometry;
     const rightGeom = rightWingMesh!.geometry as THREE.BufferGeometry;
 
     // With face filtering, only east+west faces should render (2 faces -> 12 indices).
     expect(leftGeom.index?.count).toBe(12);
     expect(rightGeom.index?.count).toBe(12);
+
+    // Face filtering must preserve BoxGeometry’s per-face triangle winding so both
+    // sides render (FrontSide culling should work as expected).
+    const leftEast = triangleNormal(leftGeom, 0);
+    const leftWest = triangleNormal(leftGeom, 6);
+    expect(leftEast.x).toBeGreaterThan(0.9);
+    expect(leftWest.x).toBeLessThan(-0.9);
+
+    const rightEast = triangleNormal(rightGeom, 0);
+    const rightWest = triangleNormal(rightGeom, 6);
+    expect(rightEast.x).toBeGreaterThan(0.9);
+    expect(rightWest.x).toBeLessThan(-0.9);
 
     const texSize: [number, number] = [32, 32];
 
@@ -69,4 +128,3 @@ describe("Fresh Animations (allay) wing UVs", () => {
     expectFaceUvRect(rightGeom, 1, [24, 22, 32, 27], texSize);
   });
 });
-
