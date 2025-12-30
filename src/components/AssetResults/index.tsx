@@ -21,6 +21,7 @@ import { isInventoryVariant, isNumberedVariant } from "@lib/assetUtils";
 import { assetGroupingWorker } from "@lib/assetGroupingWorker";
 import { useStore } from "@state/store";
 import { AssetCard } from "./components/AssetCard";
+import { SharedEntityThumbnailsCanvas } from "./components/SharedEntityThumbnailsCanvas";
 import { getWinningPack } from "./utilities";
 import type { Props } from "./types";
 import s from "./styles.module.scss";
@@ -280,6 +281,7 @@ export default function AssetResults({
 
   return (
     <div className={s.root} ref={containerRef}>
+      <SharedEntityThumbnailsCanvas />
 
       <div className={s.paginationInfo}>
         Showing {displayRange.start}–{displayRange.end} of{" "}

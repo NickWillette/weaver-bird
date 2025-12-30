@@ -33,11 +33,10 @@ import {
 import type { AssetCardProps } from "./types";
 import s from "./styles.module.scss";
 
-import { EntityPreview } from "../EntityPreview";
-import { Canvas } from "@react-three/fiber";
+import { View } from "@react-three/drei";
+import { EntityThumbnail } from "../EntityThumbnail";
 
-// ViewContainer component with dedicated Canvas for entity rendering
-function ViewContainer({
+function EntityThumbnailView({
   jemModel,
   textureUrl,
   extraTextureUrls,
@@ -46,21 +45,16 @@ function ViewContainer({
   textureUrl: string | null;
   extraTextureUrls?: Record<string, string | null> | null;
 }) {
-  // Use dedicated Canvas per entity instead of shared View portal
   if (!jemModel) return null;
 
   return (
-    <Canvas
-      style={{ width: "100%", height: "100%", position: "absolute", inset: 0 }}
-      gl={{ alpha: true, antialias: true }}
-      camera={{ position: [0, 5, 10], fov: 50 }}
-    >
-      <EntityPreview
+    <View className={s.entityViewTrack} style={{ position: "absolute", inset: 0 }}>
+      <EntityThumbnail
         jemModel={jemModel}
         textureUrl={textureUrl}
         extraTextureUrls={extraTextureUrls}
       />
-    </Canvas>
+    </View>
   );
 }
 
@@ -448,7 +442,7 @@ export const AssetCard = memo(
           // Blocks and entities display as 3D CSS cubes (or Three.js View for entities)
           isVisible ? (
             isEntity ? (
-              <ViewContainer
+              <EntityThumbnailView
                 key={`entity-${asset.id}`}
                 jemModel={jemModel}
                 textureUrl={entityTextureUrl}
